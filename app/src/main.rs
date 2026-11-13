@@ -140,19 +140,54 @@ fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<Stri
 fn halcmd_file(dir: &Path, ini: &Path, file: &Path) -> Result<(), String> {
     // -k: keep going past a failed line, so one missing pin (e.g. the Pi's
     // config is older than this file) does not drop the module's other nets.
-    let status = Proc::new("halcmd")
+    let out = Proc::new("halcmd")
         .current_dir(dir)
         .arg("-k")
         .arg("-i")
         .arg(ini)
         .arg("-f")
         .arg(file)
-        .status()
+        .output()
         .map_err(|e| format!("halcmd: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("halcmd -f {} failed ({status})", file.display()))
+    if out.status.success() {
+        return Ok(());
+    }
+    let errs = String::from_utf8_lossy(&out.stderr).into_owned();
+    eprintln!("halcmd -f {}:\n{errs}", file.display());
+    Err(halcmd_summary(file, &errs))
+}
+
+/// "HAL drawbar.hal: line 4: Pin 'x' does not exist (+1 more)" from
+/// halcmd's stderr ("<file>:<line>: <reason>" per failed line).
+fn halcmd_summary(file: &Path, stderr: &str) -> String {
+    let name = file.file_name().map_or_else(|| file.display().to_string(), |n| n.to_string_lossy().into_owned());
+    let fails: Vec<String> = stderr
+        .lines()
+        .filter_map(|l| {
+            let l = l.trim().trim_start_matches("HAL:").trim();
+            let (_, rest) = l.split_once(".hal:")?;
+            let (line, why) = rest.split_once(':')?;
+            Some(format!("line {}: {}", line.trim(), why.trim().trim_start_matches("ERROR:").trim()))
+        })
+        .collect();
+    match fails.as_slice() {
+        [] => format!("HAL {name}: halcmd failed: {}", stderr.lines().last().unwrap_or("").trim()),
+        [one] => format!("HAL {name}: {one} (the rest connected)"),
+        [first, rest @ ..] => format!("HAL {name}: {first} (+{} more; the rest connected)", rest.len()),
+    }
+}
+
+#[cfg(test)]
+mod hal_tests {
+    use super::*;
+
+    #[test]
+    fn summary_names_the_failed_lines() {
+        let e = "millgui/hal/drawbar.hal:4: Pin 'spindle-rearm-required-pin' does not exist\nmillgui/hal/drawbar.hal:9: Pin 'x.set' does not exist\n";
+        assert_eq!(
+            halcmd_summary(Path::new("millgui/hal/drawbar.hal"), e),
+            "HAL drawbar.hal: line 4: Pin 'spindle-rearm-required-pin' does not exist (+1 more; the rest connected)"
+        );
     }
 }
 
