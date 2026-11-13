@@ -149,6 +149,7 @@ int lcnc_rapid_scale(lcnc_t *c, double scale);
 int lcnc_spindle_scale(lcnc_t *c, double scale);
 int lcnc_spindle_on(lcnc_t *c, double rpm); /* negative rpm runs CCW */
 int lcnc_spindle_off(lcnc_t *c);
+int lcnc_coolant(lcnc_t *c, int flood, int on);
 int lcnc_load_tool_table(lcnc_t *c);
 int lcnc_task_plan_synch(lcnc_t *c);
 

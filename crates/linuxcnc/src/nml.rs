@@ -122,6 +122,7 @@ extern "C" {
     fn lcnc_spindle_scale(c: *mut Lcnc, s: f64) -> c_int;
     fn lcnc_spindle_on(c: *mut Lcnc, rpm: f64) -> c_int;
     fn lcnc_spindle_off(c: *mut Lcnc) -> c_int;
+    fn lcnc_coolant(c: *mut Lcnc, flood: c_int, on: c_int) -> c_int;
     fn lcnc_load_tool_table(c: *mut Lcnc) -> c_int;
     fn lcnc_task_plan_synch(c: *mut Lcnc) -> c_int;
 }
@@ -266,6 +267,8 @@ impl Machine for Nml {
                 Command::SpindleScale(s) => lcnc_spindle_scale(c, *s),
                 Command::SpindleOn(rpm) => lcnc_spindle_on(c, *rpm),
                 Command::SpindleOff => lcnc_spindle_off(c),
+                Command::Mist(on) => lcnc_coolant(c, 0, *on as c_int),
+                Command::Flood(on) => lcnc_coolant(c, 1, *on as c_int),
                 Command::LoadToolTable => lcnc_load_tool_table(c),
                 Command::PlanSynch => lcnc_task_plan_synch(c),
                 Command::SimToolChanged => 0,

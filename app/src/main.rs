@@ -368,6 +368,12 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     });
     let (m, st, weak) = (machine.clone(), state.clone(), ui.as_weak());
     let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(99);
+    let w = ui.as_weak();
+    actions.on_toast_dismiss(move || {
+        if let Some(ui) = w.upgrade() {
+            ui.global::<Live>().set_toast("".into());
+        }
+    });
     actions.on_cycle_start(move || {
         let Some(s) = st.borrow().status.clone() else { return };
         let Some(ui) = weak.upgrade() else { return };

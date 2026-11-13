@@ -67,7 +67,10 @@ pub struct Pose {
 pub enum Layer {
     /// Under the toolpath (the table).
     Under,
-    /// Over it, see-through (the moving parts).
+    /// Over it, solid: the tool.
+    Tool,
+    /// Over it, outlines only (nose, head, motor, column); left out of the top
+    /// view, where they would sit right over the toolpath.
     Over,
 }
 
@@ -105,9 +108,10 @@ impl Machine {
         let r = (pose.tool_dia / 2.0).max(1.5);
         let nose_z = z + len;
         let over = |lo, hi, rgb| Solid { lo, hi, rgb, layer: Layer::Over };
+        let tool = |lo, hi, rgb| Solid { lo, hi, rgb, layer: Layer::Tool };
         // Tool, spindle nose, head, motor.
         if len > 0.5 {
-            solids.push(over([x - r, y - r, z], [x + r, y + r, nose_z], [0xf2, 0xc1, 0x4e]));
+            solids.push(tool([x - r, y - r, z], [x + r, y + r, nose_z], [0xf2, 0xc1, 0x4e]));
         }
         let [nd, nl] = self.nose;
         solids.push(over([x - nd / 2.0, y - nd / 2.0, nose_z], [x + nd / 2.0, y + nd / 2.0, nose_z + nl], [0x9a, 0xa4, 0xad]));

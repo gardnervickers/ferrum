@@ -312,6 +312,8 @@ export global Actions {
     callback plot-zoom(factor: float, x: float, y: float);
     callback plot-fit();
     callback plot-machine();
+    // Also clears the toast where it was set, so a repeat shows again.
+    callback toast-dismiss();
     callback mdi-category-set(category: string);
     callback mdi-pick(fill: string);
     callback mdi-key(key: string);

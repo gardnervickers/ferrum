@@ -70,7 +70,6 @@ component OpRow inherits Rectangle {
                 }
                 Text { horizontal-stretch: 1; vertical-alignment: center; text: op.name; font-family: Theme.display; font-size: 28px; letter-spacing: 1px; color: faded ? Theme.dim : Theme.ink; overflow: elide; }
                 if op.stop-after: Pill { text: "STOP AFTER"; kind: "warn"; height: 32px; }
-                if op.state == "skipped": Text { vertical-alignment: center; text: "SKIPPED"; font-family: Theme.display; font-size: 22px; color: Theme.muted; }
             }
             if op.state != "current": Text { text: op.detail; font-family: Theme.body; font-size: 20px; color: faded ? Theme.dim : Theme.muted; overflow: elide; }
             if op.state == "current": Bar { value: op.progress; text: op.progress-text; }

@@ -233,6 +233,15 @@ extern "C" int lcnc_spindle_on(lcnc_t *c, double rpm) {
     return send(c, m);
 }
 extern "C" int lcnc_spindle_off(lcnc_t *c) { EMC_SPINDLE_OFF m; m.spindle = 0; return send(c, m); }
+// Coolant over NML, not MDI: allowed in any mode, so it works mid-program.
+extern "C" int lcnc_coolant(lcnc_t *c, int flood, int on) {
+    if (flood) {
+        if (on) { EMC_COOLANT_FLOOD_ON m; return send(c, m); }
+        EMC_COOLANT_FLOOD_OFF m; return send(c, m);
+    }
+    if (on) { EMC_COOLANT_MIST_ON m; return send(c, m); }
+    EMC_COOLANT_MIST_OFF m; return send(c, m);
+}
 extern "C" int lcnc_load_tool_table(lcnc_t *c) {
     EMC_TOOL_LOAD_TOOL_TABLE m; m.file[0] = 0; return send(c, m);
 }

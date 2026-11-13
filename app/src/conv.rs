@@ -421,7 +421,9 @@ impl Conv {
             "face" => {
                 let (xs, xe, ys, ye) = (self.num("x_start"), self.num("x_end"), self.num("y_start"), self.num("y_end"));
                 let mut pts = vec![(xs, ys), (xe, ye), (0.0, 0.0)];
-                pts.extend(self.face_moves.iter().flat_map(|(a, b)| [*a, *b]));
+                // The swept band reaches a cutter radius past each pass.
+                let r = self.tool_dia() / 2.0;
+                pts.extend(self.face_moves.iter().flat_map(|(a, b)| [*a, *b]).flat_map(|(x, y)| [(x - r, y - r), (x + r, y + r)]));
                 let m = fit(&pts);
                 swept = (m(self.tool_dia(), 0.0).0 - m(0.0, 0.0).0).abs();
                 let (a, b) = (m(xs, ys), m(xe, ye));

@@ -321,13 +321,6 @@ component SpindleCard inherits Card {
             Btn { text: "STOP"; kind: "stop"; enabled: Live.power; clicked => { Actions.spindle(0); } }
             Btn { text: "CCW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(-1); } }
         }
-        Btn {
-            height: 56px;
-            text: Live.mist ? "MIST ON · M9 TO STOP" : "MIST OFF · M7 TO START";
-            on: Live.mist;
-            enabled: Live.power && !Live.manual-locked;
-            clicked => { Actions.mist-toggle(); }
-        }
         H3 { text: "WORK ZERO"; }
         Note { text: "Sets the active WCS so the tool tip is 0 on every axis. Single-axis zero lives on the Offsets screen."; }
         Btn {

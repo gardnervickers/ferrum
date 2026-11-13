@@ -416,6 +416,8 @@ impl Machine for Sim {
                 self.s.spindle_direction = 0;
                 self.s.spindle_enabled = false;
             }
+            Command::Mist(on) => self.s.mist = *on,
+            Command::Flood(on) => self.s.flood = *on,
             Command::LoadToolTable | Command::PlanSynch => {}
             Command::SimToolChanged => {
                 if let Some(t) = self.s.sim_tool_change.take() {

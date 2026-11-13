@@ -20,6 +20,9 @@ export component Btn inherits Rectangle {
 
     property <bool> arming: touch.pressed && hold && enabled && !fired;
     property <bool> fired;
+    // Whether the current touch began on a hold button; the label (and
+    // `hold`) can flip under the finger, so the release must not then act.
+    property <bool> touch-held;
     preferred-height: 64px;
     border-radius: 6px;
     background: kind == "go" ? Theme.go : kind == "hold" ? Theme.hold : kind == "stop" ? Theme.stop
@@ -95,13 +98,14 @@ export component Btn inherits Rectangle {
                 // touch began: E-STOP turns into RESET under the finger, and
                 // keeping the finger down must not reset it.
                 root.fired = !root.hold;
+                root.touch-held = root.hold;
                 root.pressed();
             } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
                 root.released();
             }
         }
         clicked => {
-            if !root.hold { root.clicked(); }
+            if !root.touch-held { root.clicked(); }
         }
     }
 }

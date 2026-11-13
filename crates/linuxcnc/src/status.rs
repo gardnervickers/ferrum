@@ -229,6 +229,9 @@ pub enum Command {
     /// Negative rpm runs counter-clockwise.
     SpindleOn(f64),
     SpindleOff,
+    /// Coolant on or off, in any mode (mid-program too).
+    Mist(bool),
+    Flood(bool),
     LoadToolTable,
     PlanSynch,
     /// Simulator only: finish the pending M6 (LinuxCNC gets this over HAL).

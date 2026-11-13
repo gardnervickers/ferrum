@@ -288,7 +288,10 @@ impl Base {
         }
         pm.draw_pixmap(0, 0, self.pm.as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), None);
         if let Some((solids, _)) = machine {
-            draw_solids(&mut pm, &fit, solids, Layer::Over);
+            if fit.view != View::Top {
+                draw_solids(&mut pm, &fit, solids, Layer::Over);
+            }
+            draw_solids(&mut pm, &fit, solids, Layer::Tool);
         }
         if trail.len() > 1 {
             let mut pb = PathBuilder::new();
@@ -336,7 +339,10 @@ fn draw_solids(pm: &mut Pixmap, fit: &Fit, solids: &[Solid], layer: Layer) {
     let depth = |s: &Solid| (0..3).map(|i| (s.lo[i] + s.hi[i]) / 2.0 * n[i]).sum::<f64>();
     let mut list: Vec<&Solid> = solids.iter().filter(|s| s.layer == layer).collect();
     list.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
-    let (fill, edge) = if layer == Layer::Under { (255, 255) } else { (22, 110) };
+    let (fill, edge) = match layer {
+        Layer::Under | Layer::Tool => (255, 255),
+        Layer::Over => (0, 80),
+    };
     for s in list {
         for axis in 0..3 {
             for side in [-1.0, 1.0] {
@@ -360,7 +366,9 @@ fn draw_solids(pm: &mut Pixmap, fit: &Fit, solids: &[Solid], layer: Layer) {
                 // Tops lightest, then the sides.
                 let shade = if axis == 2 { 1.0 } else if axis == 0 { 0.78 } else { 0.62 };
                 let rgb = s.rgb.map(|c| (c as f64 * shade) as u8);
-                pm.fill_path(&path, &paint(rgb, fill), tiny_skia::FillRule::Winding, Transform::identity(), None);
+                if fill > 0 {
+                    pm.fill_path(&path, &paint(rgb, fill), tiny_skia::FillRule::Winding, Transform::identity(), None);
+                }
                 pm.stroke_path(&path, &paint(s.rgb.map(|c| c.saturating_add(30)), edge), &stroke(1.0), Transform::identity(), None);
             }
         }
@@ -379,6 +387,27 @@ mod tests {
             let pm = r.render(&tp, 1, v, 200, 150, None, &[], Some([10.0, 10.0, 0.0, 0.0]));
             let lit = pm.data().chunks(4).filter(|p| p[0] > 0x40 || p[1] > 0x40 || p[2] > 0x40).count();
             assert!(lit > 100, "{v:?}: {lit}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    #[test]
+    #[ignore]
+    fn compose_time() {
+        let tp = crate::mini::parse("G0 X0 Y0 Z5\nG1 Z0 F100\nX100\nY60\nX0\nY0\n", 100.0);
+        let base = Base::draw(&std::sync::Arc::new(tp), View::Iso, 1100, 700, None, Default::default());
+        let m = crate::machine::Machine::pm728vt();
+        let pose = crate::machine::Pose { tip: [50.0, 30.0, 5.0, 0.0], tool_len: 80.0, tool_dia: 10.0, offset: [100.0, -90.0, -200.0] };
+        let scene = m.scene(&pose);
+        for with in [false, true] {
+            let t = std::time::Instant::now();
+            for _ in 0..20 {
+                base.compose(&[], Some([50.0, 30.0, 5.0, 0.0]), if with { Some(&scene) } else { None });
+            }
+            eprintln!("machine={with}: {:?}/frame", t.elapsed() / 20);
         }
     }
 }

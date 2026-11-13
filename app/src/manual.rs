@@ -210,6 +210,12 @@ fn label(what: &str) -> &'static str {
     }
 }
 
+fn show_keypad(weak: &slint::Weak<MainWindow>, m: &Manual) {
+    if let Some(ui) = weak.upgrade() {
+        m.show(&ui.global::<Live>());
+    }
+}
+
 fn key(buf: &mut String, k: &str) {
     match k {
         "⌫" => {
@@ -224,6 +230,7 @@ fn key(buf: &mut String, k: &str) {
             }
         }
         "." if buf.contains('.') => {}
+        "." if buf.is_empty() || buf == "-" => buf.push_str("0."),
         _ if buf.len() < 10 => buf.push_str(k),
         _ => {}
     }
@@ -354,21 +361,13 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         mc.send(if dir == 0 { Command::SpindleOff } else { Command::SpindleOn(rpm * dir as f64) });
     });
 
-    // M9 stops both coolants, so turning one off restarts the other.
+    // NML coolant commands, not M7/M8/M9: they work mid-program, and
+    // turning one off leaves the other alone.
     let coolant = |which: &'static str| {
         let (mc, mm) = (machine.clone(), manual.clone());
         move || {
             let (mist, flood) = mm.borrow().status.as_ref().map_or((false, false), |s| (s.mist, s.flood));
-            let (mist, flood) = if which == "mist" { (!mist, flood) } else { (mist, !flood) };
-            if !mist || !flood {
-                mc.send(Command::Mdi("M9".into()));
-            }
-            if mist {
-                mc.send(Command::Mdi("M7".into()));
-            }
-            if flood {
-                mc.send(Command::Mdi("M8".into()));
-            }
+            mc.send(if which == "mist" { Command::Mist(!mist) } else { Command::Flood(!flood) });
         }
     };
     actions.on_mist_toggle(coolant("mist"));
@@ -413,8 +412,12 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     actions.on_keypad_key(move |k| {
         let mut m = mm.borrow_mut();
         if let Some((_, buf, fresh)) = m.keypad.as_mut() {
-            if std::mem::take(fresh) && (k.as_str() == "." || k.chars().all(|c| c.is_ascii_digit())) {
+            // The old value is selected: typing or backspace replaces it.
+            if std::mem::take(fresh) && (k.as_str() == "." || k.as_str() == "⌫" || k.chars().all(|c| c.is_ascii_digit())) {
                 buf.clear();
+                if k.as_str() == "⌫" {
+                    return show_keypad(&weak, &m);
+                }
             }
             key(buf, &k);
         }

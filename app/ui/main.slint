@@ -49,7 +49,8 @@ export component MainWindow inherits Window {
     BottomBar { x: 0; y: parent.height - 128px; width: parent.width; height: 128px; }
     if Live.toast != "": Rectangle {
         x: parent.width - self.width - 14px;
-        y: parent.height - 128px - self.height - 14px;
+        // Under the top bar, clear of the plot and bottom-bar controls.
+        y: 72px;
         width: 860px;
         height: 84px;
         background: #4a1c1c;
@@ -67,6 +68,6 @@ export component MainWindow inherits Window {
             font-size: 26px;
             color: #ffe2e0;
         }
-        TouchArea { clicked => { Live.toast = ""; } }
+        TouchArea { clicked => { Live.toast = ""; Actions.toast-dismiss(); } }
     }
 }

@@ -12,3 +12,12 @@ publish = false
 opt-level = 3
 lto = "thin"
 strip = true
+
+# The backplot is software-rendered on every status tick while the tool
+# moves; unoptimized it takes ~140 ms a frame, which makes the debug
+# simulator lag. Dependencies and the renderer are optimized even in dev.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.preview]
+opt-level = 3
