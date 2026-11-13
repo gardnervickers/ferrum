@@ -28,6 +28,8 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
     let mut plane = Plane::Xy;
     // Canned drilling (G81-G89): R plane and bottom Z, retract to R.
     let (mut cr, mut cz) = (0.0, 0.0);
+    // G98 retracts to the Z the cycle started at (if above R), G99 to R.
+    let (mut g98, mut start_z) = (true, None::<f64>);
     let mut started = false;
     for (n, raw) in text.lines().enumerate() {
         b.set_line(n as u32 + 1);
@@ -70,7 +72,12 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
             match (l, v as i32) {
                 ('G', 0..=3) => motion = v as i32,
                 ('G', 81..=89) => motion = v as i32,
-                ('G', 80) => motion = -1,
+                ('G', 80) => {
+                    motion = -1;
+                    start_z = None;
+                }
+                ('G', 98) => g98 = true,
+                ('G', 99) => g98 = false,
                 ('G', 90) => absolute = true,
                 ('G', 91) => absolute = false,
                 ('G', 53) => machine = true,
@@ -101,11 +108,13 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
             cr = get('R').unwrap_or(cr);
             cz = get('Z').unwrap_or(cz);
             // Holes at X Y: Z words are the bottom, not a move.
+            let z0 = *start_z.get_or_insert(cur[2]);
             let at = [p[0], p[1], cur[2], p[3]];
             b.line(Kind::Rapid, at);
             b.line(Kind::Rapid, [at[0], at[1], cr, at[3]]);
             b.line(Kind::Feed, [at[0], at[1], cz, at[3]]);
-            b.line(Kind::Rapid, [at[0], at[1], cr, at[3]]);
+            let up = if g98 { z0.max(cr) } else { cr };
+            b.line(Kind::Rapid, [at[0], at[1], up, at[3]]);
             continue;
         }
         match motion {
@@ -149,6 +158,16 @@ mod tests {
         let tp = super::parse("G0 X10 Y0 Z0\nG3 X0 Y10 R10\n", 100.0);
         let mid = &tp.segs[tp.segs.len() / 2].to;
         assert!((mid[0].hypot(mid[1]) - 10.0).abs() < 0.05, "{mid:?}");
+    }
+
+    #[test]
+    fn g98_drilling_moves_between_holes_at_the_start_height() {
+        let tp = super::parse("G0 X0 Y0 Z10\nG98 G81 X5 Y0 Z-3 R2 F100\nX10\nG80\n", 100.0);
+        let tops: Vec<f64> = tp.segs.iter().filter(|s| s.from[0] != s.to[0]).map(|s| s.to[2]).collect();
+        assert!(tops.iter().all(|z| *z == 10.0), "{tops:?}");
+        let tp = super::parse("G0 X0 Y0 Z10\nG99 G81 X5 Y0 Z-3 R2 F100\nX10\nG80\n", 100.0);
+        let last_xy = tp.segs.iter().filter(|s| s.from[0] != s.to[0]).last().unwrap();
+        assert_eq!(last_xy.to[2], 2.0);
     }
 
     #[test]

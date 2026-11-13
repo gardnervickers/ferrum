@@ -72,7 +72,7 @@ export component FilesScreen inherits Rectangle {
                     background: Theme.panel2;
                     border-radius: 6px;
                     clip: true;
-                    Flickable {
+                    sf := Flickable {
                         content-height: sm.preferred-height + 16px;
                         sm := Text {
                             x: 12px;
@@ -82,6 +82,20 @@ export component FilesScreen inherits Rectangle {
                             font-family: Theme.body;
                             font-size: 21px;
                             color: Theme.ink;
+                        }
+                    }
+                    // More ops below: fade the last row and say so.
+                    if sf.content-height > sf.height && sf.content-y > sf.height - sf.content-height + 4px: Rectangle {
+                        y: parent.height - 44px;
+                        height: 44px;
+                        background: @linear-gradient(180deg, Theme.panel2.with-alpha(0) 0%, Theme.panel2 70%);
+                        Text {
+                            x: parent.width - self.width - 12px;
+                            y: parent.height - self.height - 6px;
+                            text: "SCROLL FOR MORE";
+                            font-family: Theme.body;
+                            font-size: 16px;
+                            color: Theme.dim;
                         }
                     }
                 }
