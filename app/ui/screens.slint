@@ -1,0 +1,41 @@
+import { Theme } from "theme.slint";
+import { Live } from "state.slint";
+import { Card, Label } from "widgets.slint";
+
+// Placeholder for screens that later milestones fill in.
+export component Placeholder inherits Rectangle {
+    in property <string> title;
+    in property <string> note;
+    Card {
+        x: 14px;
+        y: 14px;
+        width: parent.width - 28px;
+        height: parent.height - 28px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+            Text {
+                horizontal-alignment: center;
+                text: title;
+                font-family: Theme.display;
+                font-size: 48px;
+                letter-spacing: 2px;
+                color: Theme.ink;
+            }
+            Text {
+                horizontal-alignment: center;
+                text: note;
+                font-family: Theme.body;
+                font-size: 24px;
+                color: Theme.muted;
+            }
+        }
+    }
+}
+
+export component RunScreen inherits Rectangle {
+    Placeholder {
+        title: Live.program == "" ? "NO PROGRAM LOADED" : Live.program;
+        note: (Live.program == "" ? "" : "LINE " + Live.line + " · ") + "G-code view and preview arrive in milestone 3";
+    }
+}

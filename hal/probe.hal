@@ -1,0 +1,4 @@
+# probe module: probe_manager state (mymill.hal).
+net wireless-probe-tool-active => millgui.probe.wireless-selected
+net wireless-probe-fault => millgui.probe.fault
+net probe-in => millgui.probe.tripped

@@ -1,0 +1,140 @@
+//! The thread that owns the machine connection.
+//!
+//! It polls status at a fixed period, reports a status only when it changed,
+//! forwards operator messages, and runs commands from a queue so the UI thread
+//! never blocks on LinuxCNC.
+
+use crate::status::*;
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::thread;
+use std::time::{Duration, Instant};
+
+#[derive(Debug)]
+pub enum Event {
+    Status(Box<Status>),
+    Message(Message),
+    /// The connection failed; the worker keeps retrying the poll, and the
+    /// next Status means it is back.
+    Disconnected(String),
+}
+
+#[derive(Clone)]
+pub struct Handle {
+    tx: Sender<Command>,
+}
+
+impl Handle {
+    pub fn send(&self, cmd: Command) {
+        let _ = self.tx.send(cmd);
+    }
+}
+
+pub fn spawn<F>(mut machine: Box<dyn Machine>, period: Duration, mut on_event: F) -> Handle
+where
+    F: FnMut(Event) + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel();
+    thread::Builder::new()
+        .name("machine".into())
+        .spawn(move || run(&mut *machine, &rx, period, &mut on_event))
+        .expect("spawn machine thread");
+    Handle { tx }
+}
+
+fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: &mut dyn FnMut(Event)) {
+    let mut last: Option<Status> = None;
+    let mut connected = true;
+    // Report a lost connection only after it stays lost for a second; the
+    // first polls after connecting can come before task publishes status.
+    let mut failing_since: Option<Instant> = None;
+    loop {
+        let start = Instant::now();
+        loop {
+            match rx.try_recv() {
+                Ok(cmd) => execute(m, &last, cmd, on_event),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => return,
+            }
+        }
+        match m.poll() {
+            Ok(s) => {
+                connected = true;
+                failing_since = None;
+                if last.as_ref() != Some(&s) {
+                    on_event(Event::Status(Box::new(s.clone())));
+                    last = Some(s);
+                }
+            }
+            Err(e) => {
+                let since = *failing_since.get_or_insert_with(Instant::now);
+                if connected && since.elapsed() >= Duration::from_secs(1) {
+                    on_event(Event::Disconnected(e));
+                    connected = false;
+                }
+            }
+        }
+        while let Some(msg) = m.next_message() {
+            on_event(Event::Message(msg));
+        }
+        if let Some(rest) = period.checked_sub(start.elapsed()) {
+            thread::sleep(rest);
+        }
+    }
+}
+
+/// Commands that need a task mode get it switched first, the way LinuxCNC's
+/// own GUIs do. A switch is only attempted while idle; otherwise LinuxCNC's
+/// own error is reported.
+fn required_mode(cmd: &Command) -> Option<Mode> {
+    match cmd {
+        Command::Mdi(_) => Some(Mode::Mdi),
+        Command::ProgramRun(_) => Some(Mode::Auto),
+        Command::JogCont { .. } | Command::JogIncr { .. } | Command::Home(_) | Command::Unhome(_) => {
+            Some(Mode::Manual)
+        }
+        _ => None,
+    }
+}
+
+fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &mut dyn FnMut(Event)) {
+    if let (Some(want), Some(s)) = (required_mode(&cmd), last) {
+        if s.mode != want && !s.busy() {
+            if let Err(e) = m.send(&Command::SetMode(want)) {
+                on_event(Event::Message(Message { kind: MessageKind::Error, text: e }));
+                return;
+            }
+            wait_for(m, Duration::from_millis(500), |s| s.mode == want);
+        }
+    }
+    if let Err(e) = m.send(&cmd) {
+        on_event(Event::Message(Message { kind: MessageKind::Error, text: e }));
+    }
+}
+
+fn wait_for(m: &mut dyn Machine, timeout: Duration, done: impl Fn(&Status) -> bool) {
+    let end = Instant::now() + timeout;
+    while Instant::now() < end {
+        if let Ok(s) = m.poll() {
+            if done(&s) {
+                return;
+            }
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Sim;
+
+    #[test]
+    fn mdi_switches_to_mdi_mode_first() {
+        let mut sim = Sim::new();
+        sim.send(&Command::SetState(TaskState::EstopReset)).unwrap();
+        sim.send(&Command::SetState(TaskState::On)).unwrap();
+        let last = Some(sim.poll().unwrap());
+        execute(&mut sim, &last, Command::Mdi("G0 X0".into()), &mut |_| {});
+        assert_eq!(sim.poll().unwrap().mode, Mode::Mdi);
+    }
+}

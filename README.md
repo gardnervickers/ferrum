@@ -1,33 +1,43 @@
 # millgui
 
-Skeleton for the Rust replacement of Probe Basic (plan and mockup: `../rust_gui/`).
-Today it is a Slint window that owns a `millgui` HAL component:
+The Rust/Slint replacement for Probe Basic. Design: `ARCHITECTURE.md`;
+what is left: `REQUIREMENTS.md`; mockup: `docs/mockup-v16.html`.
 
-| Pin | Dir | Connected by `millgui_postgui.hal` |
-| --- | --- | --- |
-| `millgui.machine-is-on` | in | `machine-is-on` (halui.machine.is-on) |
-| `millgui.estop-is-activated` | in | `halui.estop.is-activated` |
-| `millgui.output` | out | unconnected; toggled by the on-screen button |
-| `millgui.heartbeat` | out | unconnected; increments every 50 ms |
+```
+app/              Slint UI, feature modules, INI config
+crates/linuxcnc/  Machine trait: NML backend (cpp/lcnc_shim.*) and a simulated machine
+crates/hal/       the GUI's HAL component (dlopen of liblinuxcnchal)
+hal/<module>.hal  postgui nets, run only for enabled modules
+run               LinuxCNC DISPLAY entry on the Pi
+```
 
 ## Build and deploy (from the Mac)
 
 ```bash
-millgui/scripts/deploy        # = scripts/build + copy to cnc@cncmill.localdomain
+millgui/scripts/deploy
 ```
 
-- `scripts/build` cross-compiles with `cargo zigbuild` for
-  `aarch64-unknown-linux-gnu.2.36` (Pi: Debian 12, glibc 2.36). zig, cargo-zigbuild
-  and pkg-config come from nixpkgs; Rust and the `aarch64-unknown-linux-gnu`
-  target come from rustup.
-- `scripts/fetch-sysroot` copies the Pi's fontconfig and LinuxCNC headers and
-  libraries into `sysroot/` (gitignored, ~6 MB). Rerun it after upgrading the Pi.
-  Only fontconfig is linked today; the LinuxCNC parts are there for the NML shim.
-- HAL is loaded with dlopen (`liblinuxcnchal.so.0`), so the binary needs no
-  LinuxCNC link step. `scripts/run-local` runs it natively on the Mac with
-  "HAL unavailable" for UI work.
-- Rendering uses Slint's software renderer: the Pi has no GPU GL here (llvmpipe).
+- `scripts/build` cross-compiles for `aarch64-unknown-linux-gnu` with clang/lld
+  from nixpkgs and the Pi's own glibc and libstdc++, so the C++ shim matches
+  LinuxCNC's `libnml` ABI. Rust and the target come from rustup.
+- `scripts/fetch-sysroot` copies those headers and libraries from the Pi into
+  `sysroot/` (gitignored, ~330 MB). Rerun it after upgrading the Pi.
+- `scripts/deploy` copies only millgui's own files: `millgui/run`,
+  `millgui/bin/millgui`, `millgui/hal/*.hal` and `millgui.ini`.
 - Override the target with `MILLGUI_PI=user@host` and `MILLGUI_DEST=path`.
+
+## Develop on the Mac
+
+```bash
+millgui/scripts/run-local --ini millgui.ini       # window, simulated machine
+```
+
+```bash
+cd millgui && cargo run -- --ini ../millgui.ini --screenshot /tmp/frame.png --screen run
+```
+
+The second renders one frame headless to a PNG. Mac builds have no NML
+backend; they always use the simulated machine (`--sim` forces it on the Pi).
 
 ## Run on the Pi
 
@@ -39,11 +49,8 @@ linuxcnc ~/linuxcnc/configs/mymill/millgui.ini
 `#INCLUDE`s `mymill.ini`, so the machine config stays single-sourced and Probe
 Basic (`mymill.ini`) is unchanged. LinuxCNC returns the first match per
 section, so `[DISPLAY]` keys from `mymill.ini` are not visible; the few that
-milltask and halui read are repeated in `millgui.ini`.
+milltask, halui and millgui read are repeated in `millgui.ini`.
 
-The GUI runs `[MILLGUI]POSTGUI_HALFILE` with `halcmd -i <ini> -f` after
-`hal_ready`, like the stock GUIs do for `[HAL]POSTGUI_HALFILE` (that key belongs
-to Probe Basic).
-
-Not handled yet: the manual tool change handshake (M6 will wait), NML
-status/command/error, preview.
+`[MILLGUI]MODULES` lists the enabled feature modules. After its HAL pins exist,
+millgui runs `millgui/hal/<id>.hal` for each enabled module (with `halcmd -k`,
+so one missing pin does not drop the rest), then `[MILLGUI]POSTGUI_HALFILE` if set.

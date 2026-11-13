@@ -1,0 +1,59 @@
+// Everything the Rust side pushes into the UI, and every action it handles.
+
+export struct PillData { text: string, kind: string }
+export struct DroRow { axis: string, work: string, mach: string, dtg: string, homed: bool }
+export struct NavItem { id: string, label: string, icon: string }
+
+export global Live {
+    in property <bool> connected;
+    in property <bool> estop: true;
+    in property <bool> power;
+    in property <bool> homed;
+    in property <[PillData]> pills;
+    in property <string> message;
+    in property <bool> message-error;
+    in property <string> clock;
+
+    in property <[DroRow]> dro;
+    in property <string> wcs: "G54";
+    in property <string> tool: "T0";
+    in property <string> tool-dia: "-";
+    in property <string> feed: "0";
+    in property <string> rpm: "0";
+    in property <string> cycle-time: "00:00";
+    in property <string> modal;
+
+    in property <int> feed-pct: 100;
+    in property <int> rapid-pct: 100;
+    in property <int> spindle-pct: 100;
+    in property <int> feed-max: 200;
+    in property <int> spindle-min: 50;
+    in property <int> spindle-max: 200;
+
+    in property <string> program;
+    in property <int> line;
+    in property <bool> running;
+    in property <bool> paused;
+    in property <bool> can-start;
+    in property <bool> single-block;
+    in property <bool> optional-stop;
+
+    in property <[NavItem]> nav;
+    in-out property <string> screen: "run";
+}
+
+export global Actions {
+    callback estop-trip();
+    callback estop-reset();
+    callback power();
+    callback home-all();
+    // which: "feed" | "rapid" | "spindle"; delta in percent
+    callback override(which: string, delta: int);
+    callback override-reset(which: string);
+    callback cycle-start();
+    callback feed-hold();
+    callback stop();
+    callback single-block();
+    callback optional-stop();
+    callback navigate(id: string);
+}

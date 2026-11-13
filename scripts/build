@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
-# Cross-build millgui for the Pi 5 (Debian 12, glibc 2.36) from macOS or Linux.
-# Needs zig + cargo-zigbuild (pulled from nixpkgs) and the rustup
-# aarch64-unknown-linux-gnu target.
+# Cross-build millgui for the Pi 5 (Debian 12 arm64) from macOS or Linux.
+# clang/lld from nixpkgs plus the Pi's own glibc and libstdc++ (./sysroot,
+# from scripts/fetch-sysroot) give an ABI match with LinuxCNC's C++ libraries.
+# Rust and the aarch64-unknown-linux-gnu target come from rustup.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ -d sysroot/usr ] || scripts/fetch-sysroot
-SYSROOT="$PWD/sysroot"
-export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
-export PKG_CONFIG_LIBDIR="$SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:$SYSROOT/usr/share/pkgconfig"
+[ -d sysroot/usr/include/linuxcnc ] || scripts/fetch-sysroot
+ROOT="$PWD"
+export MILLGUI_SYSROOT="$ROOT/sysroot"
+export PKG_CONFIG_SYSROOT_DIR="$MILLGUI_SYSROOT"
+export PKG_CONFIG_LIBDIR="$MILLGUI_SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:$MILLGUI_SYSROOT/usr/share/pkgconfig"
 export PKG_CONFIG_ALLOW_CROSS=1
-export RUSTFLAGS="${RUSTFLAGS:-} -L $SYSROOT/usr/lib/aarch64-linux-gnu -L $SYSROOT/usr/lib"
-TARGET=aarch64-unknown-linux-gnu
-exec nix shell nixpkgs#zig nixpkgs#cargo-zigbuild nixpkgs#pkg-config -c \
-  cargo zigbuild --release --target "$TARGET.2.36" "$@"
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="$ROOT/scripts/aarch64-cc"
+export CC_aarch64_unknown_linux_gnu="$ROOT/scripts/aarch64-cc"
+export CXX_aarch64_unknown_linux_gnu="$ROOT/scripts/aarch64-c++"
+export AR_aarch64_unknown_linux_gnu=llvm-ar
+if [ "$(uname)" = Darwin ]; then
+  # Host build scripts (Slint's) link against libiconv, which nix's cc lacks.
+  ICONV="$(nix build --no-link --print-out-paths nixpkgs#libiconv | tail -1)"
+  export LIBRARY_PATH="$ICONV/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+fi
+exec nix shell nixpkgs#llvmPackages.clang-unwrapped nixpkgs#llvmPackages.lld \
+  nixpkgs#llvmPackages.llvm nixpkgs#pkg-config -c \
+  cargo build --release --target aarch64-unknown-linux-gnu "$@"

@@ -1,0 +1,296 @@
+// The fixed machine frame: status bar, DRO column, nav and cycle bar.
+import { Theme } from "theme.slint";
+import { Live, Actions, DroRow } from "state.slint";
+import { Btn, Pill, Label, Card } from "widgets.slint";
+
+export component StatusBar inherits Rectangle {
+    background: Theme.bar;
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 10px;
+        alignment: stretch;
+        // E-STOP trips on the first touch; RESET and POWER need the 800 ms hold.
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                height: 56px;
+                width: 190px;
+                font-size: 22px;
+                text: Live.estop ? "RESET E-STOP" : "E-STOP";
+                kind: Live.estop ? "tripped" : "stop";
+                hold: Live.estop;
+                enabled: Live.connected;
+                pressed => { if !Live.estop { Actions.estop-trip(); } }
+                clicked => { if Live.estop { Actions.estop-reset(); } }
+            }
+        }
+        Rectangle { width: 20px; }
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                height: 56px;
+                width: 160px;
+                font-size: 22px;
+                text: Live.power ? "POWER ON" : "POWER OFF";
+                on: Live.power;
+                hold: true;
+                enabled: Live.connected && !Live.estop;
+                clicked => { Actions.power(); }
+            }
+        }
+        if Live.connected && Live.power && !Live.homed: VerticalLayout {
+            alignment: center;
+            Btn {
+                height: 56px;
+                width: 170px;
+                font-size: 22px;
+                text: "HOME ALL";
+                kind: "hold";
+                hold: true;
+                clicked => { Actions.home-all(); }
+            }
+        }
+        for p in Live.pills: VerticalLayout {
+            alignment: center;
+            Pill { text: p.text; kind: p.kind; }
+        }
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            overflow: elide;
+            text: Live.message;
+            font-family: Theme.body;
+            font-size: 21px;
+            color: Live.message-error ? #ff8f8a : Theme.muted;
+        }
+        Text {
+            width: 84px;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            text: Live.clock;
+            font-family: Theme.display;
+            font-size: 24px;
+            color: Theme.muted;
+        }
+    }
+}
+
+component DroLine inherits Rectangle {
+    in property <DroRow> data;
+    in property <bool> last;
+    height: 86px;
+    if !last: Rectangle { y: parent.height - 1px; height: 1px; background: #22282c; }
+    Text {
+        x: 0;
+        y: 6px;
+        text: data.axis;
+        font-family: Theme.display;
+        font-size: 50px;
+        color: data.homed ? Theme.muted : #f3c463;
+    }
+    Text {
+        x: 52px;
+        y: 4px;
+        width: parent.width - 52px;
+        horizontal-alignment: right;
+        text: data.work;
+        font-family: Theme.body;
+        font-weight: 600;
+        font-size: 60px;
+        color: Theme.ink;
+    }
+    Text {
+        x: 52px;
+        y: 62px;
+        width: parent.width - 52px;
+        horizontal-alignment: right;
+        text: "MACH " + data.mach + "      DTG " + data.dtg;
+        font-family: Theme.body;
+        font-size: 19px;
+        color: Theme.dim;
+    }
+}
+
+component Kv inherits Card {
+    in property <string> label;
+    in property <string> value;
+    height: 66px;
+    VerticalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 4px;
+        Label { text: label; font-size: 18px; }
+        Text { text: value; font-family: Theme.body; font-weight: 600; font-size: 26px; color: Theme.ink; overflow: elide; }
+    }
+}
+
+component OverrideRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> which;
+    in property <int> pct;
+    in property <int> limit;
+    in property <int> step: 10;
+    spacing: 8px;
+    height: 50px;
+    Label { width: 96px; vertical-alignment: center; text: label; }
+    Btn { width: 64px; min-height: 50px; text: "−"; clicked => { Actions.override(which, -step); } }
+    Rectangle {
+        horizontal-stretch: 1;
+        Rectangle {
+            height: 14px;
+            border-radius: 7px;
+            background: #14181a;
+            clip: true;
+            Rectangle {
+                x: 0;
+                width: parent.width * Math.min(1.0, pct / Math.max(1, root.limit));
+                background: Theme.sel;
+            }
+        }
+        // 100% mark
+        Rectangle {
+            x: parent.width * 100 / Math.max(1, root.limit) - 1px;
+            width: 2px;
+            height: 20px;
+            background: Theme.muted;
+        }
+    }
+    Btn { width: 64px; min-height: 50px; text: "+"; clicked => { Actions.override(which, step); } }
+    // Tapping the percentage resets the row to 100%.
+    Text {
+        width: 84px;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        text: pct + "%";
+        TouchArea { clicked => { Actions.override-reset(which); } }
+        font-family: Theme.display;
+        font-size: 28px;
+        color: Theme.ink;
+    }
+}
+
+export component LeftColumn inherits Rectangle {
+    Rectangle { x: parent.width - 1px; width: 1px; background: Theme.line; }
+    VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 10px;
+        Rectangle {
+            background: Theme.well;
+            border-width: 1px;
+            border-color: Theme.line;
+            border-radius: 8px;
+            VerticalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 6px;
+                padding-bottom: 6px;
+                for r[i] in Live.dro: DroLine { data: r; last: i == Live.dro.length - 1; }
+            }
+        }
+        GridLayout {
+            spacing: 8px;
+            Row {
+                Kv { label: "WCS"; value: Live.wcs; }
+                Kv { label: "TOOL"; value: Live.tool; }
+                Kv { label: "TOOL DIA"; value: Live.tool-dia; }
+            }
+            Row {
+                Kv { label: "FEED MM/MIN"; value: Live.feed; }
+                Kv { label: "SPINDLE RPM"; value: Live.rpm; }
+                Kv { label: "CYCLE TIME"; value: Live.cycle-time; }
+            }
+        }
+        Text {
+            text: Live.modal;
+            font-family: Theme.body;
+            font-size: 18px;
+            color: Theme.dim;
+            wrap: word-wrap;
+        }
+        Card {
+            VerticalLayout {
+                padding: 12px;
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 8px;
+                OverrideRow { label: "FEED"; which: "feed"; pct: Live.feed-pct; limit: Live.feed-max; }
+                OverrideRow { label: "RAPID"; which: "rapid"; pct: Live.rapid-pct; limit: 100; step: 25; }
+                OverrideRow { label: "SPINDLE"; which: "spindle"; pct: Live.spindle-pct; limit: Live.spindle-max; }
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+    }
+}
+
+export component BottomBar inherits Rectangle {
+    background: Theme.bar;
+    Rectangle { y: 0; height: 1px; background: Theme.line; }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 8px;
+        for n in Live.nav: VerticalLayout {
+            alignment: center;
+            Btn {
+                width: 104px;
+                height: 96px;
+                font-size: 27px;
+                icon: n.icon;
+                text: n.label;
+                on: Live.screen == n.id;
+                clicked => { Actions.navigate(n.id); }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout {
+            alignment: center;
+            spacing: 8px;
+            Btn {
+                width: 150px; height: 44px; font-size: 20px;
+                text: "SINGLE BLOCK"; on: Live.single-block;
+                clicked => { Actions.single-block(); }
+            }
+            Btn {
+                width: 150px; height: 44px; font-size: 20px;
+                text: "M01 STOP"; on: Live.optional-stop;
+                enabled: Live.connected;
+                clicked => { Actions.optional-stop(); }
+            }
+        }
+        Rectangle { width: 24px; }
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                width: 180px; height: 100px; font-size: 32px; kind: "hold"; text: "FEED HOLD";
+                enabled: Live.running && !Live.paused;
+                clicked => { Actions.feed-hold(); }
+            }
+        }
+        Rectangle { width: 24px; }
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                width: 180px; height: 100px; font-size: 32px; kind: "stop"; text: "STOP";
+                enabled: Live.connected;
+                clicked => { Actions.stop(); }
+            }
+        }
+        Rectangle { width: 24px; }
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                width: 180px; height: 100px; font-size: 32px; kind: "go";
+                text: Live.paused ? "RESUME" : "CYCLE START";
+                enabled: Live.can-start;
+                clicked => { Actions.cycle-start(); }
+            }
+        }
+    }
+}

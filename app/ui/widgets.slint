@@ -1,0 +1,127 @@
+import { Theme } from "theme.slint";
+
+// The mockup's button. kind: "" | "go" | "hold" | "stop". With `hold`, the
+// press must last 800 ms (a misuse safeguard, see ARCHITECTURE.md).
+export component Btn inherits Rectangle {
+    in property <string> text;
+    in property <string> sub;
+    in property <string> icon;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    in property <string> kind;
+    in property <bool> hold;
+    in property <length> font-size: 24px;
+    callback clicked();
+    // Fires on touch-down, before any hold or release (E-STOP trips on it).
+    callback pressed();
+
+    property <bool> arming: touch.pressed && hold && enabled;
+    property <bool> fired;
+    preferred-height: 64px;
+    border-radius: 6px;
+    background: kind == "go" ? Theme.go : kind == "hold" ? Theme.hold : kind == "stop" ? Theme.stop
+        : kind == "tripped" ? #3a1414 : on ? Theme.sel : Theme.raised;
+    border-color: kind == "go" ? Theme.go-border : kind == "hold" ? Theme.hold-border : kind == "stop" ? Theme.stop-border
+        : kind == "tripped" ? Theme.stop-border : on ? Theme.sel : Theme.raised-border;
+    border-width: kind == "tripped" ? 3px : 1px;
+    opacity: enabled ? 1.0 : 0.38;
+    clip: true;
+
+    Rectangle {
+        background: touch.pressed && enabled ? #ffffff30 : transparent;
+    }
+    Rectangle {
+        x: 0;
+        width: arming ? parent.width : 0;
+        background: #ffffff48;
+        animate width { duration: root.arming ? 800ms : 0ms; }
+    }
+    VerticalLayout {
+        alignment: center;
+        spacing: 4px;
+        padding-left: 10px;
+        padding-right: 10px;
+        if icon != "": HorizontalLayout {
+            alignment: center;
+            Path {
+                width: 30px;
+                height: 30px;
+                commands: icon;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                stroke: Theme.ink;
+                stroke-width: 2px;
+                fill: transparent;
+            }
+        }
+        Text {
+            text: root.text;
+            font-family: Theme.display;
+            font-size: root.font-size;
+            letter-spacing: 0.04 * root.font-size;
+            color: Theme.ink;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+        if hold || sub != "": Text {
+            text: sub != "" ? sub : "HOLD";
+            font-family: Theme.display;
+            font-size: 15px;
+            letter-spacing: 1.2px;
+            color: #e8ebedc0;
+            horizontal-alignment: center;
+        }
+    }
+    hold-timer := Timer {
+        interval: 800ms;
+        running: root.arming && !root.fired;
+        triggered => {
+            root.fired = true;
+            root.clicked();
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                root.fired = false;
+                root.pressed();
+            }
+        }
+        clicked => {
+            if !root.hold { root.clicked(); }
+        }
+    }
+}
+
+export component Pill inherits Rectangle {
+    in property <string> text;
+    in property <string> kind;
+    height: 40px;
+    border-radius: 20px;
+    background: kind == "good" ? #1f3a2a : kind == "warn" ? #43361a : kind == "bad" ? #4a2120 : kind == "info" ? #1e3346 : Theme.panel2;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text {
+            vertical-alignment: center;
+            text: root.text;
+            font-family: Theme.display;
+            font-size: 21px;
+            letter-spacing: 1px;
+            color: kind == "good" ? #7fd6a0 : kind == "warn" ? #f3c463 : kind == "bad" ? #ff8f8a : kind == "info" ? #8cc4ef : Theme.muted;
+        }
+    }
+}
+
+export component Label inherits Text {
+    font-family: Theme.display;
+    font-size: 20px;
+    letter-spacing: 1.2px;
+    color: Theme.muted;
+}
+
+export component Card inherits Rectangle {
+    background: Theme.panel;
+    border-radius: 8px;
+}

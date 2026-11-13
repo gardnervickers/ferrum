@@ -1,0 +1,4 @@
+# interlock module: why motion.feed-inhibit is set (mymill.hal).
+net motion-interlock-held => millgui.interlock.held
+net wireless-probe-fault => millgui.interlock.probe-fault
+net drives-not-ready => millgui.interlock.drives-not-ready

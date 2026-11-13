@@ -1,17 +1,12 @@
-[package]
-name = "millgui"
-version = "0.1.0"
+[workspace]
+resolver = "2"
+members = ["app", "crates/hal", "crates/linuxcnc"]
+
+[workspace.package]
 edition = "2021"
 publish = false
-
-[dependencies]
-# Software renderer: the Pi 5 has no hardware GL under this X11 setup (llvmpipe).
-slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit-x11", "renderer-software"] }
-libloading = "0.8"
-ctrlc = { version = "3", features = ["termination"] }
 
 [profile.release]
 opt-level = 3
 lto = "thin"
 strip = true
-

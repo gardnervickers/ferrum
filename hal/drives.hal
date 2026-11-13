@@ -1,0 +1,6 @@
+# drives module: servo readiness from drive_readiness (mymill.hal).
+net required-drives-ready => millgui.drives.ready
+net x-hlfb-fault => millgui.drives.fault-x
+net y-hlfb-fault => millgui.drives.fault-y
+net z-hlfb-fault => millgui.drives.fault-z
+net a-hlfb-fault => millgui.drives.fault-a

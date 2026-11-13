@@ -1,17 +1,31 @@
 #!/usr/bin/env bash
-# Copy the few Pi headers and libraries the cross build links against into
-# ./sysroot (gitignored). Rerun after upgrading LinuxCNC or Debian on the Pi.
+# Copy a GNU sysroot from the Pi into ./sysroot (gitignored): the headers and
+# link-time libraries for glibc, libstdc++ (the C++ shim must use the same C++
+# runtime as LinuxCNC's libnml), fontconfig and LinuxCNC. Rerun after
+# upgrading Debian or LinuxCNC on the Pi.
 set -euo pipefail
 PI="${MILLGUI_PI:-cnc@cncmill.localdomain}"
 cd "$(dirname "$0")/.."
-mkdir -p sysroot
-A=/usr/lib/aarch64-linux-gnu
-# tar over ssh: works with macOS openrsync-less setups; globs expand on the Pi.
-ssh "$PI" "cd / && tar -c \
-  ${A#/}/pkgconfig usr/share/pkgconfig \
-  usr/include/fontconfig usr/include/freetype2 usr/include/linuxcnc \
-  ${A#/}/libfontconfig.so* ${A#/}/libfreetype.so* ${A#/}/libexpat.so* \
-  ${A#/}/libpng16.so* ${A#/}/libz.so* ${A#/}/libbrotli*.so* \
-  usr/lib/liblinuxcnc*.so* usr/lib/libnml.so* usr/lib/libposemath.so*" \
-  | tar -x -C sysroot
+rm -rf sysroot.new && mkdir -p sysroot.new
+A=usr/lib/aarch64-linux-gnu
+# Globs expand on the Pi. bin/lib/sbin are usrmerge symlinks that glibc's
+# linker scripts rely on.
+ssh "$PI" "cd / && tar -c lib \
+  usr/include \
+  usr/lib/gcc/aarch64-linux-gnu/12 \
+  $A/pkgconfig usr/share/pkgconfig \
+  $A/*crt*.o $A/libc.so* $A/libc_nonshared.a $A/libm.so* $A/libmvec.so* \
+  $A/libpthread* $A/libdl* $A/librt* $A/libutil* $A/ld-linux-aarch64.so.1 \
+  $A/libgcc_s.so* $A/libstdc++.so* usr/lib/ld-linux-aarch64.so.1 \
+  $A/libfontconfig.so* $A/libfreetype.so* $A/libexpat.so* \
+  $A/libpng16.so* $A/libz.so* $A/libbrotli*.so* \
+  usr/lib/liblinuxcnc* usr/lib/libnml.so* usr/lib/libposemath.so* \
+  usr/lib/librs274.so* usr/lib/libtooldata.so* usr/lib/libpyplugin.so* 2>/dev/null; true" \
+  | tar -x -C sysroot.new
+# Make absolute symlinks (e.g. libm.so -> /lib/...) point inside the sysroot.
+find sysroot.new -type l | while read -r l; do
+  t="$(readlink "$l")"
+  case "$t" in /*) ln -sfn "$PWD/sysroot${t}" "$l" ;; esac
+done
+rm -rf sysroot && mv sysroot.new sysroot
 echo "sysroot ready: $(du -sh sysroot | cut -f1)"

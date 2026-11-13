@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Run millgui natively (macOS or Linux) for UI work; HAL shows as unavailable.
+# Run millgui natively (macOS or Linux) against the simulated machine.
+# The 1920x1080 layout is scaled to fit a desktop screen.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ "$(uname)" = Darwin ]; then
   ICONV="$(nix build --no-link --print-out-paths nixpkgs#libiconv | tail -1)"
   export RUSTFLAGS="${RUSTFLAGS:-} -L $ICONV/lib"
 fi
-exec cargo run "$@"
+export SLINT_SCALE_FACTOR="${SLINT_SCALE_FACTOR:-0.6}"
+exec cargo run -- --sim --windowed "$@"

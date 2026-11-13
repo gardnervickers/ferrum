@@ -1,0 +1,4 @@
+# drawbar module: power drawbar state from spindle_drawbar_guard (mymill.hal).
+# Both are commands from the guard, not sensors.
+net drawbar-extended => millgui.drawbar.extended
+net spindle-rearm-required spindle-rearm-required-pin => millgui.drawbar.spindle-rearm-required
