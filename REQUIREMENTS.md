@@ -46,7 +46,8 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] Backplot speed (M7): sub-pixel moves merge into polylines, and the toolpath image is drawn on a
       worker thread (the old image stays up meanwhile). Mac: 200k moves 0.2 s, 1M moves ~1 s per view
       change; frames with the tool marker stay ~2 ms. No GL renderer: the Pi has only llvmpipe, so GL
-      would also run on the CPU. Re-measure on the Pi (`cargo run --release -p preview --example bench`).
+      would also run on the CPU. Pi 5 (2026-11-13, bench example): view change 0.1 s at 20k moves,
+      0.5-0.6 s at 200k, 3-3.7 s at 1M (off the UI thread); a frame with the marker 4-7 ms.
 - [x] Run: G-CODE | MDI | JOG tabs; JOG keeps the backplot visible (mockup v18). JOG nav renamed MANUAL
       (POWER FEED, GO TO, spindle card); MODULES accepts the old "jog" id.
 - [x] Files: no USB; browse PROGRAM_PREFIX (G-code and folders, newest first), preview, LOAD.
@@ -99,7 +100,8 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] CONV: facing, XY coord, pattern (grid), hole circle, helical bore, thread mill (presets) from
       the mill_ops generators; live summary or errors; ADD TO JOB; LOAD AS PROGRAM to PROGRAM_PREFIX.
 - [ ] Check on the Pi: python3 can import mymill_job/mymill_vcp from the config folder, and the
-      built program reads mymill-job.stamp from millgui's component.
+      built program reads mymill-job.stamp from millgui's component. 2026-11-13: the Pi's config
+      checkout (131b64c) predates mymill_job, so JOB and CONV fail there until it is updated.
 - [ ] Simulator ignores the skip and stop-after pins (it steps lines without interpreting).
 - [ ] CAM ops (Fusion imports) into a job: no millgui page yet.
 
