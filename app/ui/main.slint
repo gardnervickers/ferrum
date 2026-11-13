@@ -1,9 +1,12 @@
 import { Theme } from "theme.slint";
-import { Live, Actions, PillData, DroRow, NavItem } from "state.slint";
+import { Live, Actions, PillData, DroRow, NavItem, MsgRow } from "state.slint";
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
 import { Placeholder, RunScreen } from "screens.slint";
 
-export { Live, Actions, PillData, DroRow, NavItem }
+import { JogScreen } from "jog.slint";
+import { Keypad, MessageDrawer } from "overlays.slint";
+
+export { Live, Actions, PillData, DroRow, NavItem, MsgRow }
 
 // Drawn at the mill's 1920x1080. Each screen is only instantiated while it
 // is shown, so a disabled module's screen never exists.
@@ -23,13 +26,15 @@ export component MainWindow inherits Window {
         height: parent.height - 64px - 128px;
         if Live.screen == "run": RunScreen {}
         if Live.screen == "job": Placeholder { title: "JOB"; note: "Milestone 6"; }
-        if Live.screen == "jog": Placeholder { title: "JOG"; note: "Milestone 2"; }
+        if Live.screen == "jog": JogScreen {}
         if Live.screen == "probe": Placeholder { title: "PROBE"; note: "Milestone 5"; }
         if Live.screen == "tools": Placeholder { title: "TOOLS"; note: "Milestone 4"; }
         if Live.screen == "offsets": Placeholder { title: "OFFSETS"; note: "Milestone 4"; }
         if Live.screen == "conv": Placeholder { title: "CONVERSATIONAL"; note: "Milestone 6"; }
         if Live.screen == "files": Placeholder { title: "FILES"; note: "Milestone 3"; }
         if Live.screen == "util": Placeholder { title: "UTIL"; note: "Milestone 5"; }
+        if Live.drawer-open: MessageDrawer {}
+        if Live.keypad-open: Keypad {}
     }
     BottomBar { x: 0; y: parent.height - 128px; width: parent.width; height: 128px; }
 }

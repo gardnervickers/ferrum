@@ -14,20 +14,20 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] Prompt for M5 and a fresh start when spindle_drawbar_guard.rearm_required is set
       (needs the current mymill.hal on the Pi; the Pi's copy predates the pin).
 - [x] Tapping an override % resets that row; rapid steps 25%.
-- [ ] Popups cover only the middle, so E-STOP, power, feed hold, stop, cycle start stay usable.
+- [x] Popups cover only the middle, so E-STOP, power, feed hold, stop, cycle start stay usable.
 - [ ] Follow mode changes made by the WHB04B pendant (halui); pendant pill.
-- [ ] Message drawer for (abort), (MSG), (PRINT), (DEBUG).
+- [x] Message drawer for (abort), (MSG), (PRINT), (DEBUG) (tap the message line).
 
 ## M2 Manual control
 
-- [ ] Jog: step/continuous, speed in mm/s (DEFAULT_LINEAR_VELOCITY 50 is mm/s), A at its own 180°/s.
-- [ ] "A: set reference here".
-- [ ] MIST M7/M9; Z TO WORK Z0 and RETRACT 10, XY TO WORK 0 on hold.
+- [x] Jog: step/continuous, speed in mm/s (DEFAULT_LINEAR_VELOCITY 50 is mm/s), A at its own 180°/s.
+- [x] "A: set reference here".
+- [x] MIST M7/M9; Z TO WORK Z0 and RETRACT 10, XY TO WORK 0 on hold.
 - [ ] Power feed parity with powerfeed.py/custom_config.yml: own WCS (powerfeed.wcs-index),
       remembered feed/distance/RPM, GOTO list with save/update/delete and XY preview.
       END OF TRAVEL needs a hold and disables Z.
 - [ ] Jog, power feed, spindle, offsets, tools and probe locked while running or paused.
-- [ ] MDI with history; keypad overlay.
+- [x] MDI with history; keypad overlay.
 
 ## M3 Run and files
 
@@ -66,6 +66,14 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 - [ ] Job rules from job_session.py: START AT OP disables earlier ops and needs a rebuild;
       refuse a stale or unbuilt job.
+
+## M8 Remote web (see ARCHITECTURE.md, Remote access)
+
+- [ ] Slint wasm build of the same UI; `Remote` Machine over a websocket.
+- [ ] `remote` module on the Pi: serves the bundle, streams Status, messages and pills.
+- [ ] Read-only by default; override (INI permit + touchscreen grant, to confirm).
+- [ ] Remote jogs incremental only (or a jog lease); remote E-STOP labelled as a request.
+- [ ] Slow or dropped clients never stall the worker or the touchscreen.
 
 ## Before calling parity done
 

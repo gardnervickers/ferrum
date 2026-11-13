@@ -89,7 +89,12 @@ fn required_mode(cmd: &Command) -> Option<Mode> {
     match cmd {
         Command::Mdi(_) => Some(Mode::Mdi),
         Command::ProgramRun(_) => Some(Mode::Auto),
-        Command::JogCont { .. } | Command::JogIncr { .. } | Command::Home(_) | Command::Unhome(_) => {
+        Command::JogCont { .. }
+        | Command::JogIncr { .. }
+        | Command::Home(_)
+        | Command::Unhome(_)
+        | Command::SpindleOn(_)
+        | Command::SpindleOff => {
             Some(Mode::Manual)
         }
         _ => None,
@@ -104,6 +109,14 @@ fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &
                 return;
             }
             wait_for(m, Duration::from_millis(500), |s| s.mode == want);
+        }
+    }
+    // Jogging: teleop (axis jogs) when homed, free mode (joint jogs) when not.
+    if let (Command::JogCont { .. } | Command::JogIncr { .. }, Some(s)) = (&cmd, last) {
+        let want = s.all_homed();
+        if (s.traj_mode == 3) != want {
+            let _ = m.send(&Command::Teleop(want));
+            wait_for(m, Duration::from_millis(500), |s| (s.traj_mode == 3) == want);
         }
     }
     if let Err(e) = m.send(&cmd) {

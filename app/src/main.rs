@@ -5,6 +5,7 @@
 
 mod config;
 mod headless;
+mod manual;
 mod modules;
 
 use config::Config;
@@ -25,10 +26,12 @@ struct Args {
     windowed: bool,
     screenshot: Option<PathBuf>,
     screen: Option<String>,
+    /// Screenshot extras: "keypad", "messages", "mdi".
+    show: Vec<String>,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None };
+    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new() };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -40,6 +43,7 @@ fn parse_args() -> Args {
                 a.sim = true;
             }
             "--screen" => a.screen = it.next(),
+            "--show" => a.show.extend(it.next()),
             _ => {}
         }
     }
@@ -442,8 +446,10 @@ fn main() -> Result<(), slint::PlatformError> {
                         st.connected = true;
                         live.set_connected(true);
                         apply_status(ui, &mut st, &s, &axes);
+                        with_manual(|mm| manual::apply_status(ui, mm, &s));
                     }
                     Event::Message(m) => {
+                        with_manual(|mm| manual::log_message(ui, mm, &m));
                         live.set_message(SharedString::from(m.text.trim()));
                         live.set_message_error(m.kind == MessageKind::Error);
                     }
@@ -462,6 +468,8 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     wire_actions(&ui, &handle, &state, &cfg);
+    let manual = manual::wire(&ui, &handle, &cfg, axes.contains(&3));
+    MANUAL.with(|m| *m.borrow_mut() = Some(manual));
 
     // Pills read HAL pins, which change without a status update; refresh them
     // with the clock and cycle timer.
@@ -527,6 +535,40 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     refresh_pills(&ui, &st, modules, &axis_indices(cfg));
     live.set_clock(chrono::Local::now().format("%H:%M").to_string().into());
     live.set_message("Simulated machine".into());
+
+    let handle = linuxcnc::spawn(Box::new(linuxcnc::Sim::new()), Duration::from_secs(3600), |_| {});
+    let manual = manual::wire(&ui, &handle, cfg, axis_indices(cfg).contains(&3));
+    manual::apply_status(&ui, &manual, &s);
+    let actions = ui.global::<Actions>();
+    for what in &args.show {
+        match what.as_str() {
+            "keypad" => {
+                actions.invoke_edit("jog-speed".into());
+                actions.invoke_keypad_key("CLR".into());
+                for k in ["2", "5"] {
+                    actions.invoke_keypad_key(k.into());
+                }
+            }
+            "mdi" => {
+                live.set_run_tab("mdi".into());
+                for l in ["G0 X0 Y0", "M6 T12", "G10 L20 P1 Z0", "S8000 M3"] {
+                    actions.invoke_mdi_send(l.into());
+                }
+                live.set_mdi_text("G0 Z25".into());
+            }
+            "messages" => {
+                live.set_drawer_open(true);
+                for (kind, text) in [
+                    (MessageKind::Text, "Probe tripped at Z-12.402"),
+                    (MessageKind::Display, "(MSG, Check that the vise is clamped)"),
+                    (MessageKind::Error, "Can't do MDI when machine is not on"),
+                ] {
+                    manual::log_message(&ui, &manual, &linuxcnc::Message { kind, text: text.into() });
+                }
+            }
+            other => eprintln!("millgui: unknown --show {other}"),
+        }
+    }
     ui.show()?;
     headless::save(&window, out).map_err(slint::PlatformError::Other)?;
     eprintln!("millgui: wrote {}", out.display());
@@ -539,4 +581,11 @@ thread_local! {
     /// The status handler lives on the UI thread; the machine thread only
     /// posts events to it.
     static UI_EVENT: RefCell<Option<UiEventFn>> = RefCell::new(None);
+    static MANUAL: RefCell<Option<Rc<RefCell<manual::Manual>>>> = RefCell::new(None);
+}
+
+fn with_manual(f: impl FnOnce(&Rc<RefCell<manual::Manual>>)) {
+    if let Some(m) = MANUAL.with(|m| m.borrow().clone()) {
+        f(&m);
+    }
 }

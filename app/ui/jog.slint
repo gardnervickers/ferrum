@@ -1,0 +1,169 @@
+import { Theme } from "theme.slint";
+import { Live, Actions } from "state.slint";
+import { Btn, Seg, Card, Label, NumField, H3, Note } from "widgets.slint";
+
+// Hold-to-move button: continuous jogs run while pressed, steps fire once.
+component JogBtn inherits Btn {
+    in property <int> axis;
+    in property <int> dir;
+    font-size: 32px;
+    enabled: Live.power && !Live.manual-locked;
+    pressed => { Actions.jog-start(axis, dir); }
+    released => { if Live.jog-step == "CONT" { Actions.jog-stop(axis); } }
+}
+
+component JogPanel inherits VerticalLayout {
+    spacing: 14px;
+    HorizontalLayout {
+        spacing: 0px;
+        Label { width: 110px; vertical-alignment: center; text: "STEP"; }
+        for s in Live.jog-steps: Seg {
+            text: s;
+            on: Live.jog-step == s;
+            clicked => { Actions.jog-step-set(s); }
+        }
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 40px;
+        padding-top: 10px;
+        GridLayout {
+            spacing: 12px;
+            Row {
+                Rectangle { width: 130px; height: 110px; }
+                JogBtn { width: 130px; height: 110px; text: "▲ Y+"; axis: 1; dir: 1; }
+                Rectangle { width: 130px; }
+            }
+            Row {
+                JogBtn { height: 110px; text: "◀ X−"; axis: 0; dir: -1; }
+                Btn {
+                    height: 110px; text: "STOP"; kind: "stop"; font-size: 26px;
+                    clicked => { Actions.jog-stop(0); Actions.jog-stop(1); Actions.jog-stop(2); Actions.jog-stop(3); }
+                }
+                JogBtn { height: 110px; text: "X+ ▶"; axis: 0; dir: 1; }
+            }
+            Row {
+                Rectangle { height: 110px; }
+                JogBtn { height: 110px; text: "▼ Y−"; axis: 1; dir: -1; }
+                Rectangle { }
+            }
+        }
+        VerticalLayout {
+            spacing: 12px;
+            width: 130px;
+            JogBtn { height: 110px; text: "▲ Z+"; axis: 2; dir: 1; }
+            Label { height: 110px; text: "Z"; horizontal-alignment: center; vertical-alignment: center; }
+            JogBtn { height: 110px; text: "▼ Z−"; axis: 2; dir: -1; }
+        }
+        if Live.has-a: VerticalLayout {
+            spacing: 12px;
+            width: 130px;
+            JogBtn { height: 110px; text: "A+ ↻"; axis: 3; dir: 1; }
+            Label { height: 110px; text: "A"; horizontal-alignment: center; vertical-alignment: center; }
+            JogBtn { height: 110px; text: "A− ↺"; axis: 3; dir: -1; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        Label { width: 200px; vertical-alignment: center; text: "JOG SPEED"; }
+        NumField { width: 190px; value: Live.jog-speed; unit: "mm/s"; edit => { Actions.edit("jog-speed"); } }
+        Rectangle { width: 20px; }
+        if Live.has-a: Label { width: 80px; vertical-alignment: center; text: "A SPEED"; }
+        if Live.has-a: NumField { width: 190px; value: Live.jog-speed-a; unit: "°/s"; edit => { Actions.edit("jog-speed-a"); } }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    if Live.has-a: HorizontalLayout {
+        spacing: 14px;
+        Note {
+            width: 380px;
+            vertical-alignment: center;
+            text: "A has no home switch. Set its reference with the rotary at the position you want as A0 (machine).";
+        }
+        Btn {
+            height: 72px;
+            text: "SET A REFERENCE HERE";
+            hold: true;
+            enabled: Live.power && !Live.manual-locked;
+            clicked => { Actions.set-a-reference(); }
+        }
+    }
+    Rectangle { vertical-stretch: 1; }
+}
+
+component SpindleCard inherits Card {
+    VerticalLayout {
+        padding: 14px;
+        spacing: 10px;
+        H3 { text: "SPINDLE"; }
+        HorizontalLayout {
+            spacing: 10px;
+            Label { vertical-alignment: center; text: "RPM"; horizontal-stretch: 1; }
+            NumField { width: 190px; value: Live.spindle-rpm; enabled: !Live.manual-locked; edit => { Actions.edit("spindle-rpm"); } }
+        }
+        HorizontalLayout {
+            spacing: 32px;
+            Btn { text: "CW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(1); } }
+            Btn { text: "STOP"; kind: "stop"; enabled: Live.power; clicked => { Actions.spindle(0); } }
+            Btn { text: "CCW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(-1); } }
+        }
+        Btn {
+            height: 56px;
+            text: Live.mist ? "MIST ON · M9 TO STOP" : "MIST OFF · M7 TO START";
+            on: Live.mist;
+            enabled: Live.power && !Live.manual-locked;
+            clicked => { Actions.mist-toggle(); }
+        }
+        H3 { text: "WORK ZERO"; }
+        Note { text: "Sets the active WCS so the tool tip is 0 on every axis. Single-axis zero lives on the Offsets screen."; }
+        Btn {
+            height: 84px;
+            text: "ZERO XYZ HERE";
+            hold: true;
+            enabled: Live.power && Live.homed && !Live.manual-locked;
+            clicked => { Actions.zero-xyz(); }
+        }
+        H3 { text: "RETURN"; }
+        HorizontalLayout {
+            spacing: 10px;
+            Btn {
+                text: "Z TO WORK Z0"; hold: true;
+                enabled: Live.power && Live.homed && !Live.manual-locked;
+                clicked => { Actions.z-to-work-zero(); }
+            }
+            Btn {
+                text: "RETRACT 10, XY TO WORK 0"; hold: true; font-size: 21px;
+                enabled: Live.power && Live.homed && !Live.manual-locked;
+                clicked => { Actions.retract-xy-to-zero(); }
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+    }
+}
+
+export component JogScreen inherits Rectangle {
+    property <string> tab: "jog";
+    VerticalLayout {
+        padding: 14px;
+        spacing: 14px;
+        HorizontalLayout {
+            width: 620px;
+            spacing: 0px;
+            Seg { text: "JOG"; on: tab == "jog"; clicked => { tab = "jog"; } }
+            Seg { text: "POWER FEED"; on: tab == "feed"; clicked => { tab = "feed"; } }
+            Seg { text: "GO TO"; on: tab == "goto"; clicked => { tab = "goto"; } }
+        }
+        HorizontalLayout {
+            spacing: 14px;
+            Card {
+                width: 800px;
+                if tab == "jog": JogPanel { x: 14px; y: 14px; width: parent.width - 28px; height: parent.height - 28px; }
+                if tab != "jog": VerticalLayout {
+                    alignment: center;
+                    H3 { horizontal-alignment: center; text: tab == "feed" ? "POWER FEED" : "GO TO"; }
+                    Note { horizontal-alignment: center; text: "Next in milestone 2: parity with the Powerfeed tab (own WCS, saved locations)."; }
+                }
+            }
+            SpindleCard { horizontal-stretch: 1; }
+        }
+    }
+}

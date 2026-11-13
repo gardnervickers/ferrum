@@ -66,6 +66,8 @@ export component StatusBar inherits Rectangle {
             font-family: Theme.body;
             font-size: 21px;
             color: Live.message-error ? #ff8f8a : Theme.muted;
+            // Tapping the latest message opens the full log.
+            TouchArea { clicked => { Live.drawer-open = true; } }
         }
         Text {
             width: 84px;

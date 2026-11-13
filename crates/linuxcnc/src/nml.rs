@@ -129,6 +129,8 @@ extern "C" {
 pub struct Nml {
     c: *mut Lcnc,
     raw: Box<Raw>,
+    /// Joint jogs until homed, axis jogs after (from the last poll).
+    joint_mode: bool,
 }
 
 // The connection is only ever used from the thread that owns the Nml.
@@ -162,7 +164,7 @@ impl Nml {
         }
         // Raw is plain data; all-zero is a valid value.
         let raw: Box<Raw> = unsafe { Box::new(std::mem::zeroed()) };
-        Ok(Self { c, raw })
+        Ok(Self { c, raw, joint_mode: true })
     }
 }
 
@@ -178,12 +180,15 @@ impl Machine for Nml {
             return Err("LinuxCNC status channel is not available".into());
         }
         let r = &*self.raw;
+        // Teleop (axis jogs) only exists once homed; before that jog joints.
+        self.joint_mode = r.traj_mode != 3;
         Ok(Status {
             task_state: TaskState::from_raw(r.task_state),
             mode: Mode::from_raw(r.task_mode),
             interp: Interp::from_raw(r.interp_state),
             exec_state: r.exec_state,
             enabled: r.enabled != 0,
+            traj_mode: r.traj_mode,
             joints: r.joints.max(0) as usize,
             axis_mask: r.axis_mask as u32,
             homed: flags(&r.homed),
@@ -204,6 +209,8 @@ impl Machine for Nml {
             spindle_speed: r.spindle_speed,
             spindle_direction: r.spindle_direction,
             spindle_enabled: r.spindle_enabled != 0,
+            mist: r.mist != 0,
+            flood: r.flood != 0,
             active_gcodes: r.active_gcodes,
             active_mcodes: r.active_mcodes,
             active_settings: r.active_settings,
@@ -247,11 +254,12 @@ impl Machine for Nml {
                 Command::Home(j) => lcnc_home(c, *j),
                 Command::Unhome(j) => lcnc_unhome(c, *j),
                 Command::Teleop(on) => lcnc_teleop(c, *on as c_int),
-                Command::JogCont { joint_mode, index, vel } => lcnc_jog_cont(c, *joint_mode as c_int, *index, *vel),
-                Command::JogIncr { joint_mode, index, vel, incr } => {
-                    lcnc_jog_incr(c, *joint_mode as c_int, *index, *vel, *incr)
+                // The worker resolves joint mode; here teleop means axis jogs.
+                Command::JogCont { axis, vel } => lcnc_jog_cont(c, self.joint_mode as c_int, *axis, *vel),
+                Command::JogIncr { axis, vel, incr } => {
+                    lcnc_jog_incr(c, self.joint_mode as c_int, *axis, *vel, *incr)
                 }
-                Command::JogStop { joint_mode, index } => lcnc_jog_stop(c, *joint_mode as c_int, *index),
+                Command::JogStop { axis } => lcnc_jog_stop(c, self.joint_mode as c_int, *axis),
                 Command::FeedScale(s) => lcnc_feed_scale(c, *s),
                 Command::RapidScale(s) => lcnc_rapid_scale(c, *s),
                 Command::SpindleScale(s) => lcnc_spindle_scale(c, *s),

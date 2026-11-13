@@ -71,6 +71,8 @@ pub struct Status {
     pub interp: Interp,
     pub exec_state: i32,
     pub enabled: bool,
+    /// 1 free (joint jogs), 2 coordinated, 3 teleop (axis jogs).
+    pub traj_mode: i32,
     pub joints: usize,
     pub axis_mask: u32,
     pub homed: [bool; JOINTS],
@@ -92,6 +94,8 @@ pub struct Status {
     pub spindle_speed: f64,
     pub spindle_direction: i32,
     pub spindle_enabled: bool,
+    pub mist: bool,
+    pub flood: bool,
     pub active_gcodes: [i32; 17],
     pub active_mcodes: [i32; 10],
     pub active_settings: [f64; 5],
@@ -210,9 +214,12 @@ pub enum Command {
     Home(i32),
     Unhome(i32),
     Teleop(bool),
-    JogCont { joint_mode: bool, index: i32, vel: f64 },
-    JogIncr { joint_mode: bool, index: i32, vel: f64, incr: f64 },
-    JogStop { joint_mode: bool, index: i32 },
+    /// Jogs take an axis index (0 = X). The worker picks joint or axis
+    /// (teleop) jogging from the homed state, as LinuxCNC 2.9 requires, and
+    /// maps the axis to its joint (identity on this trivkins machine).
+    JogCont { axis: i32, vel: f64 },
+    JogIncr { axis: i32, vel: f64, incr: f64 },
+    JogStop { axis: i32 },
     FeedScale(f64),
     RapidScale(f64),
     SpindleScale(f64),

@@ -1,0 +1,106 @@
+// Overlays cover only the middle band, so the status bar (E-STOP, power)
+// and the cycle bar (feed hold, stop, cycle start) stay usable.
+import { Theme } from "theme.slint";
+import { Live, Actions, MsgRow } from "state.slint";
+import { Btn, Label, H3, Note } from "widgets.slint";
+
+component Scrim inherits Rectangle {
+    background: #050708a0;
+    TouchArea { }  // swallow taps behind the dialog
+}
+
+component Dialog inherits Rectangle {
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    border-radius: 10px;
+}
+
+export component Keypad inherits Scrim {
+    Dialog {
+        width: 500px;
+        height: 640px;
+        VerticalLayout {
+            padding: 20px;
+            spacing: 14px;
+            Text { text: Live.keypad-label; font-family: Theme.display; font-size: 38px; letter-spacing: 2px; color: Theme.ink; }
+            Rectangle {
+                height: 76px;
+                background: Theme.well;
+                border-width: 1px;
+                border-color: Theme.sel;
+                border-radius: 6px;
+                Text {
+                    x: 16px;
+                    width: parent.width - 32px;
+                    horizontal-alignment: right;
+                    text: Live.keypad-value == "" ? "0" : Live.keypad-value;
+                    font-family: Theme.body; font-weight: 600; font-size: 46px; color: Theme.ink;
+                }
+            }
+            GridLayout {
+                spacing: 10px;
+                Row { for k in ["7", "8", "9", "⌫"]: Btn { height: 84px; font-size: 36px; text: k; clicked => { Actions.keypad-key(k); } } }
+                Row { for k in ["4", "5", "6", "±"]: Btn { height: 84px; font-size: 36px; text: k; clicked => { Actions.keypad-key(k); } } }
+                Row { for k in ["1", "2", "3", "CLR"]: Btn { height: 84px; font-size: k == "CLR" ? 28px : 36px; text: k; clicked => { Actions.keypad-key(k); } } }
+                Row {
+                    Btn { height: 84px; font-size: 36px; text: "0"; clicked => { Actions.keypad-key("0"); } }
+                    Btn { height: 84px; font-size: 36px; text: "."; clicked => { Actions.keypad-key("."); } }
+                }
+            }
+            HorizontalLayout {
+                spacing: 20px;
+                Btn { text: "CANCEL"; clicked => { Actions.keypad-done(false); } }
+                Btn { text: "ENTER"; kind: "go"; clicked => { Actions.keypad-done(true); } }
+            }
+        }
+    }
+}
+
+export component MessageDrawer inherits Scrim {
+    Dialog {
+        width: 1100px;
+        height: 760px;
+        VerticalLayout {
+            padding: 20px;
+            spacing: 14px;
+            HorizontalLayout {
+                Text { text: "MESSAGES"; font-family: Theme.display; font-size: 38px; letter-spacing: 2px; color: Theme.ink; horizontal-stretch: 1; }
+                Note { vertical-alignment: center; text: "Errors, (MSG), (DEBUG) and (PRINT) output, newest first"; }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                background: Theme.well;
+                border-radius: 6px;
+                clip: true;
+                Flickable {
+                    content-height: list.preferred-height;
+                    list := VerticalLayout {
+                        padding: 10px;
+                        spacing: 6px;
+                        alignment: start;
+                        for m in Live.messages: HorizontalLayout {
+                            spacing: 14px;
+                            Text { width: 90px; text: m.time; font-family: Theme.body; font-size: 20px; color: Theme.dim; }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: m.text;
+                                wrap: word-wrap;
+                                font-family: Theme.body;
+                                font-size: 22px;
+                                color: m.kind == "error" ? #ff8f8a : m.kind == "display" ? #8cc4ef : Theme.ink;
+                            }
+                        }
+                        if Live.messages.length == 0: Note { text: "No messages."; }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 20px;
+                Btn { width: 240px; text: "CLEAR"; clicked => { Actions.clear-messages(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { width: 240px; text: "CLOSE"; kind: "go"; clicked => { Live.drawer-open = false; } }
+            }
+        }
+    }
+}

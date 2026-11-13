@@ -19,6 +19,7 @@ impl Sim {
     pub fn new() -> Self {
         let mut s = Status::default();
         s.joints = 4;
+        s.traj_mode = 1;
         s.axis_mask = 0b1111;
         s.g5x_index = 1;
         s.feed_scale = 1.0;
@@ -45,6 +46,45 @@ impl Sim {
             return false;
         }
         true
+    }
+}
+
+impl Sim {
+    /// Just enough G-code for the manual screens: M7/M9, G10 L20 P0, G0/G53 G0.
+    fn mdi(&mut self, line: &str) {
+        let up = line.to_ascii_uppercase();
+        let words: Vec<(char, f64)> = up
+            .split_whitespace()
+            .filter_map(|w| {
+                let mut c = w.chars();
+                let l = c.next()?;
+                c.as_str().parse().ok().map(|v| (l, v))
+            })
+            .collect();
+        let has = |l: char, v: f64| words.iter().any(|&(a, b)| a == l && b == v);
+        let val = |l: char| words.iter().find(|&&(a, _)| a == l).map(|&(_, v)| v);
+        if has('M', 7.0) {
+            self.s.mist = true;
+        }
+        if has('M', 9.0) {
+            self.s.mist = false;
+            self.s.flood = false;
+        }
+        if has('G', 10.0) && has('L', 20.0) {
+            for (i, l) in ['X', 'Y', 'Z', 'A'].into_iter().enumerate() {
+                if let Some(v) = val(l) {
+                    self.s.g5x_offset[i] = self.s.actual[i] - self.s.tool_offset[i] - v;
+                }
+            }
+        } else if has('G', 0.0) || has('G', 1.0) {
+            let machine = has('G', 53.0);
+            for (i, l) in ['X', 'Y', 'Z', 'A'].into_iter().enumerate() {
+                if let Some(v) = val(l) {
+                    self.s.actual[i] = if machine { v } else { v + self.s.g5x_offset[i] + self.s.tool_offset[i] };
+                }
+            }
+        }
+        self.msg(MessageKind::Display, format!("(sim) MDI {line}"));
     }
 }
 
@@ -116,7 +156,7 @@ impl Machine for Sim {
             }
             Command::Mdi(line) => {
                 if self.require_on("MDI") {
-                    self.msg(MessageKind::Text, format!("(sim) MDI {line}"));
+                    self.mdi(line);
                 }
             }
             Command::ProgramOpen(path) => self.s.file = path.clone(),
@@ -159,22 +199,22 @@ impl Machine for Sim {
                     }
                 }
             }
-            Command::Teleop(_) => {}
-            Command::JogCont { index, vel, .. } => {
+            Command::Teleop(on) => self.s.traj_mode = if *on { 3 } else { 1 },
+            Command::JogCont { axis: index, vel } => {
                 if self.require_on("jog") {
                     if let Some(v) = self.jog.get_mut(*index as usize) {
                         *v = *vel * 60.0;
                     }
                 }
             }
-            Command::JogIncr { index, incr, .. } => {
+            Command::JogIncr { axis: index, incr, .. } => {
                 if self.require_on("jog") {
                     if let Some(p) = self.s.actual.get_mut(*index as usize) {
                         *p += *incr;
                     }
                 }
             }
-            Command::JogStop { index, .. } => {
+            Command::JogStop { axis: index } => {
                 if let Some(v) = self.jog.get_mut(*index as usize) {
                     *v = 0.0;
                 }

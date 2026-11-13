@@ -1,6 +1,6 @@
 import { Theme } from "theme.slint";
-import { Live } from "state.slint";
-import { Card, Label } from "widgets.slint";
+import { Live, Actions } from "state.slint";
+import { Card, Label, Btn, Seg, Note } from "widgets.slint";
 
 // Placeholder for screens that later milestones fill in.
 export component Placeholder inherits Rectangle {
@@ -33,9 +33,85 @@ export component Placeholder inherits Rectangle {
     }
 }
 
+component MdiPanel inherits Card {
+    VerticalLayout {
+        padding: 14px;
+        spacing: 12px;
+        Label { text: "HISTORY · TAP TO REUSE"; }
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.well;
+            border-radius: 6px;
+            clip: true;
+            Flickable {
+                content-height: hist.preferred-height;
+                hist := VerticalLayout {
+                    padding: 8px;
+                    spacing: 4px;
+                    alignment: start;
+                    for h in Live.mdi-history: Rectangle {
+                        height: 46px;
+                        background: ht.pressed ? Theme.raised : transparent;
+                        border-radius: 4px;
+                        Text { x: 10px; vertical-alignment: center; text: h; font-family: Theme.body; font-size: 24px; color: Theme.ink; }
+                        ht := TouchArea { clicked => { Live.mdi-text = h; } }
+                    }
+                    if Live.mdi-history.length == 0: Note { text: "Commands you send appear here."; }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 64px;
+                background: Theme.well;
+                border-width: 1px;
+                border-color: input.has-focus ? Theme.sel : Theme.line;
+                border-radius: 6px;
+                input := TextInput {
+                    x: 14px;
+                    width: parent.width - 28px;
+                    vertical-alignment: center;
+                    text <=> Live.mdi-text;
+                    font-family: Theme.body;
+                    font-size: 28px;
+                    color: Theme.ink;
+                    enabled: Live.power && !Live.manual-locked;
+                    accepted => { Actions.mdi-send(self.text); }
+                }
+            }
+            Btn {
+                width: 200px;
+                height: 64px;
+                text: "SEND";
+                kind: "go";
+                enabled: Live.power && !Live.manual-locked && Live.mdi-text != "";
+                clicked => { Actions.mdi-send(Live.mdi-text); }
+            }
+        }
+    }
+}
+
 export component RunScreen inherits Rectangle {
-    Placeholder {
-        title: Live.program == "" ? "NO PROGRAM LOADED" : Live.program;
-        note: (Live.program == "" ? "" : "LINE " + Live.line + " · ") + "G-code view and preview arrive in milestone 3";
+    VerticalLayout {
+        padding: 14px;
+        spacing: 14px;
+        HorizontalLayout {
+            width: 420px;
+            Seg { text: "PROGRAM"; on: Live.run-tab == "program"; clicked => { Live.run-tab = "program"; } }
+            Seg { text: "MDI"; on: Live.run-tab == "mdi"; clicked => { Live.run-tab = "mdi"; } }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            if Live.run-tab == "program": Placeholder {
+                width: parent.width + 28px;
+                x: -14px; y: -14px;
+                height: parent.height + 28px;
+                title: Live.program == "" ? "NO PROGRAM LOADED" : Live.program;
+                note: (Live.program == "" ? "" : "LINE " + Live.line + " · ") + "G-code view and preview arrive in milestone 3";
+            }
+            if Live.run-tab == "mdi": MdiPanel { }
+        }
     }
 }

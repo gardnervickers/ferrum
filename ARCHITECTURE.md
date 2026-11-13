@@ -62,6 +62,51 @@ clear message when its prerequisites are missing.
   also restores them at startup, which covers a GUI crash mid-run.
   (Assumes only millgui changes `#30xx` outside of probe runs.)
 
+## Remote (web) access
+
+Requested 2026-11-13: use the GUI from a MacBook's browser. Plan: the same
+Slint UI compiled to WebAssembly, with the Pi streaming state over a websocket.
+The browser renders, so the Pi's cost is serialization only (VNC would render
+and encode on the Pi's two non-RT cores).
+
+```
+browser (wasm): Slint UI + Remote: Machine ──ws──> millgui on the Pi: `remote` module
+                                                     ├─ serves the wasm bundle
+                                                     ├─ fans out Status, messages, pills
+                                                     └─ admits commands into the worker queue
+```
+
+- `Remote` implements the `Machine` trait, so screens do not know where they
+  run. HAL pins exist only on the Pi, so the Pi sends the module pills it
+  computed alongside each `Status`.
+- Commands from the browser enter the same worker queue as the touchscreen's;
+  LinuxCNC serializes them and both screens show the same status.
+
+Classification:
+
+- **Correctness (when control is allowed).** (1) The Pi decides whether a
+  remote command is admitted; greying out buttons in the browser is only UX.
+  (2) A continuous jog must not outlive its sender: a lost "stop" over the
+  network would leave an axis moving. Either the browser renews a jog lease
+  (for example every 100 ms, stopped by the Pi after 300 ms without one or on
+  disconnect), or remote jogs are incremental only. Recommendation: incremental
+  only at first; it needs no lease. (3) A remote E-STOP button is a request,
+  not an e-stop: the network can drop it. The hardware e-stop chain stays the
+  only safety function.
+- **Availability.** A browser disconnect or slow client must not stall the
+  worker or the touchscreen: per-client bounded queues that drop stale status
+  and keep the newest.
+- **Misuse safeguards.** Read-only by default. The override is a design
+  choice with options: a touchscreen grant ("ALLOW REMOTE CONTROL") that ends
+  when the browser disconnects, which needs someone at the machine; an INI
+  setting `[MILLGUI]REMOTE_CONTROL = allow` for a trusted setup; or both
+  (recommended: INI permits it, the touchscreen grants it). FEED HOLD and STOP
+  could be admitted even when read-only, since they only remove motion; to decide.
+  Who can connect: the LAN only, plus a token if the network is shared.
+- **Uncertain:** Slint's wasm backend renders through a canvas. Fonts are
+  embedded already. The backplot's software renderer should run in the
+  browser unchanged, but that is unverified.
+
 ## Milestones
 
 | | Milestone | Done when |
@@ -74,3 +119,4 @@ clear message when its prerequisites are missing.
 | M5 | Probing | Probe screen with per-run settings, tool setter, Util and machine status. |
 | M6 | Job and Conv | Job builder and conversational screens over the existing Python CLIs. |
 | M7 | GPU preview and polish | GL renderer behind the same trait, Pi performance pass, findings from the UI/UX review. |
+| M8 | Remote web | `remote` module: websocket server and wasm bundle, read-only by default with an override, incremental-only remote jogs. A read-only view needs only M1 to M3, so it can move up. |

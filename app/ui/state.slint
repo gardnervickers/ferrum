@@ -3,6 +3,7 @@
 export struct PillData { text: string, kind: string }
 export struct DroRow { axis: string, work: string, mach: string, dtg: string, homed: bool }
 export struct NavItem { id: string, label: string, icon: string }
+export struct MsgRow { time: string, text: string, kind: string }
 
 export global Live {
     in property <bool> connected;
@@ -40,6 +41,28 @@ export global Live {
 
     in property <[NavItem]> nav;
     in-out property <string> screen: "run";
+
+    // Manual control is locked while a program runs or is paused.
+    in property <bool> manual-locked;
+    in property <bool> has-a: true;
+    in property <[string]> jog-steps: ["CONT", "0.01", "0.1", "1", "10"];
+    in property <string> jog-step: "CONT";
+    in property <string> jog-speed: "50";
+    in property <string> jog-speed-a: "180";
+    in property <string> spindle-rpm: "300";
+    in property <bool> mist;
+
+    in-out property <string> run-tab: "program";
+    in property <[string]> mdi-history;
+    in-out property <string> mdi-text;
+
+    in property <[MsgRow]> messages;
+    in-out property <bool> drawer-open;
+
+    // Keypad overlay; Rust owns the value and what it is for.
+    in property <bool> keypad-open;
+    in property <string> keypad-label;
+    in property <string> keypad-value;
 }
 
 export global Actions {
@@ -56,4 +79,21 @@ export global Actions {
     callback single-block();
     callback optional-stop();
     callback navigate(id: string);
+
+    callback jog-start(axis: int, dir: int);
+    callback jog-stop(axis: int);
+    callback jog-step-set(step: string);
+    callback set-a-reference();
+    callback spindle(dir: int);
+    callback mist-toggle();
+    callback zero-xyz();
+    callback z-to-work-zero();
+    callback retract-xy-to-zero();
+    // Opens the keypad for a named value ("jog-speed", "spindle-rpm", ...).
+    callback edit(what: string);
+    callback keypad-key(key: string);
+    callback keypad-done(ok: bool);
+
+    callback mdi-send(text: string);
+    callback clear-messages();
 }

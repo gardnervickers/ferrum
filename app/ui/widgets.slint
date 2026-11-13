@@ -14,6 +14,8 @@ export component Btn inherits Rectangle {
     callback clicked();
     // Fires on touch-down, before any hold or release (E-STOP trips on it).
     callback pressed();
+    // Fires when the touch ends or is cancelled (continuous jog stops on it).
+    callback released();
 
     property <bool> arming: touch.pressed && hold && enabled;
     property <bool> fired;
@@ -86,6 +88,8 @@ export component Btn inherits Rectangle {
             if e.kind == PointerEventKind.down {
                 root.fired = false;
                 root.pressed();
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                root.released();
             }
         }
         clicked => {
@@ -124,4 +128,47 @@ export component Label inherits Text {
 export component Card inherits Rectangle {
     background: Theme.panel;
     border-radius: 8px;
+}
+
+// Segment of a segmented control (the mockup's .tabs2).
+export component Seg inherits Btn {
+    preferred-height: 52px;
+    border-radius: 0px;
+}
+
+// A value well that opens the keypad when tapped.
+export component NumField inherits Rectangle {
+    in property <string> value;
+    in property <string> unit;
+    in property <bool> enabled: true;
+    callback edit();
+    height: 54px;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: touch.pressed ? Theme.sel : Theme.line;
+    border-radius: 6px;
+    opacity: enabled ? 1 : 0.38;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 6px;
+        alignment: end;
+        Text { vertical-alignment: center; text: value; font-family: Theme.body; font-weight: 600; font-size: 28px; color: Theme.ink; }
+        if unit != "": Text { vertical-alignment: center; text: unit; font-family: Theme.body; font-size: 17px; color: Theme.dim; }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.edit(); } }
+}
+
+export component H3 inherits Text {
+    font-family: Theme.display;
+    font-size: 28px;
+    letter-spacing: 1.4px;
+    color: Theme.ink;
+}
+
+export component Note inherits Text {
+    font-family: Theme.body;
+    font-size: 19px;
+    color: Theme.muted;
+    wrap: word-wrap;
 }
