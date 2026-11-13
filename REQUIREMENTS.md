@@ -81,8 +81,12 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] spindle-nose-reference-valid resets on any unhome; probe_spindle_nose.ngc needs T0 and an
       invalid reference; show VALID/NEEDS PROBE in Util and tool change; gate CAL → SPINDLE NOSE on T0.
 - [x] Tool setter is G30 (#5181–5183) via set_g30_position.ngc; go-to G30 and park.
-- [x] Probe screen per mockup (START pads, steppers, MORE, DEFAULTS, mode-matched label,
+- [x] Probe screen per mockup (steppers, MORE, DEFAULTS, mode-matched label,
       Write-to only in FIND); probe wired as T99.
+- [x] Probe screen redone (Gardner, 2026-11-13: "do I click START HERE or the edge?"): columns
+      1 WHAT (mode, shape) → 2 WHERE (picture whose spots are its only controls; labelled
+      option rows for edge angle, X+Y/X/Y and first side, ridge/slot, rotary target) →
+      3 SETTINGS (at most three values, rest under MORE) → 4 START. Fixed slots; touch ≥ 56 px.
 - [x] Warm-up with editable stage minutes and RPM CMD progress.
 - [ ] Probe preview animation (the mockup's 1× loop); the picture shows the approach arrows only.
 - [ ] Warm-up holds the spindle override at 100 % and stops if it changes; util.py disables the

@@ -1,51 +1,80 @@
 import { Theme } from "theme.slint";
-import { Live, Actions, ProbeItem, ProbeSpot, ProbeParam } from "state.slint";
+import { Live, Actions, ProbeItem, ProbeOpt, ProbeSpot, ProbeParam } from "state.slint";
 import { Btn, Seg, Card, Label, H3, Note, Pill } from "widgets.slint";
 
-// One run value: label (with unit), reset chip when changed, − value +.
-// The chip's slot is always reserved so changing a value moves nothing.
+// One run value: label (with unit, and the default once changed), then
+// − value + and a RESET button that only shows when the value differs from
+// the default. Its slot is always reserved, so changing a value moves nothing.
 component Stepper inherits Rectangle {
     in property <ProbeParam> p;
     in property <bool> enabled: true;
     background: p.changed ? #43361a : Theme.panel2;
     border-radius: 6px;
-    min-width: 170px;
-    // Equal columns whatever the label length.
-    preferred-width: 170px;
+    min-width: 300px;
     horizontal-stretch: 1;
-    height: 104px;
+    height: 106px;
     VerticalLayout {
         padding: 8px;
         spacing: 6px;
-        HorizontalLayout {
-            height: 28px;
-            spacing: 6px;
-            Label { horizontal-stretch: 1; vertical-alignment: center; text: p.unit != "" ? p.label + "  " + p.unit : p.label; font-size: 18px; overflow: elide; color: p.changed ? #f3c463 : Theme.muted; }
-            // Only the label elides when the chip shows; the stepper keeps its size.
-            Rectangle {
-                width: p.changed ? 64px : 0px;
-                border-radius: 14px;
-                background: !p.changed ? transparent : rt.pressed ? Theme.raised : Theme.well;
-                if p.changed: Text { text: "RESET"; font-family: Theme.body; font-size: 16px; color: Theme.muted; overflow: elide; }
-                rt := TouchArea { enabled: p.changed; clicked => { Actions.probe-reset(p.id); } }
-            }
+        Label {
+            height: 26px;
+            vertical-alignment: center;
+            text: (p.unit != "" ? p.label + "  " + p.unit : p.label) + (p.changed ? "   ·   DEFAULT " + p.def : "");
+            font-size: 20px;
+            overflow: elide;
+            color: p.changed ? #f3c463 : Theme.muted;
         }
         HorizontalLayout {
+            height: 58px;
             spacing: 6px;
-            Btn { width: 46px; height: 54px; text: "−"; font-size: 30px; enabled: root.enabled; clicked => { Actions.probe-step(p.id, -1); } }
+            Btn { width: 64px; text: "−"; font-size: 30px; enabled: root.enabled; clicked => { Actions.probe-step(p.id, -1); } }
             Rectangle {
                 horizontal-stretch: 1;
-                height: 54px;
                 background: Theme.well;
                 border-radius: 6px;
                 border-width: 1px;
                 border-color: vt.pressed ? Theme.sel : Theme.line;
-                Text { x: 6px; width: parent.width - 12px; horizontal-alignment: center; vertical-alignment: center; text: p.value; font-family: Theme.body; font-weight: 600; font-size: 26px; color: Theme.ink; overflow: elide; }
+                Text { x: 6px; width: parent.width - 12px; horizontal-alignment: center; vertical-alignment: center; text: p.value; font-family: Theme.body; font-weight: 600; font-size: 28px; color: Theme.ink; overflow: elide; }
                 vt := TouchArea { enabled: root.enabled; clicked => { Actions.edit("prun-" + p.id); } }
             }
-            Btn { width: 46px; height: 54px; text: "+"; font-size: 30px; enabled: root.enabled; clicked => { Actions.probe-step(p.id, 1); } }
+            Btn { width: 64px; text: "+"; font-size: 30px; enabled: root.enabled; clicked => { Actions.probe-step(p.id, 1); } }
+            Rectangle {
+                width: 96px;
+                if p.changed: Btn { width: parent.width; height: parent.height; text: "RESET"; font-size: 20px; enabled: root.enabled; clicked => { Actions.probe-reset(p.id); } }
+            }
         }
     }
+}
+
+// A labelled row of choices under the picture. The label is plain text; the
+// choices are buttons. An empty row keeps its height.
+component OptRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <[ProbeOpt]> opts;
+    in property <bool> enabled: true;
+    height: 60px;
+    spacing: 8px;
+    alignment: start;
+    Label { width: 110px; vertical-alignment: center; text: root.label; overflow: elide; }
+    for o in root.opts: Btn {
+        min-width: 104px;
+        height: 60px;
+        font-size: 21px;
+        text: o.label;
+        on: o.on;
+        enabled: o.enabled && root.enabled;
+        clicked => { Actions.probe-opt(o.id); }
+    }
+}
+
+// Small step heading ("1 · WHAT"): plain text, never a control.
+component Step inherits Text {
+    font-family: Theme.display;
+    font-size: 20px;
+    letter-spacing: 1.6px;
+    color: Theme.dim;
+    vertical-alignment: center;
+    height: 26px;
 }
 
 component Dialog inherits Rectangle {
@@ -83,174 +112,153 @@ export component ProbeScreen inherits Rectangle {
     property <bool> defaults-open;
     property <string> defaults-tab: "probe";
     property <bool> wcs-open;
+    // The browser build redraws a changed Path over open overlays.
+    property <bool> paths-visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open || root.more-open || root.defaults-open || root.wcs-open);
+    // Every slot below has a fixed size: changing the mode, shape or target
+    // changes what is in a slot, never where anything is.
     HorizontalLayout {
         padding: 14px;
         spacing: 14px;
-        // Mode and shape
+        // 1 · What: mode and shape
         Card {
             width: 290px;
             VerticalLayout {
                 padding: 14px;
                 spacing: 10px;
+                Step { text: "1 · WHAT"; }
                 HorizontalLayout {
-                    Seg { horizontal-stretch: 1; text: "FIND"; font-size: 21px; on: Live.pr-mode == "find"; clicked => { Actions.probe-mode("find"); } }
-                    Seg { horizontal-stretch: 1; text: "MEASURE"; font-size: 21px; on: Live.pr-mode == "meas"; clicked => { Actions.probe-mode("meas"); } }
-                    Seg { horizontal-stretch: 1; text: "CAL"; font-size: 21px; on: Live.pr-mode == "cal"; clicked => { Actions.probe-mode("cal"); } }
+                    height: 60px;
+                    Seg { horizontal-stretch: 1; text: "FIND"; font-size: 21px; on: Live.pr-mode == "find"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("find"); } }
+                    Seg { horizontal-stretch: 1; text: "MEASURE"; font-size: 21px; on: Live.pr-mode == "meas"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("meas"); } }
+                    Seg { horizontal-stretch: 1; text: "CAL"; font-size: 21px; on: Live.pr-mode == "cal"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("cal"); } }
                 }
                 Label { height: 26px; text: Live.pr-shape-label; overflow: elide; }
-                for s in Live.pr-shapes: Btn { height: 66px; text: s.label; on: s.on; clicked => { Actions.probe-shape(s.id); } }
+                for s in Live.pr-shapes: Btn { height: 66px; text: s.label; on: s.on; enabled: !Live.pr-running; clicked => { Actions.probe-shape(s.id); } }
                 Rectangle { vertical-stretch: 1; }
-                Note { text: Live.pr-routine; }
+                Note { font-size: 18px; text: Live.pr-routine; }
             }
         }
-        // Target picture, values, run
+        // 2 · Where: the picture (its spots are the only controls on it),
+        // the choices for the target, and the result.
         Card {
             horizontal-stretch: 1;
             VerticalLayout {
                 padding: 14px;
                 spacing: 10px;
                 HorizontalLayout {
-                    spacing: 12px;
-                    H3 { horizontal-stretch: 1; text: Live.pr-title; overflow: elide; }
-                    Pill { text: Live.pr-pill; kind: Live.pr-pill-kind; }
+                    height: 40px;
+                    spacing: 14px;
+                    Step { height: 40px; text: "2 · WHERE"; }
+                    H3 { horizontal-stretch: 1; vertical-alignment: center; text: Live.pr-title; overflow: elide; }
                 }
                 pic := Rectangle {
                     vertical-stretch: 1;
-                    min-height: 260px;
+                    min-height: 300px;
                     background: Theme.well;
                     border-radius: 6px;
                     clip: true;
-                    property <float> sc: min(self.width / 400px, (self.height - 24px) / 300px);
+                    property <float> sc: min(self.width / 400px, (self.height - 30px) / 300px);
                     property <length> ox: (self.width - 400px * sc) / 2;
-                    property <length> oy: 24px + (self.height - 24px - 300px * sc) / 2;
-                    Label { x: 0; y: 4px; width: parent.width; horizontal-alignment: center; text: Live.pr-hint; }
+                    property <length> oy: 30px + (self.height - 30px - 300px * sc) / 2;
+                    Text { x: 0; y: 6px; width: parent.width; horizontal-alignment: center; text: Live.pr-hint; font-family: Theme.body; font-size: 19px; color: Theme.dim; }
                     Path {
-                        // The browser build redraws a changed Path over open overlays.
-                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open || root.more-open || root.defaults-open || root.wcs-open);
+                        visible: root.paths-visible;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-outline;
                         stroke: Theme.muted; stroke-width: 2px; fill: transparent;
                     }
+                    for sp in Live.pr-spots: Rectangle {
+                        property <bool> edge: sp.w > 0;
+                        x: pic.ox + (edge ? sp.x : (sp.x - sp.r)) * pic.sc * 1px;
+                        y: pic.oy + (edge ? sp.y : (sp.y - sp.r)) * pic.sc * 1px;
+                        width: (edge ? sp.w : 2 * sp.r) * pic.sc * 1px;
+                        height: (edge ? sp.h : 2 * sp.r) * pic.sc * 1px;
+                        border-radius: (edge ? 8 : sp.r) * pic.sc * 1px;
+                        background: sp.on ? #f3c46366 : st.pressed ? #6d7cff80 : #6d7cff38;
+                        border-width: 3px;
+                        border-color: sp.on ? #f3c463 : #6d7cff;
+                        st := TouchArea { enabled: !Live.pr-running; clicked => { Actions.probe-target(sp.id); } }
+                    }
+                    // Approach moves, drawn over the spots (not tappable).
                     Path {
-                        // The browser build redraws a changed Path over open overlays.
-                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open || root.more-open || root.defaults-open || root.wcs-open);
+                        visible: root.paths-visible;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-arrows;
-                        stroke: #f3c46380; stroke-width: 2px; fill: transparent;
+                        stroke: #f3c463c0; stroke-width: 2px; fill: transparent;
                     }
                     Path {
-                        // The browser build redraws a changed Path over open overlays.
-                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open || root.more-open || root.defaults-open || root.wcs-open);
+                        visible: root.paths-visible;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-heads;
                         fill: #f3c463; stroke: transparent;
                     }
-                    for sp in Live.pr-spots: Rectangle {
-                        property <bool> pill: sp.label != "";
-                        property <bool> edge: sp.w > 0 && !pill;
-                        x: pic.ox + (pill ? (sp.x - sp.w / 2) : edge ? sp.x : (sp.x - sp.r)) * pic.sc * 1px;
-                        y: pic.oy + (pill ? (sp.y - sp.h / 2) : edge ? sp.y : (sp.y - sp.r)) * pic.sc * 1px;
-                        width: (pill || edge ? sp.w : 2 * sp.r) * pic.sc * 1px;
-                        height: (pill || edge ? sp.h : 2 * sp.r) * pic.sc * 1px;
-                        border-radius: (edge ? 6 : pill ? sp.h / 2 : sp.r) * pic.sc * 1px;
-                        background: pill ? (sp.on ? #f3c463 : Theme.panel2) : sp.on ? #f3c4638c : #6d7cff4d;
-                        border-width: 2px;
-                        border-color: sp.on ? #f3c463 : pill ? #5a6268 : #6d7cff;
-                        if pill: Text {
-                            text: sp.label;
-                            font-family: Theme.display;
-                            font-size: 15px * pic.sc * 1.3;
-                            color: sp.on ? #0f1214 : Theme.muted;
-                        }
-                        TouchArea { clicked => { Actions.probe-target(sp.id); } }
-                    }
                 }
-                // Options, steppers and side buttons keep the same slots for
-                // every target, so picking an edge or a corner moves nothing.
+                OptRow { label: Live.pr-opts-label; opts: Live.pr-opts; enabled: !Live.pr-running; }
+                OptRow { label: Live.pr-opts2-label; opts: Live.pr-opts2; enabled: !Live.pr-running; }
+                Step { text: "RESULT"; }
+                Rectangle {
+                    height: 150px;
+                    background: Theme.well;
+                    border-radius: 6px;
+                    clip: true;
+                    Text { x: 12px; y: 10px; width: parent.width - 24px; height: parent.height - 20px; text: Live.pr-result; font-family: Theme.body; font-size: 22px; color: Theme.ink; wrap: word-wrap; vertical-alignment: top; }
+                }
+            }
+        }
+        // 3 · Settings and 4 · Start
+        Card {
+            width: 420px;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+                Step { text: "3 · SETTINGS"; }
+                // Write-to in FIND; what the mode does otherwise. Same slot.
+                Rectangle {
+                    height: 60px;
+                    if Live.pr-show-wcs: HorizontalLayout {
+                        spacing: 12px;
+                        Label { width: 110px; vertical-alignment: center; text: "WRITE TO"; }
+                        Btn { horizontal-stretch: 1; height: 60px; text: Live.pr-wcs + "  ▾"; font-size: 28px; enabled: !Live.pr-running; clicked => { root.wcs-open = true; } }
+                    }
+                    if !Live.pr-show-wcs: Note { vertical-alignment: center; text: Live.pr-note; }
+                }
+                // Three fixed value slots (no routine has more key values).
+                for p in Live.pr-params: Stepper { p: p; enabled: !Live.pr-running; }
+                for i in max(0, 3 - Live.pr-params.length): Rectangle { height: 106px; }
                 HorizontalLayout {
-                    height: 54px;
+                    height: 60px;
                     spacing: 8px;
-                    alignment: start;
-                    for o in Live.pr-opts: Btn { min-width: 150px; height: 54px; font-size: 20px; text: o.label; on: o.on; clicked => { Actions.probe-opt(o.id); } }
+                    Btn { horizontal-stretch: 1; font-size: 20px; text: Live.pr-more.length > 0 ? "MORE · " + Live.pr-more.length : "MORE"; enabled: Live.pr-more.length > 0; clicked => { root.more-open = true; } }
+                    Btn { horizontal-stretch: 1; font-size: 20px; text: "RESET ALL"; enabled: Live.pr-changed && !Live.pr-running; clicked => { Actions.probe-reset-all(); } }
+                    Btn { horizontal-stretch: 1; font-size: 20px; text: "DEFAULTS"; clicked => { root.defaults-open = true; } }
                 }
-                // Fixed slots: the side buttons are always there (disabled
-                // when they don't apply) so taps never land somewhere else.
-                // One row of up to three steppers (every routine has three or
-                // fewer key values; the rest are under MORE).
+                Rectangle { vertical-stretch: 1; }
                 HorizontalLayout {
-                    height: Live.pr-params.length > 3 ? 218px : 144px;
+                    height: 40px;
                     spacing: 10px;
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        alignment: start;
-                        GridLayout {
-                            spacing: 10px;
-                            for p[i] in Live.pr-params: Stepper {
-                                col: mod(i, 3);
-                                row: floor(i / 3);
-                                p: p;
-                                enabled: !Live.pr-running;
-                            }
-                            // Empty cells keep three equal columns.
-                            for i in max(0, 3 - Live.pr-params.length): Rectangle {
-                                col: Live.pr-params.length + i;
-                                row: 0;
-                                min-width: 170px;
-                                preferred-width: 170px;
-                                horizontal-stretch: 1;
-                                height: 104px;
-                            }
-                        }
-                    }
-                    VerticalLayout {
-                        width: 140px;
-                        spacing: 6px;
-                        alignment: start;
-                        Btn { height: 44px; font-size: 19px; text: Live.pr-more.length > 0 ? "MORE · " + Live.pr-more.length : "MORE"; enabled: Live.pr-more.length > 0; clicked => { root.more-open = true; } }
-                        Btn { height: 44px; font-size: 19px; text: "RESET ALL"; enabled: Live.pr-changed; clicked => { Actions.probe-reset-all(); } }
-                        Btn { height: 44px; font-size: 19px; text: "DEFAULTS"; clicked => { root.defaults-open = true; } }
-                    }
+                    Step { height: 40px; horizontal-stretch: 1; text: "4 · START"; }
+                    Pill { text: Live.pr-pill; kind: Live.pr-pill-kind; }
                 }
                 // One status line, always the same height.
                 Text {
-                    height: 52px;
+                    height: 50px;
                     wrap: word-wrap;
                     vertical-alignment: center;
                     font-family: Theme.body;
                     font-size: 19px;
                     overflow: elide;
                     color: Live.pr-running || Live.pr-ready != "" ? #f3c463 : Theme.muted;
-                    text: Live.pr-running ? "RUNNING…" : Live.pr-ready != "" ? Live.pr-ready : Live.pr-note;
+                    text: Live.pr-running ? "RUNNING…" : Live.pr-ready != "" ? Live.pr-ready : "Ready.";
                 }
+                Btn { height: 60px; font-size: 22px; text: Live.pr-load-label; enabled: Live.pr-load-enabled && !locked && Live.power && !Live.pr-running; clicked => { Actions.probe-load(); } }
                 HorizontalLayout {
-                    spacing: 14px;
-                    Btn { width: 230px; text: Live.pr-load-label; enabled: Live.pr-load-enabled && !locked && Live.power && !Live.pr-running; clicked => { Actions.probe-load(); } }
-                    Rectangle { horizontal-stretch: 1; }
-                    Btn { width: 160px; kind: "stop"; text: "STOP"; clicked => { Actions.probe-stop(); } }
-                    Btn { width: 270px; kind: "go"; hold: true; text: Live.pr-run-label; enabled: Live.pr-ready == "" && !locked; clicked => { Actions.probe-run(); } }
-                }
-            }
-        }
-        // Write to and result
-        Card {
-            width: 290px;
-            VerticalLayout {
-                padding: 14px;
-                spacing: 10px;
-                if Live.pr-show-wcs: Label { text: "WRITE TO"; }
-                if Live.pr-show-wcs: Btn { text: Live.pr-wcs + "  ▾"; font-size: 30px; enabled: !Live.pr-running; clicked => { root.wcs-open = true; } }
-                H3 { text: "RESULT"; }
-                Rectangle {
-                    vertical-stretch: 1;
-                    background: Theme.well;
-                    border-radius: 6px;
-                    VerticalLayout {
-                        padding: 12px;
-                        Text { text: Live.pr-result; font-family: Theme.body; font-size: 24px; color: Theme.ink; wrap: word-wrap; vertical-alignment: top; }
-                    }
+                    height: 76px;
+                    spacing: 10px;
+                    Btn { width: 130px; kind: "stop"; text: "STOP"; clicked => { Actions.probe-stop(); } }
+                    Btn { horizontal-stretch: 1; kind: "go"; hold: true; text: Live.pr-run-label; enabled: Live.pr-ready == "" && !locked; clicked => { Actions.probe-run(); } }
                 }
             }
         }
@@ -259,7 +267,7 @@ export component ProbeScreen inherits Rectangle {
         title: "MORE SETTINGS · THIS RUN ONLY";
         dw: 1300px;
         // Sized to the rows so no empty band is left below them.
-        dh: min(900px, 140px + ceil(Live.pr-more.length / 3) * 114px);
+        dh: min(900px, 140px + ceil(Live.pr-more.length / 3) * 116px);
         close => { root.more-open = false; }
         Note { text: "Changed values show in amber and go back to the default after the run. Defaults live under DEFAULTS."; }
         GridLayout {
