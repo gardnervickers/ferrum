@@ -26,6 +26,22 @@ impl Settings {
         Self { path, values }
     }
 
+    /// Another state file next to the settings one (`probe` → `.../probe`).
+    pub fn at(name: &str) -> Self {
+        let dir = std::env::var_os("MILLGUI_STATE").map(PathBuf::from).and_then(|p| p.parent().map(PathBuf::from)).or_else(|| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state/millgui"))
+        });
+        let mut s = Self { path: dir.map(|d| d.join(name)), values: BTreeMap::new() };
+        if let Some(text) = s.path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()) {
+            for line in text.lines() {
+                if let Some((k, v)) = line.split_once('=') {
+                    s.values.insert(k.trim().to_string(), v.trim().to_string());
+                }
+            }
+        }
+        s
+    }
+
     /// In-memory only (screenshots and tests).
     pub fn memory() -> Self {
         Self { path: None, values: BTreeMap::new() }

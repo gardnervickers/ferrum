@@ -16,6 +16,7 @@ mod remote;
 mod settings;
 mod toolchange;
 mod offsets;
+mod probe;
 mod tools;
 
 use config::Config;
@@ -503,8 +504,17 @@ fn main() -> Result<(), slint::PlatformError> {
                                 offsets::apply_status(ui, o, &s);
                             }
                         });
+                        PROBE.with(|p| {
+                            if let Some(p) = p.borrow().as_ref() {
+                                probe::apply_status(ui, p, &s);
+                            }
+                        });
                     }
                     Event::Message(m) => {
+                        // Probe macros report results as DEBUG lines.
+                        if PROBE.with(|p| p.borrow().as_ref().is_some_and(|p| probe::message(ui, p, &m))) {
+                            return;
+                        }
                         with_manual(|mm| manual::log_message(ui, mm, &m));
                         live.set_message(SharedString::from(m.text.trim()));
                         live.set_message_error(m.kind == MessageKind::Error);
@@ -549,7 +559,11 @@ fn main() -> Result<(), slint::PlatformError> {
     let _tools_timer = tools::start_timer(&ui, &tools);
     TOOLS.with(|t| *t.borrow_mut() = Some(tools));
     let offsets = offsets::wire(&ui, &handle, &cfg, args.sim);
+    let rot = offsets.clone();
     OFFSETS.with(|o| *o.borrow_mut() = Some(offsets));
+    let probe = probe::wire(&ui, &handle, &cfg, tc_io.clone(), args.sim, Box::new(move |w| offsets::rotation(&rot, w)));
+    let _probe_timer = probe::start_timer(&probe);
+    PROBE.with(|p| *p.borrow_mut() = Some(probe));
     let _tc_timer = tc_io.map(|io| toolchange::wire(&ui, &handle, &cfg, io));
 
     // Remote (web) screen: [MILLGUI]REMOTE_PORT serves the browser build.
@@ -667,6 +681,9 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     tools::apply_status(&ui, &tools, &s);
     let offsets = offsets::wire(&ui, &handle, cfg, true);
     offsets::apply_status(&ui, &offsets, &s);
+    let rot = offsets.clone();
+    let probe = probe::wire(&ui, &handle, cfg, Some(tc_io.clone() as Rc<dyn toolchange::Io>), true, Box::new(move |w| offsets::rotation(&rot, w)));
+    probe::apply_status(&ui, &probe, &s);
     let _tc_timer = toolchange::wire(&ui, &handle, cfg, tc_io);
     let actions = ui.global::<Actions>();
     for what in &args.show {
@@ -744,6 +761,7 @@ thread_local! {
     static SIM_TC: RefCell<Option<Rc<toolchange::SimIo>>> = const { RefCell::new(None) };
     static TOOLS: RefCell<Option<Rc<RefCell<tools::Tools>>>> = const { RefCell::new(None) };
     static OFFSETS: RefCell<Option<Rc<RefCell<offsets::Offsets>>>> = const { RefCell::new(None) };
+    static PROBE: RefCell<Option<Rc<RefCell<probe::Probe>>>> = const { RefCell::new(None) };
     /// The status handler lives on the UI thread; the machine thread only
     /// posts events to it.
     static UI_EVENT: RefCell<Option<UiEventFn>> = RefCell::new(None);

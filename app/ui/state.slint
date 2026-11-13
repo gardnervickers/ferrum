@@ -9,6 +9,9 @@ export struct FileRow { name: string, dir: bool, modified: string, size: string 
 export struct ToolRow { t: string, len: string, dia: string, comment: string, needs-len: bool, current: bool, scratch: bool }
 export struct CheckRow { t: string, status: string, kind: string, action: string }
 export struct OffsetRow { wcs: string, x: string, y: string, z: string, a: string, rot: string, active: bool, used: bool }
+export struct ProbeItem { id: string, label: string, on: bool }
+export struct ProbeSpot { id: string, x: float, y: float, w: float, h: float, r: float, on: bool, label: string }
+export struct ProbeParam { id: string, label: string, value: string, unit: string, changed: bool, def: string }
 export struct GotoRow { name: string, x: string, y: string, px: float, py: float }
 
 export global Live {
@@ -142,6 +145,35 @@ export global Live {
     in property <string> offsets-sel-label: "G54";
     in property <string> offsets-g92;
 
+    // PROBE screen (probe.rs). Picture paths are SVG data in a 400x300 box.
+    in property <string> pr-mode: "find";
+    in property <[ProbeItem]> pr-shapes;
+    in property <string> pr-shape-label;
+    in property <string> pr-title;
+    in property <string> pr-hint;
+    in property <string> pr-outline;
+    in property <string> pr-arrows;
+    in property <string> pr-heads;
+    in property <[ProbeSpot]> pr-spots;
+    in property <[ProbeItem]> pr-opts;
+    in property <[ProbeParam]> pr-params;
+    in property <[ProbeParam]> pr-more;
+    in property <[ProbeParam]> pr-defaults;
+    in property <bool> pr-changed;
+    in property <string> pr-routine;
+    in property <string> pr-note;
+    in property <bool> pr-show-wcs: true;
+    in property <string> pr-wcs: "G54";
+    in property <string> pr-result;
+    in property <string> pr-pill;
+    in property <string> pr-pill-kind;
+    in property <string> pr-load-label;
+    in property <bool> pr-load-enabled;
+    in property <string> pr-run-label: "HOLD TO PROBE";
+    in property <bool> pr-running;
+    // Why a run can't start now ("" = ready).
+    in property <string> pr-ready;
+
     // Keypad overlay; Rust owns the value and what it is for.
     in property <bool> keypad-open;
     in property <string> keypad-label;
@@ -220,4 +252,15 @@ export global Actions {
     callback offsets-clear();
     callback offsets-clear-all();
     callback offsets-clear-g92();
+    callback probe-mode(mode: string);
+    callback probe-shape(shape: string);
+    callback probe-target(id: string);
+    callback probe-opt(id: string);
+    callback probe-step(id: string, dir: int);
+    callback probe-reset(id: string);
+    callback probe-reset-all();
+    callback probe-wcs(code: string);
+    callback probe-load();
+    callback probe-run();
+    callback probe-stop();
 }

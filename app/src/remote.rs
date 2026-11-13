@@ -23,7 +23,7 @@ use tungstenite::Message;
 
 #[allow(unused_parens, clippy::all)]
 mod mirror {
-    use crate::{Actions, CheckRow, DroRow, FileRow, GotoRow, Live, MdiCard, MsgRow, NavItem, OffsetRow, PillData, ToolRow};
+    use crate::{Actions, CheckRow, DroRow, FileRow, GotoRow, Live, MdiCard, MsgRow, NavItem, OffsetRow, PillData, ProbeItem, ProbeParam, ProbeSpot, ToolRow};
     include!(concat!(env!("OUT_DIR"), "/mirror.rs"));
 }
 

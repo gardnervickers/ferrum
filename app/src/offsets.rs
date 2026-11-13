@@ -222,6 +222,11 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> Rc<Re
     o
 }
 
+/// The XY rotation of a work system, as far as this screen knows it.
+pub fn rotation(o: &Rc<RefCell<Offsets>>, sys: usize) -> f64 {
+    o.borrow().table.get(sys).map_or(0.0, |r| r[4])
+}
+
 /// Status: the active system's offsets are always current here.
 pub fn apply_status(ui: &MainWindow, o: &Rc<RefCell<Offsets>>, s: &Status) {
     let mut st = o.borrow_mut();

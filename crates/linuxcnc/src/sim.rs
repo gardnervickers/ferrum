@@ -15,6 +15,8 @@ pub struct Sim {
     selected_tool: i32,
     /// G54..G59.3: X Y Z A offsets and XY rotation.
     wcs: [[f64; 5]; 9],
+    /// A simulated subroutine call: busy until then, then these messages.
+    call_until: Option<(Instant, Vec<String>)>,
 }
 
 impl Sim {
@@ -36,7 +38,7 @@ impl Sim {
         s.tool_in_spindle = 23;
         s.active_gcodes = [0, 10, 170, 210, 400, 490, 540, 640, 800, 900, 911, 940, 970, 980, -1, -1, -1];
         s.active_mcodes = [0, 5, 9, 48, -1, -1, -1, -1, -1, -1];
-        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, messages: VecDeque::new(), selected_tool: 0, wcs: [[120.0, -95.0, -212.4, 0.0, 0.0], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5]] }
+        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, messages: VecDeque::new(), selected_tool: 0, wcs: [[120.0, -95.0, -212.4, 0.0, 0.0], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5]], call_until: None }
     }
 
     fn msg(&mut self, kind: MessageKind, text: impl Into<String>) {
@@ -56,6 +58,14 @@ impl Sim {
     /// Just enough G-code for the manual screens: M7/M9, G10 L20 P0, G0/G53 G0.
     fn mdi(&mut self, line: &str) {
         let up = line.to_ascii_uppercase();
+        if up.starts_with("O<") && up.contains("CALL") {
+            self.call(line);
+            return;
+        }
+        if up.starts_with('#') {
+            self.msg(MessageKind::Display, format!("(sim) MDI {line}"));
+            return;
+        }
         let words: Vec<(char, f64)> = up
             .split_whitespace()
             .filter_map(|w| {
@@ -122,6 +132,53 @@ impl Sim {
     }
 }
 
+impl Sim {
+    /// Probe macros: pretend to run for a moment and report plausible
+    /// results the way the real macros do, as (DEBUG, EVAL[...]) lines.
+    fn call(&mut self, line: &str) {
+        let name = line.split('>').next().unwrap_or("").trim_start_matches(['o', 'O', '<']).to_string();
+        let args: Vec<String> = line.split('[').skip(1).filter_map(|a| a.split(']').next()).map(str::to_string).collect();
+        let set = |w: &str, v: f64| format!("EVAL[vcp.getWidget{{\"{w}\"}}.setValue{{{v:.6}}}]");
+        let mut out = Vec::new();
+        match name.as_str() {
+            "probe_round_boss" | "probe_round_pocket_center_start" => {
+                out.push(set("x_center_probed", self.s.actual[0]));
+                out.push(set("y_center_probed", self.s.actual[1]));
+                out.push(set("averaged_diam", if name.contains("boss") { 39.962 } else { 12.018 }));
+            }
+            "probe_rect_pocket_center_start" => {
+                out.push(set("x_probed_width", 40.03));
+                out.push(set("y_probed_width", 20.01));
+            }
+            "probe_auto_stock_center" => {
+                let tok = args.get(2).cloned().unwrap_or_default();
+                let (x, y) = (self.s.actual[0], self.s.actual[1]);
+                out.push(format!("EVAL[vcp.getWidget{{\"auto_stock_panel\"}}.receive_result{{{tok},{:.6},{:.6},{:.6},{:.6},100.040000,59.970000,{x:.6},{y:.6}}}]", x - 50.02, x + 50.02, y - 29.985, y + 29.985));
+            }
+            "probe_two_face" => {
+                let stage = args.get(2).cloned().unwrap_or_default();
+                let tok = args.get(3).cloned().unwrap_or_default();
+                out.push(format!("EVAL[vcp.getWidget{{\"two_face_probe_panel\"}}.receive_result{{{stage},{tok},10.000000,70.020000,60.020000,40.010000}}]"));
+            }
+            "probe_a_measure_diameter" => {
+                out.push(set("measure_diameter_value", 24.987));
+                out.push(set("measure_diameter_spread_value", 0.006));
+            }
+            "probe_a_measure_runout" => {
+                out.push(set("measure_runout_tir_value", 0.011));
+                out.push(set("measure_runout_high_angle_value", 212.0));
+            }
+            "probe_cal_round_pocket" => out.push(set("calibration_offset_3032", 0.061)),
+            "probe_spindle_nose" => out.push(set("spindle_zero_height_3010", 286.9)),
+            n if n.contains("edge_angle") => out.push(set("edge_angle", 0.12)),
+            _ => {}
+        }
+        self.msg(MessageKind::Display, format!("(sim) {line}"));
+        self.s.interp = Interp::Reading;
+        self.call_until = Some((Instant::now() + std::time::Duration::from_millis(1200), out));
+    }
+}
+
 impl Default for Sim {
     fn default() -> Self {
         Self::new()
@@ -141,6 +198,15 @@ impl Machine for Sim {
             }
         }
         self.s.current_vel = if moving { self.jog.iter().map(|v| v.abs()).fold(0.0, f64::max) / 60.0 } else { 0.0 };
+        if let Some((until, _)) = &self.call_until {
+            if now >= *until {
+                let (_, out) = self.call_until.take().unwrap();
+                for m in out {
+                    self.msg(MessageKind::Display, m);
+                }
+                self.s.interp = Interp::Idle;
+            }
+        }
         if let Some(end) = self.run_until {
             if self.s.interp == Interp::Reading {
                 self.s.current_line += 1;
@@ -187,6 +253,7 @@ impl Machine for Sim {
                 self.s.sim_tool_change = None;
                 self.s.interp = Interp::Idle;
                 self.run_until = None;
+                self.call_until = None;
                 self.jog = [0.0; AXES];
             }
             Command::Mdi(line) => {
