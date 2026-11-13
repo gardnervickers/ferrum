@@ -23,7 +23,7 @@ millgui/scripts/deploy
 - `scripts/fetch-sysroot` copies those headers and libraries from the Pi into
   `sysroot/` (gitignored, ~330 MB). Rerun it after upgrading the Pi.
 - `scripts/deploy` copies only millgui's own files: `millgui/run`,
-  `millgui/bin/millgui`, `millgui/hal/*.hal` and `millgui.ini`.
+  `millgui/bin/millgui`, `millgui/mdi.toml`, `millgui/hal/*.hal` and `millgui.ini`.
 - Override the target with `MILLGUI_PI=user@host` and `MILLGUI_DEST=path`.
 
 ## Develop on the Mac

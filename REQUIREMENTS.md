@@ -31,6 +31,9 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       drawbar requested/extended, rearm) as a clear message; HAL still enforces it.
 - [ ] Jog, power feed, spindle, offsets, tools and probe locked while running or paused.
 - [x] MDI with history; keypad overlay.
+- [x] MDI screen per mockup v17: command line, help line (library match), categories with
+      RECENT as history, code cards tagged MOVES, G-code keypad; library in millgui/mdi.toml
+      ([MILLGUI]MDI_LIBRARY overrides; a built-in copy is the fallback).
 
 ## M3 Run and files
 

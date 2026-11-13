@@ -1,0 +1,217 @@
+# MDI library for millgui's MDI tab. Edit freely; millgui reads it at start.
+# Each entry: category (RECENT is built in), label (shown large), description,
+# fill (put on the command line; end it with a letter to ask for a value),
+# moves (true if it moves the machine; shown as a tag).
+# Tuned to this mill: metric, G30 = tool setter, G28 = park, 4250 rpm max, mist only.
+
+categories = ["MOVE", "OFFSET", "SPINDLE", "TOOL", "MODE"]
+
+[[entry]]
+category = "MOVE"
+label = "G0 X Y"
+description = "Rapid to X Y in the active WCS"
+fill = "G0 X"
+moves = true
+
+[[entry]]
+category = "MOVE"
+label = "G53 G0 Z0"
+description = "Retract Z to the top of travel"
+fill = "G53 G0 Z0"
+moves = true
+
+[[entry]]
+category = "MOVE"
+label = "G1 X Y Z F"
+description = "Feed move at F mm/min"
+fill = "G1 X"
+moves = true
+
+[[entry]]
+category = "MOVE"
+label = "G0 A"
+description = "Turn the rotary to an angle in the active WCS"
+fill = "G0 A"
+moves = true
+
+[[entry]]
+category = "MOVE"
+label = "G30"
+description = "Go to the stored G30 spot (tool setter)"
+fill = "G30"
+moves = true
+
+[[entry]]
+category = "MOVE"
+label = "G28"
+description = "Go to the stored G28 spot (park)"
+fill = "G28"
+moves = true
+
+[[entry]]
+category = "MOVE"
+label = "G91 G0 Z10 G90"
+description = "Lift Z 10 mm, then back to absolute"
+fill = "G91 G0 Z10 G90"
+moves = true
+
+[[entry]]
+category = "MOVE"
+label = "G4 P"
+description = "Dwell P seconds"
+fill = "G4 P"
+moves = false
+
+[[entry]]
+category = "OFFSET"
+label = "G10 L20 P1 X Y Z"
+description = "Set G54 so the current spot reads these values (P2=G55 ... P9=G59.3)"
+fill = "G10 L20 P1 X"
+moves = false
+
+[[entry]]
+category = "OFFSET"
+label = "G10 L2 P1 X Y Z"
+description = "Set the G54 origin in machine coordinates"
+fill = "G10 L2 P1 X"
+moves = false
+
+[[entry]]
+category = "OFFSET"
+label = "G54"
+description = "Make G54 active (G55 ... G59.3 for the others)"
+fill = "G54"
+moves = false
+
+[[entry]]
+category = "OFFSET"
+label = "G92.1"
+description = "Clear G92 offsets (probing refuses to run with G92 set)"
+fill = "G92.1"
+moves = false
+
+[[entry]]
+category = "OFFSET"
+label = "G52 X0 Y0 Z0"
+description = "Clear the local G52 offset"
+fill = "G52 X0 Y0 Z0"
+moves = false
+
+[[entry]]
+category = "OFFSET"
+label = "G30.1"
+description = "Store the current spot as G30 (tool setter position)"
+fill = "G30.1"
+moves = false
+
+[[entry]]
+category = "OFFSET"
+label = "G28.1"
+description = "Store the current spot as G28 (park)"
+fill = "G28.1"
+moves = false
+
+[[entry]]
+category = "SPINDLE"
+label = "S M3"
+description = "Spindle CW at S rpm (max 4250)"
+fill = "S"
+moves = false
+
+[[entry]]
+category = "SPINDLE"
+label = "M4"
+description = "Spindle CCW"
+fill = "M4"
+moves = false
+
+[[entry]]
+category = "SPINDLE"
+label = "M5"
+description = "Spindle stop"
+fill = "M5"
+moves = false
+
+[[entry]]
+category = "SPINDLE"
+label = "M7"
+description = "Mist on"
+fill = "M7"
+moves = false
+
+[[entry]]
+category = "SPINDLE"
+label = "M9"
+description = "Coolant off"
+fill = "M9"
+moves = false
+
+[[entry]]
+category = "TOOL"
+label = "M6 T"
+description = "Tool change (opens the tool change popup)"
+fill = "M6 T"
+moves = true
+
+[[entry]]
+category = "TOOL"
+label = "M61 Q"
+description = "Tell LinuxCNC which tool is in the spindle; no change"
+fill = "M61 Q"
+moves = false
+
+[[entry]]
+category = "TOOL"
+label = "G43 H"
+description = "Apply the tool length offset for tool H"
+fill = "G43 H"
+moves = false
+
+[[entry]]
+category = "TOOL"
+label = "G49"
+description = "Cancel the tool length offset"
+fill = "G49"
+moves = false
+
+[[entry]]
+category = "MODE"
+label = "G21 G90 G17"
+description = "mm, absolute, XY plane: safe defaults"
+fill = "G21 G90 G17"
+moves = false
+
+[[entry]]
+category = "MODE"
+label = "G91"
+description = "Incremental (remember G90 afterwards)"
+fill = "G91"
+moves = false
+
+[[entry]]
+category = "MODE"
+label = "G90"
+description = "Absolute"
+fill = "G90"
+moves = false
+
+[[entry]]
+category = "MODE"
+label = "G40"
+description = "Cutter compensation off (probing needs it off)"
+fill = "G40"
+moves = false
+
+[[entry]]
+category = "MODE"
+label = "G64 P"
+description = "Path blending tolerance P mm"
+fill = "G64 P"
+moves = false
+
+[[entry]]
+category = "MODE"
+label = "G61"
+description = "Exact stop mode"
+fill = "G61"
+moves = false

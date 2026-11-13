@@ -1,4 +1,4 @@
-//! Manual control: jog, spindle, mist, work zero, MDI, the keypad and the
+//! Manual control: jog, spindle, mist, work zero, power feed, the keypad and the
 //! message log. Everything here is locked in the UI while a program runs or
 //! is paused (`Live.manual-locked`); LinuxCNC enforces its own mode rules.
 
@@ -12,7 +12,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 const A_AXIS: i32 = 3;
-const HISTORY: usize = 50;
 const LOG: usize = 300;
 
 struct Range {
@@ -34,7 +33,6 @@ pub struct Manual {
     settings: Settings,
     /// Last power feed / GO TO message, and whether it is an error.
     pf_note: Option<(String, bool)>,
-    history: Rc<VecModel<SharedString>>,
     log: Rc<VecModel<MsgRow>>,
 }
 
@@ -58,7 +56,6 @@ impl Manual {
             angular: Range { min: f("MIN_ANGULAR_VELOCITY", 0.01), max: f("MAX_ANGULAR_VELOCITY", 180.0) },
             keypad: None,
             status: None,
-            history: Rc::new(VecModel::default()),
             log: Rc::new(VecModel::default()),
         }
     }
@@ -258,7 +255,6 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     let live = ui.global::<Live>();
     {
         let m = manual.borrow();
-        live.set_mdi_history(ModelRc::from(m.history.clone()));
         live.set_messages(ModelRc::from(m.log.clone()));
         m.show(&live);
     }
@@ -377,26 +373,6 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         }
         m.keypad = None;
         m.show(&ui.global::<Live>());
-    });
-
-    let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
-    actions.on_mdi_send(move |text| {
-        let line = text.trim().to_string();
-        if line.is_empty() {
-            return;
-        }
-        let hist = mm.borrow().history.clone();
-        if let Some(i) = hist.iter().position(|h| h.as_str() == line) {
-            hist.remove(i);
-        }
-        hist.insert(0, line.clone().into());
-        while hist.row_count() > HISTORY {
-            hist.remove(HISTORY);
-        }
-        mc.send(Command::Mdi(line));
-        if let Some(ui) = weak.upgrade() {
-            ui.global::<Live>().set_mdi_text("".into());
-        }
     });
 
     let mm = manual.clone();

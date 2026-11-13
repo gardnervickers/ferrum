@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Live, Actions } from "state.slint";
+import { Live, Actions, MdiCard } from "state.slint";
 import { Card, Label, Btn, Seg, Note } from "widgets.slint";
 
 // Placeholder for screens that later milestones fill in.
@@ -33,61 +33,124 @@ export component Placeholder inherits Rectangle {
     }
 }
 
-component MdiPanel inherits Card {
-    VerticalLayout {
-        padding: 14px;
+component KeyBtn inherits Btn {
+    height: 66px;
+    font-size: self.text == "SPACE" || self.text == "CLR" ? 22px : 30px;
+    enabled: Live.power && !Live.manual-locked;
+    clicked => { Actions.mdi-key(self.text); }
+}
+
+// MDI (mockup v17): command line, help, library by category, G-code keypad.
+component MdiPanel inherits VerticalLayout {
+    spacing: 12px;
+    property <bool> unlocked: Live.power && !Live.manual-locked;
+    HorizontalLayout {
         spacing: 12px;
-        Label { text: "HISTORY · TAP TO REUSE"; }
         Rectangle {
-            vertical-stretch: 1;
+            horizontal-stretch: 1;
+            height: 72px;
             background: Theme.well;
+            border-width: 1px;
+            border-color: input.has-focus ? Theme.sel : Theme.line;
             border-radius: 6px;
-            clip: true;
-            Flickable {
-                content-height: hist.preferred-height;
-                hist := VerticalLayout {
-                    padding: 8px;
-                    spacing: 4px;
-                    alignment: start;
-                    for h in Live.mdi-history: Rectangle {
-                        height: 46px;
-                        background: ht.pressed ? Theme.raised : transparent;
-                        border-radius: 4px;
-                        Text { x: 10px; vertical-alignment: center; text: h; font-family: Theme.body; font-size: 24px; color: Theme.ink; }
-                        ht := TouchArea { clicked => { Live.mdi-text = h; } }
-                    }
-                    if Live.mdi-history.length == 0: Note { text: "Commands you send appear here."; }
-                }
+            input := TextInput {
+                x: 16px;
+                width: parent.width - 32px;
+                vertical-alignment: center;
+                text <=> Live.mdi-text;
+                font-family: Theme.display;
+                font-size: 36px;
+                letter-spacing: 1px;
+                color: Theme.ink;
+                enabled: unlocked;
+                edited => { Actions.mdi-edited(); }
+                accepted => { Actions.mdi-send(self.text); }
             }
         }
-        HorizontalLayout {
-            spacing: 12px;
-            Rectangle {
-                horizontal-stretch: 1;
+        Btn {
+            width: 200px;
+            height: 72px;
+            text: "SEND";
+            kind: "go";
+            font-size: 28px;
+            enabled: unlocked && Live.mdi-text != "";
+            clicked => { Actions.mdi-send(Live.mdi-text); }
+        }
+    }
+    Text {
+        height: 28px;
+        overflow: elide;
+        text: Live.manual-locked ? "MDI is locked while a program runs or is paused." : Live.mdi-help;
+        font-family: Theme.body;
+        font-size: 21px;
+        color: Theme.muted;
+    }
+    HorizontalLayout {
+        spacing: 14px;
+        VerticalLayout {
+            width: 170px;
+            spacing: 10px;
+            alignment: start;
+            for c in Live.mdi-categories: Btn {
                 height: 64px;
-                background: Theme.well;
-                border-width: 1px;
-                border-color: input.has-focus ? Theme.sel : Theme.line;
-                border-radius: 6px;
-                input := TextInput {
-                    x: 14px;
-                    width: parent.width - 28px;
-                    vertical-alignment: center;
-                    text <=> Live.mdi-text;
-                    font-family: Theme.body;
-                    font-size: 28px;
-                    color: Theme.ink;
-                    enabled: Live.power && !Live.manual-locked;
-                    accepted => { Actions.mdi-send(self.text); }
-                }
+                text: c;
+                font-size: 22px;
+                on: Live.mdi-category == c;
+                clicked => { Actions.mdi-category-set(c); }
             }
-            Btn {
-                width: 200px;
-                height: 64px;
-                text: "SEND";
-                kind: "go";
-                enabled: Live.power && !Live.manual-locked && Live.mdi-text != "";
-                clicked => { Actions.mdi-send(Live.mdi-text); }
+        }
+        Flickable {
+            horizontal-stretch: 1;
+            content-height: grid.preferred-height;
+            grid := VerticalLayout {
+                spacing: 10px;
+                alignment: start;
+                for row in (Live.mdi-cards.length + 1) / 2: HorizontalLayout {
+                    spacing: 10px;
+                    for col in 2: Rectangle {
+                        property <int> i: row * 2 + col;
+                        property <MdiCard> card: Live.mdi-cards[i];
+                        horizontal-stretch: 1;
+                        height: 76px;
+                        border-radius: 6px;
+                        background: i >= Live.mdi-cards.length ? transparent : ct.pressed && unlocked ? Theme.sel : Theme.raised;
+                        border-width: i >= Live.mdi-cards.length ? 0 : 1px;
+                        border-color: Theme.raised-border;
+                        opacity: unlocked ? 1 : 0.38;
+                        if i < Live.mdi-cards.length: VerticalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            alignment: center;
+                            spacing: 2px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Text { text: card.label; font-family: Theme.display; font-size: 28px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
+                                if card.moves: Text { vertical-alignment: center; text: "· MOVES"; font-family: Theme.display; font-size: 18px; color: #f2c14e; }
+                            }
+                            if card.desc != "": Text { text: card.desc; font-family: Theme.body; font-size: 18px; color: Theme.muted; overflow: elide; }
+                        }
+                        ct := TouchArea {
+                            enabled: unlocked && i < Live.mdi-cards.length;
+                            clicked => { Actions.mdi-pick(card.fill); }
+                        }
+                    }
+                }
+                if Live.mdi-cards.length == 0: Note { text: Live.mdi-category == "RECENT" ? "Commands you send appear here." : "No entries in this category."; }
+            }
+        }
+        VerticalLayout {
+            width: 400px;
+            spacing: 10px;
+            alignment: start;
+            Label { text: "KEYPAD"; }
+            GridLayout {
+                spacing: 8px;
+                Row { for k in ["G", "M", "X", "Y", "Z"]: KeyBtn { text: k; } }
+                Row { for k in ["A", "F", "S", "T", "H"]: KeyBtn { text: k; } }
+                Row { for k in ["P", "Q", "L", "R", "."]: KeyBtn { text: k; } }
+                Row { for k in ["7", "8", "9", "−", "⌫"]: KeyBtn { text: k; } }
+                Row { for k in ["4", "5", "6", "SPACE", "CLR"]: KeyBtn { text: k; } }
+                Row { for k in ["1", "2", "3", "0"]: KeyBtn { text: k; } }
             }
         }
     }
@@ -98,8 +161,7 @@ export component RunScreen inherits Rectangle {
         padding: 14px;
         spacing: 14px;
         HorizontalLayout {
-            width: 420px;
-            Seg { text: "PROGRAM"; on: Live.run-tab == "program"; clicked => { Live.run-tab = "program"; } }
+            Seg { text: "G-CODE"; on: Live.run-tab == "program"; clicked => { Live.run-tab = "program"; } }
             Seg { text: "MDI"; on: Live.run-tab == "mdi"; clicked => { Live.run-tab = "mdi"; } }
         }
         Rectangle {

@@ -4,6 +4,7 @@ export struct PillData { text: string, kind: string }
 export struct DroRow { axis: string, work: string, mach: string, dtg: string, homed: bool }
 export struct NavItem { id: string, label: string, icon: string }
 export struct MsgRow { time: string, text: string, kind: string }
+export struct MdiCard { label: string, desc: string, fill: string, moves: bool }
 export struct GotoRow { name: string, x: string, y: string, px: float, py: float }
 
 export global Live {
@@ -54,7 +55,10 @@ export global Live {
     in property <bool> mist;
 
     in-out property <string> run-tab: "program";
-    in property <[string]> mdi-history;
+    in property <[string]> mdi-categories;
+    in property <string> mdi-category;
+    in property <[MdiCard]> mdi-cards;
+    in property <string> mdi-help;
     in-out property <string> mdi-text;
 
     in property <[MsgRow]> messages;
@@ -130,5 +134,9 @@ export global Actions {
     callback goto-go();
 
     callback mdi-send(text: string);
+    callback mdi-category-set(category: string);
+    callback mdi-pick(fill: string);
+    callback mdi-key(key: string);
+    callback mdi-edited();
     callback clear-messages();
 }

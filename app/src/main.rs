@@ -6,6 +6,7 @@
 mod config;
 mod headless;
 mod manual;
+mod mdi;
 mod modules;
 mod powerfeed;
 mod settings;
@@ -471,6 +472,12 @@ fn main() -> Result<(), slint::PlatformError> {
 
     wire_actions(&ui, &handle, &state, &cfg);
     let manual = manual::wire(&ui, &handle, &cfg, settings::Settings::load(), axes.contains(&3));
+    let mut mdi_notes = Vec::new();
+    mdi::wire(&ui, &handle, &cfg, &mut mdi_notes);
+    if !mdi_notes.is_empty() {
+        live.set_message(mdi_notes.join("; ").into());
+        live.set_message_error(true);
+    }
     MANUAL.with(|m| *m.borrow_mut() = Some(manual));
 
     // Pills read HAL pins, which change without a status update; refresh them
@@ -545,6 +552,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
 
     let handle = linuxcnc::spawn(Box::new(linuxcnc::Sim::new()), Duration::from_secs(3600), |_| {});
     let manual = manual::wire(&ui, &handle, cfg, settings::Settings::memory(), axis_indices(cfg).contains(&3));
+    mdi::wire(&ui, &handle, cfg, &mut Vec::new());
     manual::apply_status(&ui, &manual, &s);
     let actions = ui.global::<Actions>();
     for what in &args.show {
@@ -558,10 +566,14 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
             }
             "mdi" => {
                 live.set_run_tab("mdi".into());
-                for l in ["G0 X0 Y0", "M6 T12", "G10 L20 P1 Z0", "S8000 M3"] {
+                for l in ["G0 X0 Y0", "M6 T12", "S8000 M3"] {
                     actions.invoke_mdi_send(l.into());
                 }
-                live.set_mdi_text("G0 Z25".into());
+                actions.invoke_mdi_category_set("OFFSET".into());
+                actions.invoke_mdi_pick("G10 L20 P1 X".into());
+                for k in ["5", "Y", "0"] {
+                    actions.invoke_mdi_key(k.into());
+                }
             }
             "feed" | "goto" => live.set_jog_tab(what.as_str().into()),
             "gotos" => {

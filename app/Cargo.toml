@@ -12,6 +12,8 @@ slint = { version = "1.18", default-features = false, features = ["std", "compat
 ctrlc = { version = "3", features = ["termination"] }
 png = "0.17"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 
 [build-dependencies]
 slint-build = "1.18"
