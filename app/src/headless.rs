@@ -28,11 +28,17 @@ pub fn save(window: &MinimalSoftwareWindow, path: &Path) -> Result<(), String> {
     let size = window.size();
     let (w, h) = (size.width as usize, size.height as usize);
     let mut buf = vec![Rgb8Pixel { r: 0, g: 0, b: 0 }; w * h];
-    slint::platform::update_timers_and_animations();
-    window.request_redraw();
-    window.draw_if_needed(|r| {
-        r.render(&mut buf, w);
-    });
+    // Twice, with the backplot's size timer (250 ms) firing in between.
+    for pass in 0..2 {
+        if pass == 1 {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        slint::platform::update_timers_and_animations();
+        window.request_redraw();
+        window.draw_if_needed(|r| {
+            r.render(&mut buf, w);
+        });
+    }
     let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
     let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w as u32, h as u32);
     enc.set_color(png::ColorType::Rgb);

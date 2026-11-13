@@ -36,13 +36,14 @@ export component Placeholder inherits Rectangle {
 }
 
 component KeyBtn inherits Btn {
-    height: 66px;
-    font-size: self.text == "SPACE" || self.text == "CLR" ? 22px : 30px;
+    height: 54px;
+    font-size: self.text == "SPACE" || self.text == "CLR" ? 20px : 28px;
     enabled: Live.power && !Live.manual-locked;
     clicked => { Actions.mdi-key(self.text); }
 }
 
-// MDI (mockup v17): command line, help, library by category, G-code keypad.
+// MDI (mockup v17, stacked to fit the Run screen's right panel beside the
+// backplot): command line, help, library by category, G-code keypad.
 component MdiPanel inherits VerticalLayout {
     spacing: 12px;
     property <bool> unlocked: Live.power && !Live.manual-locked;
@@ -70,7 +71,7 @@ component MdiPanel inherits VerticalLayout {
             }
         }
         Btn {
-            width: 200px;
+            width: 130px;
             height: 72px;
             text: "SEND";
             kind: "go";
@@ -84,25 +85,19 @@ component MdiPanel inherits VerticalLayout {
         overflow: elide;
         text: Live.manual-locked ? "MDI is locked while a program runs or is paused." : Live.mdi-help;
         font-family: Theme.body;
-        font-size: 21px;
+        font-size: 19px;
         color: Theme.muted;
     }
     HorizontalLayout {
-        spacing: 14px;
-        VerticalLayout {
-            width: 170px;
-            spacing: 10px;
-            alignment: start;
-            for c in Live.mdi-categories: Btn {
-                height: 64px;
-                text: c;
-                font-size: 22px;
-                on: Live.mdi-category == c;
-                clicked => { Actions.mdi-category-set(c); }
-            }
+        spacing: 0px;
+        for c in Live.mdi-categories: Seg {
+            text: c;
+            on: Live.mdi-category == c;
+            clicked => { Actions.mdi-category-set(c); }
         }
+    }
         Flickable {
-            horizontal-stretch: 1;
+            vertical-stretch: 1;
             content-height: grid.preferred-height;
             grid := VerticalLayout {
                 spacing: 10px;
@@ -113,7 +108,7 @@ component MdiPanel inherits VerticalLayout {
                         property <int> i: row * 2 + col;
                         property <MdiCard> card: Live.mdi-cards[i];
                         horizontal-stretch: 1;
-                        height: 76px;
+                        height: 70px;
                         border-radius: 6px;
                         background: i >= Live.mdi-cards.length ? transparent : ct.pressed && unlocked ? Theme.sel : Theme.raised;
                         border-width: i >= Live.mdi-cards.length ? 0 : 1px;
@@ -126,10 +121,10 @@ component MdiPanel inherits VerticalLayout {
                             spacing: 2px;
                             HorizontalLayout {
                                 spacing: 10px;
-                                Text { text: card.label; font-family: Theme.display; font-size: 28px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
+                                Text { text: card.label; font-family: Theme.display; font-size: 26px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
                                 if card.moves: Text { vertical-alignment: center; text: "· MOVES"; font-family: Theme.display; font-size: 18px; color: #f2c14e; }
                             }
-                            if card.desc != "": Text { text: card.desc; font-family: Theme.body; font-size: 18px; color: Theme.muted; overflow: elide; }
+                            if card.desc != "": Text { text: card.desc; font-family: Theme.body; font-size: 17px; color: Theme.muted; overflow: elide; }
                         }
                         ct := TouchArea {
                             enabled: unlocked && i < Live.mdi-cards.length;
@@ -140,12 +135,7 @@ component MdiPanel inherits VerticalLayout {
                 if Live.mdi-cards.length == 0: Note { text: Live.mdi-category == "RECENT" ? "Commands you send appear here." : "No entries in this category."; }
             }
         }
-        VerticalLayout {
-            width: 400px;
-            spacing: 10px;
-            alignment: start;
-            Label { text: "KEYPAD"; }
-            GridLayout {
+        GridLayout {
                 spacing: 8px;
                 Row { for k in ["G", "M", "X", "Y", "Z"]: KeyBtn { text: k; } }
                 Row { for k in ["A", "F", "S", "T", "H"]: KeyBtn { text: k; } }
@@ -153,9 +143,7 @@ component MdiPanel inherits VerticalLayout {
                 Row { for k in ["7", "8", "9", "−", "⌫"]: KeyBtn { text: k; } }
                 Row { for k in ["4", "5", "6", "SPACE", "CLR"]: KeyBtn { text: k; } }
                 Row { for k in ["1", "2", "3", "0"]: KeyBtn { text: k; } }
-            }
         }
-    }
 }
 
 // One G-code line; fixed height so the ListView only creates visible rows.
@@ -200,9 +188,13 @@ component ProgramCard inherits Card {
             background: Theme.well;
             border-radius: 6px;
             clip: true;
-            changed width => { Actions.plot-resize(self.width / 1px, self.height / 1px); }
-            changed height => { Actions.plot-resize(self.width / 1px, self.height / 1px); }
-            init => { Actions.plot-resize(self.width / 1px, self.height / 1px); }
+            // Report the size a few times a second; Rust redraws only when it
+            // changes. (`changed width` misses the first layout.)
+            Timer {
+                interval: 250ms;
+                running: true;
+                triggered => { Actions.plot-resize(plot-area.width / 1px, plot-area.height / 1px); }
+            }
             Image { width: parent.width; height: parent.height; source: Live.plot; image-fit: fill; }
             if Live.program == "": Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
             Text {
@@ -260,26 +252,21 @@ component RunTabs inherits HorizontalLayout {
 }
 
 export component RunScreen inherits Rectangle {
-    VerticalLayout {
+    // The right panel keeps one width for every tab (the JOG tab's), so the
+    // backplot never moves or resizes when switching tabs.
+    HorizontalLayout {
         padding: 14px;
         spacing: 14px;
-        if Live.run-tab == "mdi": VerticalLayout {
-            spacing: 14px;
-            RunTabs { }
-            MdiPanel { vertical-stretch: 1; }
-        }
-        if Live.run-tab != "mdi": HorizontalLayout {
-            spacing: 14px;
-            ProgramCard { horizontal-stretch: 1.3; }
-            Card {
-                horizontal-stretch: 1;
-                VerticalLayout {
-                    padding: 14px;
-                    spacing: 12px;
-                    RunTabs { }
-                    if Live.run-tab == "program": GcodeView { vertical-stretch: 1; }
-                    if Live.run-tab == "jog": JogPanel { vertical-stretch: 1; }
-                }
+        ProgramCard { horizontal-stretch: 1; }
+        Card {
+            width: 640px;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                RunTabs { }
+                if Live.run-tab == "program": GcodeView { vertical-stretch: 1; }
+                if Live.run-tab == "mdi": MdiPanel { vertical-stretch: 1; }
+                if Live.run-tab == "jog": JogPanel { vertical-stretch: 1; }
             }
         }
     }

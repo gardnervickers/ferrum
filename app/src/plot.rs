@@ -183,8 +183,11 @@ pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
         let Some(ui) = weak.upgrade() else { return };
         let scale = ui.window().scale_factor();
         let mut st = p.borrow_mut();
-        st.size = ((w * scale) as u32, (h * scale) as u32);
-        st.redraw(&ui);
+        let size = ((w * scale) as u32, (h * scale) as u32);
+        if size != st.size {
+            st.size = size;
+            st.redraw(&ui);
+        }
     });
     let (p, weak) = (plot.clone(), ui.as_weak());
     actions.on_plot_view(move |v| {

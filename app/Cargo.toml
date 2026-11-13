@@ -21,3 +21,7 @@ tungstenite = "0.29"
 [build-dependencies]
 slint-build = "1.18"
 uimirror = { path = "../crates/uimirror" }
+
+# The Mac simulator window: GPU drawing (software drawing at Retina size is slow).
+[target.'cfg(target_os = "macos")'.dependencies]
+slint = { version = "1.18", default-features = false, features = ["backend-winit", "renderer-femtovg"] }

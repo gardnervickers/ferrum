@@ -416,6 +416,23 @@ fn main() -> Result<(), slint::PlatformError> {
     if !args.windowed && !args.sim {
         ui.window().set_fullscreen(true);
     }
+    // A desktop window may be any size: scale the 1920x1080 layout to fit.
+    let fit = slint::Timer::default();
+    if args.windowed || args.sim {
+        let weak = ui.as_weak();
+        fit.start(slint::TimerMode::Repeated, Duration::from_millis(200), move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let w = ui.window();
+            let s = w.size();
+            if s.width == 0 || s.height == 0 {
+                return;
+            }
+            let target = (s.width as f32 / 1920.0).min(s.height as f32 / 1080.0);
+            if (target - w.scale_factor()).abs() > 0.01 {
+                w.dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged { scale_factor: target });
+            }
+        });
+    }
     set_nav(&ui, &modules, args.screen.as_deref());
     let live = ui.global::<Live>();
     if !notes.is_empty() {
