@@ -60,6 +60,18 @@ pub trait Module {
     fn toolchange(&self) -> Option<Rc<dyn crate::toolchange::Io>> {
         None
     }
+
+    /// The tool setter and its air blast, from the probe module.
+    fn setter(&self) -> Option<Rc<SetterHal>> {
+        None
+    }
+}
+
+/// Tool setter pins (millgui/hal/probe.hal).
+pub struct SetterHal {
+    pub blast_request: BitPin,
+    pub blast_active: BitPin,
+    pub triggered: BitPin,
 }
 
 /// Modules enabled when millgui.ini does not list any.
@@ -98,6 +110,7 @@ struct Probe {
     selected: Option<BitPin>,
     fault: Option<BitPin>,
     tripped: Option<BitPin>,
+    setter: Option<Rc<SetterHal>>,
 }
 
 impl Module for Probe {
@@ -111,6 +124,11 @@ impl Module for Probe {
         self.selected = Some(comp.bit("probe.wireless-selected", Dir::In)?);
         self.fault = Some(comp.bit("probe.fault", Dir::In)?);
         self.tripped = Some(comp.bit("probe.tripped", Dir::In)?);
+        self.setter = Some(Rc::new(SetterHal {
+            blast_request: comp.bit("probe.blast-request", Dir::Out)?,
+            blast_active: comp.bit("probe.blast-active", Dir::In)?,
+            triggered: comp.bit("probe.toolsetter", Dir::In)?,
+        }));
         Ok(())
     }
     fn pills(&self, _s: Option<&Status>, out: &mut Vec<Pill>) {
@@ -127,6 +145,9 @@ impl Module for Probe {
     }
     fn capabilities(&self) -> &'static [&'static str] {
         &["probe"]
+    }
+    fn setter(&self) -> Option<Rc<SetterHal>> {
+        self.setter.clone()
     }
 }
 

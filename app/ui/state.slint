@@ -12,6 +12,8 @@ export struct OffsetRow { wcs: string, x: string, y: string, z: string, a: strin
 export struct ProbeItem { id: string, label: string, on: bool }
 export struct ProbeSpot { id: string, x: float, y: float, w: float, h: float, r: float, on: bool, label: string }
 export struct ProbeParam { id: string, label: string, value: string, unit: string, changed: bool, def: string }
+export struct WarmStage { rpm: string, minutes: string, state: string }
+export struct StatusRow { key: string, value: string, kind: string }
 export struct GotoRow { name: string, x: string, y: string, px: float, py: float }
 
 export global Live {
@@ -174,6 +176,22 @@ export global Live {
     // Why a run can't start now ("" = ready).
     in property <string> pr-ready;
 
+    // UTIL screen (util.rs).
+    in property <[WarmStage]> wu-stages;
+    in property <bool> wu-secure;
+    in property <bool> wu-running;
+    in property <float> wu-progress;
+    in property <string> wu-text;
+    in property <string> wu-note;
+    in property <string> wu-ready;
+    in property <string> ut-nose: "UNKNOWN";
+    in property <string> ut-nose-kind;
+    in property <string> ut-setter;
+    in property <bool> ut-has-blast;
+    in property <bool> ut-blast;
+    in property <string> ut-g30;
+    in property <[StatusRow]> ut-status;
+
     // Keypad overlay; Rust owns the value and what it is for.
     in property <bool> keypad-open;
     in property <string> keypad-label;
@@ -263,4 +281,10 @@ export global Actions {
     callback probe-load();
     callback probe-run();
     callback probe-stop();
+    callback wu-secure();
+    callback wu-start();
+    callback wu-stop();
+    callback ut-blast();
+    callback ut-go-g30();
+    callback ut-set-g30();
 }

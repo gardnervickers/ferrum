@@ -170,6 +170,11 @@ impl Sim {
             }
             "probe_cal_round_pocket" => out.push(set("calibration_offset_3032", 0.061)),
             "probe_spindle_nose" => out.push(set("spindle_zero_height_3010", 286.9)),
+            "set_g30_position" => {
+                for (i, w) in ["x_tool_change_position", "y_tool_change_position", "z_tool_change_position"].into_iter().enumerate() {
+                    out.push(set(w, self.s.actual[i]));
+                }
+            }
             n if n.contains("edge_angle") => out.push(set("edge_angle", 0.12)),
             _ => {}
         }

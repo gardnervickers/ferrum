@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam } from "state.slint";
+import { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow } from "state.slint";
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
 import { Placeholder, RunScreen } from "screens.slint";
 
@@ -8,9 +8,10 @@ import { FilesScreen } from "files.slint";
 import { ToolsScreen } from "tools.slint";
 import { OffsetsScreen } from "offsets.slint";
 import { ProbeScreen } from "probe.slint";
+import { UtilScreen } from "util.slint";
 import { Keypad, MessageDrawer, ToolChange } from "overlays.slint";
 
-export { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam }
+export { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow }
 
 // Drawn at the mill's 1920x1080. Each screen is only instantiated while it
 // is shown, so a disabled module's screen never exists.
@@ -37,7 +38,7 @@ export component MainWindow inherits Window {
         if Live.screen == "offsets": OffsetsScreen {}
         if Live.screen == "conv": Placeholder { title: "CONVERSATIONAL"; note: "Milestone 6"; }
         if Live.screen == "files": FilesScreen {}
-        if Live.screen == "util": Placeholder { title: "UTIL"; note: "Milestone 5"; }
+        if Live.screen == "util": UtilScreen {}
         if Live.drawer-open: MessageDrawer {}
         if Live.tc-open: ToolChange {}
         if Live.keypad-open: Keypad {}

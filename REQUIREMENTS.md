@@ -66,16 +66,20 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 ## M5 Probing and util
 
-- [ ] Per-run probe values: write #30xx before the macro, restore defaults after success OR
+- [x] Per-run probe values: write #30xx before the macro, restore defaults after success OR
       abort (on_abort.ngc does not), and at startup.
-- [ ] Preconditions from mymill_probe_coordinate_ready.ngc: no cutter comp, no rotated WCS,
+- [x] Preconditions from mymill_probe_coordinate_ready.ngc: no cutter comp, no rotated WCS,
       zero G52/G92; check #3031 before offering.
-- [ ] spindle-nose-reference-valid resets on any unhome; probe_spindle_nose.ngc needs T0 and an
+- [x] spindle-nose-reference-valid resets on any unhome; probe_spindle_nose.ngc needs T0 and an
       invalid reference; show VALID/NEEDS PROBE in Util and tool change; gate CAL → SPINDLE NOSE on T0.
-- [ ] Tool setter is G30 (#5181–5183) via set_g30_position.ngc; go-to G30 and park.
-- [ ] Probe screen per mockup (START pads, steppers, MORE, DEFAULTS, mode-matched label,
+- [x] Tool setter is G30 (#5181–5183) via set_g30_position.ngc; go-to G30 and park.
+- [x] Probe screen per mockup (START pads, steppers, MORE, DEFAULTS, mode-matched label,
       Write-to only in FIND); probe wired as T99.
-- [ ] Warm-up with editable stage minutes and RPM CMD progress.
+- [x] Warm-up with editable stage minutes and RPM CMD progress.
+- [ ] Probe preview animation (the mockup's 1× loop); the picture shows the approach arrows only.
+- [ ] Warm-up holds the spindle override at 100 % and stops if it changes; util.py disables the
+      override instead (needs a spindle-override-enable command in crates/linuxcnc).
+- [ ] Check the macro EVAL result names and the probe_auto_stock_apply context check on the Pi.
 
 ## M6 Job and conversational
 

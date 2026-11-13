@@ -692,7 +692,7 @@ impl Probe {
         let mut opts: Vec<ProbeItem> = Vec::new();
         let it = |id: &str, label: String, on: bool| ProbeItem { id: id.into(), label: label.into(), on };
         if self.mode == "find" && sel.kind == "edge" {
-            opts.push(it("angle", format!("{} ALSO MEASURE ANGLE", if self.angle { "☑" } else { "☐" }), self.angle));
+            opts.push(it("angle", "ALSO MEASURE ANGLE".into(), self.angle));
         }
         if self.shape == "block" && sel.id == "ctr" {
             opts.push(it("both", "BOTH AXES".into(), self.both));

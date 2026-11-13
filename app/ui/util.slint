@@ -1,0 +1,130 @@
+import { Theme } from "theme.slint";
+import { Live, Actions, WarmStage, StatusRow } from "state.slint";
+import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
+
+component Cell inherits Rectangle {
+    in property <string> key;
+    in property <string> value;
+    in property <string> kind;
+    height: 74px;
+    background: Theme.panel2;
+    border-radius: 6px;
+    VerticalLayout {
+        padding-left: 12px;
+        padding-top: 6px;
+        Label { text: key; font-size: 17px; }
+        Text {
+            text: value;
+            font-family: Theme.display;
+            font-size: 28px;
+            color: kind == "good" ? #7fd6a0 : kind == "warn" ? #f3c463 : kind == "bad" ? #ff8f8a : Theme.ink;
+            overflow: elide;
+        }
+    }
+}
+
+export component UtilScreen inherits Rectangle {
+    HorizontalLayout {
+        padding: 14px;
+        spacing: 14px;
+        Card {
+            horizontal-stretch: 1;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                H3 { text: "SPINDLE WARM-UP"; }
+                Note { text: Live.wu-note; }
+                Btn {
+                    text: "TOOL HOLDER SECURE";
+                    sub: Live.wu-secure ? "CONFIRMED" : "TAP TO CONFIRM";
+                    on: Live.wu-secure;
+                    enabled: !Live.wu-running;
+                    clicked => { Actions.wu-secure(); }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    for st[i] in Live.wu-stages: Rectangle {
+                        horizontal-stretch: 1;
+                        height: 110px;
+                        border-radius: 6px;
+                        background: st.state == "run" ? #1f3a2a : Theme.panel2;
+                        border-width: st.state == "run" ? 2px : 0;
+                        border-color: Theme.go-border;
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 4px;
+                            Label { text: "STAGE " + (i + 1) + (st.state == "done" ? " ✓" : ""); font-size: 17px; }
+                            Rectangle {
+                                height: 38px;
+                                background: rt.pressed ? Theme.raised : Theme.well;
+                                border-radius: 4px;
+                                Text { text: st.rpm + " RPM"; font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink; }
+                                rt := TouchArea { enabled: !Live.wu-running; clicked => { Actions.edit("wu-rpm-" + i); } }
+                            }
+                            Rectangle {
+                                height: 38px;
+                                background: mt.pressed ? Theme.raised : Theme.well;
+                                border-radius: 4px;
+                                Text { text: st.minutes + " MIN"; font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink; }
+                                mt := TouchArea { enabled: !Live.wu-running; clicked => { Actions.edit("wu-min-" + i); } }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    height: 14px;
+                    border-radius: 7px;
+                    background: Theme.well;
+                    Rectangle { x: 0; width: parent.width * Live.wu-progress; border-radius: 7px; background: Theme.go-border; }
+                }
+                Label { text: Live.wu-text; }
+                if !Live.wu-running && Live.wu-ready != "": Note { color: #f3c463; text: Live.wu-ready; }
+                HorizontalLayout {
+                    spacing: 40px;
+                    Btn { horizontal-stretch: 1; kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
+                    Btn { horizontal-stretch: 1; kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
+                }
+                H3 { text: "SPINDLE AND TOOL SETTER"; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Btn { horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
+                    Btn {
+                        horizontal-stretch: 1;
+                        text: "PROBE SPINDLE NOSE";
+                        clicked => {
+                            Actions.probe-mode("cal");
+                            Actions.probe-shape("nose");
+                            Actions.navigate("probe");
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Btn { horizontal-stretch: 1; text: "GO TO G30"; sub: "TOOL SETTER"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-go-g30(); } }
+                    Btn { horizontal-stretch: 1; text: "SET G30 HERE"; hold: true; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-set-g30(); } }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Cell { horizontal-stretch: 1; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
+                    Cell { horizontal-stretch: 1; key: "SETTER"; value: Live.ut-setter; }
+                    Cell { horizontal-stretch: 2; key: "G30 POSITION"; value: Live.ut-g30; }
+                }
+                Rectangle { vertical-stretch: 1; }
+            }
+        }
+        Card {
+            horizontal-stretch: 1.1;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                H3 { text: "MACHINE STATUS"; }
+                GridLayout {
+                    spacing: 10px;
+                    for r[i] in Live.ut-status: Cell { col: mod(i, 3); row: floor(i / 3); key: r.key; value: r.value; kind: r.kind; }
+                }
+                Rectangle { vertical-stretch: 1; }
+                Note { text: "From LinuxCNC status and the GUI's own HAL pins (millgui/hal)."; }
+            }
+        }
+    }
+}
