@@ -13,7 +13,7 @@ use crate::settings::Settings;
 use crate::toolchange::Io;
 use crate::{Actions, Live, MainWindow, StatusRow, WarmStage};
 use linuxcnc::{Command, Handle, Message, Status, TaskState};
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -220,9 +220,6 @@ impl Util {
         if let Some(h) = &self.setter {
             row("Tool setter", if h.triggered.get() { "TRIPPED" } else { "READY" }.into(), if h.triggered.get() { "warn" } else { "good" });
             row("Setter blast", if h.blast_active.get() { "ON" } else { "OFF" }.into(), "");
-        }
-        for p in live.get_pills().iter() {
-            row("Status", p.text.to_string(), match p.kind.as_str() { "good" => "good", "warn" => "warn", "bad" => "bad", _ => "" });
         }
         live.set_ut_status(ModelRc::new(VecModel::from(rows)));
     }

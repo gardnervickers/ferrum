@@ -11,6 +11,7 @@ export component Btn inherits Rectangle {
     in property <string> kind;
     in property <bool> hold;
     in property <length> font-size: 24px;
+    in property <string> family: Theme.display;
     callback clicked();
     // Fires on touch-down, before any hold or release (E-STOP trips on it).
     callback pressed();
@@ -38,6 +39,9 @@ export component Btn inherits Rectangle {
         background: #ffffff48;
         animate width { duration: root.arming ? 800ms : 0ms; }
     }
+    // The label is always centred; a HOLD/sub caption is a small tag in the
+    // top-right corner, so captioned and plain buttons line up side by side.
+    property <bool> captioned: hold || sub != "";
     VerticalLayout {
         alignment: center;
         spacing: 4px;
@@ -58,21 +62,22 @@ export component Btn inherits Rectangle {
         }
         Text {
             text: root.text;
-            font-family: Theme.display;
+            font-family: root.family;
             font-size: root.font-size;
             letter-spacing: 0.04 * root.font-size;
             color: Theme.ink;
             horizontal-alignment: center;
             wrap: word-wrap;
         }
-        if hold || sub != "": Text {
-            text: sub != "" ? sub : "HOLD";
-            font-family: Theme.display;
-            font-size: 15px;
-            letter-spacing: 1.2px;
-            color: #e8ebedc0;
-            horizontal-alignment: center;
-        }
+    }
+    if captioned: Text {
+        x: root.width - self.width - 7px;
+        y: 4px;
+        text: sub != "" ? sub : "HOLD";
+        font-family: Theme.display;
+        font-size: 13px;
+        letter-spacing: 1px;
+        color: #e8ebeda0;
     }
     hold-timer := Timer {
         interval: 800ms;

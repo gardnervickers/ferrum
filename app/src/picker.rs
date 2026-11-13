@@ -12,12 +12,13 @@ thread_local! {
     static HANDLERS: RefCell<Vec<(String, Handler)>> = const { RefCell::new(Vec::new()) };
 }
 
-pub fn open(ui: &MainWindow, owner: &str, title: &str, items: Vec<String>) {
+pub fn open(ui: &MainWindow, owner: &str, title: &str, items: Vec<String>, current: Option<usize>) {
     OWNER.with(|o| *o.borrow_mut() = owner.to_string());
     let live = ui.global::<Live>();
     live.set_pick_title(title.into());
     let items: Vec<SharedString> = items.into_iter().map(SharedString::from).collect();
     live.set_pick_items(ModelRc::new(VecModel::from(items)));
+    live.set_pick_current(current.map_or(-1, |i| i as i32));
     live.set_pick_open(true);
 }
 

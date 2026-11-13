@@ -300,7 +300,7 @@ impl Job {
 
     fn open_pick(&mut self, title: &str, items: Vec<String>, pick: Pick) {
         if let Some(ui) = self.ui.upgrade() {
-            crate::picker::open(&ui, "job", title, items);
+            crate::picker::open(&ui, "job", title, items, None);
         }
         self.pick = Some(pick);
     }

@@ -3,6 +3,9 @@ import "../fonts/BebasNeue-Regular.ttf";
 import "../fonts/BarlowCondensed-Regular.ttf";
 import "../fonts/BarlowCondensed-Medium.ttf";
 import "../fonts/BarlowCondensed-SemiBold.ttf";
+// Arrows, ⌫, ✓ and the like (a DejaVu Sans subset): the text fonts lack them
+// and the browser build has no system fallback fonts.
+import "../fonts/MillSymbols.ttf";
 
 export global Theme {
     out property <color> page: #121517;

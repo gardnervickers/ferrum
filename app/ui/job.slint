@@ -22,7 +22,7 @@ component OpRow inherits Rectangle {
     background: op.selected ? #2c3366 : op.state == "current" ? #1d3a28 : Theme.panel2;
     border-width: op.selected ? 2px : 0px;
     border-color: Theme.sel;
-    opacity: op.state == "skipped" || op.state == "done" ? 0.55 : 1;
+    property <bool> faded: op.state == "skipped" || op.state == "done";
     TouchArea { clicked => { Actions.job-select(root.index); } }
     HorizontalLayout {
         padding-left: 10px;
@@ -46,7 +46,7 @@ component OpRow inherits Rectangle {
                 color: op.state == "done" ? Theme.muted : #7fd6a0;
             }
         }
-        Text { width: 44px; vertical-alignment: center; horizontal-alignment: center; text: op.pos; font-family: Theme.display; font-size: 34px; color: Theme.muted; }
+        Text { width: 44px; vertical-alignment: center; horizontal-alignment: center; text: op.pos; font-family: Theme.display; font-size: 34px; color: faded ? Theme.dim : Theme.muted; }
         VerticalLayout {
             horizontal-stretch: 1;
             alignment: center;
@@ -66,11 +66,11 @@ component OpRow inherits Rectangle {
                         color: op.kind == "step" ? #f3c463 : op.kind == "cam" ? #8cc4ef : #b9c0ff;
                     }
                 }
-                Text { horizontal-stretch: 1; vertical-alignment: center; text: op.name; font-family: Theme.display; font-size: 28px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
+                Text { horizontal-stretch: 1; vertical-alignment: center; text: op.name; font-family: Theme.display; font-size: 28px; letter-spacing: 1px; color: faded ? Theme.dim : Theme.ink; overflow: elide; }
                 if op.stop-after: Pill { text: "STOP AFTER"; kind: "warn"; height: 32px; }
                 if op.state == "skipped": Text { vertical-alignment: center; text: "SKIPPED"; font-family: Theme.display; font-size: 22px; color: Theme.muted; }
             }
-            if op.state != "current": Text { text: op.detail; font-family: Theme.body; font-size: 20px; color: Theme.muted; overflow: elide; }
+            if op.state != "current": Text { text: op.detail; font-family: Theme.body; font-size: 20px; color: faded ? Theme.dim : Theme.muted; overflow: elide; }
             if op.state == "current": Bar { value: op.progress; text: op.progress-text; }
         }
     }

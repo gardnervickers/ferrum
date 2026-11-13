@@ -188,6 +188,7 @@ fn core_pills_front(s: &Status, axes: &[usize], out: &mut Vec<Pill>) {
     } else {
         match s.mode {
             linuxcnc::Mode::Manual => Pill::new("MANUAL", "info"),
+            linuxcnc::Mode::Auto if s.interp == Interp::Paused => Pill::new("PAUSED", "warn"),
             linuxcnc::Mode::Auto => Pill::new("AUTO", "good"),
             linuxcnc::Mode::Mdi => Pill::new("MDI", "info"),
         }
@@ -286,7 +287,8 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     live.set_program(
         Path::new(&s.file).file_name().map(|f| f.to_string_lossy().to_uppercase()).unwrap_or_default().into(),
     );
-    live.set_line(s.current_line.max(s.motion_line));
+    // LinuxCNC keeps the last run's lines after it ends; idle shows none.
+    live.set_line(if s.interp == Interp::Idle { 0 } else { s.current_line.max(s.motion_line) });
     live.set_running(s.busy());
     live.set_paused(s.interp == Interp::Paused);
     live.set_optional_stop(s.optional_stop);
@@ -415,7 +417,16 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     let weak = ui.as_weak();
     actions.on_navigate(move |id| {
         if let Some(ui) = weak.upgrade() {
-            ui.global::<Live>().set_screen(id);
+            // Overlays belong to the screen that opened them: a keypad left
+            // open would write to whatever that screen has selected later.
+            let live = ui.global::<Live>();
+            if live.get_keypad_open() {
+                ui.global::<Actions>().invoke_keypad_done(false);
+            }
+            if live.get_pick_open() {
+                ui.global::<Actions>().invoke_pick(-1);
+            }
+            live.set_screen(id);
         }
     });
 }

@@ -82,6 +82,7 @@ export component StatusBar inherits Rectangle {
         }
         // Closing the display ends the LinuxCNC session; never mid-program.
         VerticalLayout {
+            width: Live.remote ? 0px : 110px;
             alignment: center;
             if !Live.remote: Btn {
                 width: 110px;

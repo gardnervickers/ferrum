@@ -170,7 +170,7 @@ component ProgramCard inherits Card {
         spacing: 12px;
         HorizontalLayout {
             H3 { horizontal-stretch: 1; text: Live.program == "" ? "NO PROGRAM LOADED" : Live.program; overflow: elide; }
-            Label { vertical-alignment: center; text: "LINE " + Live.line + " / " + Live.gcode-count; }
+            Label { vertical-alignment: center; text: "LINE " + min(Live.line, Live.gcode-count) + " / " + Live.gcode-count; }
         }
         Rectangle {
             height: 8px;

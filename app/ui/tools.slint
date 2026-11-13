@@ -8,17 +8,27 @@ component Cell inherits Rectangle {
     in property <bool> tag;
     in property <bool> editable;
     callback tapped();
-    Text {
-        x: 0;
+    Rectangle {
+        x: 6px;
+        y: 5px;
         width: parent.width - 12px;
-        horizontal-alignment: right;
-        vertical-alignment: center;
-        text: tag ? "NEEDS LENGTH" : root.text;
-        font-family: tag ? Theme.display : Theme.body;
-        font-size: tag ? 19px : 24px;
-        color: tag ? #f3c463 : Theme.ink;
+        height: parent.height - 10px;
+        border-radius: 5px;
+        background: ta.pressed && root.editable ? Theme.raised : #ffffff08;
+        border-width: 1px;
+        border-color: ta.pressed && root.editable ? Theme.sel : #ffffff14;
+        Text {
+            x: 0;
+            width: parent.width - 12px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            text: tag ? "NEEDS LENGTH" : root.text;
+            font-family: tag ? Theme.display : Theme.body;
+            font-size: tag ? 19px : 24px;
+            color: tag ? #f3c463 : Theme.ink;
+        }
     }
-    TouchArea { enabled: editable; clicked => { root.tapped(); } }
+    ta := TouchArea { enabled: editable; clicked => { root.tapped(); } }
 }
 
 export component ToolsScreen inherits Rectangle {
@@ -39,9 +49,11 @@ export component ToolsScreen inherits Rectangle {
                     padding-left: 12px;
                     padding-right: 12px;
                     Label { width: 110px; text: "T"; }
-                    Label { width: 170px; horizontal-alignment: right; text: "LENGTH Z"; }
-                    Label { width: 140px; horizontal-alignment: right; text: "DIA"; }
-                    Label { horizontal-stretch: 1; text: "    COMMENT"; }
+                    Label { width: 158px; horizontal-alignment: right; text: "LENGTH Z"; }
+                    Rectangle { width: 12px; }
+                    Label { width: 128px; horizontal-alignment: right; text: "DIA"; }
+                    Rectangle { width: 12px; }
+                    Label { horizontal-stretch: 1; text: "   COMMENT"; }
                 }
                 Rectangle {
                     vertical-stretch: 1;
@@ -77,7 +89,7 @@ export component ToolsScreen inherits Rectangle {
                                 Text {
                                     horizontal-stretch: 1;
                                     vertical-alignment: center;
-                                    text: "    " + t.comment;
+                                    text: "   " + t.comment;
                                     font-family: Theme.body;
                                     font-size: 22px;
                                     color: t.scratch ? #f3c463 : Theme.muted;
@@ -90,22 +102,23 @@ export component ToolsScreen inherits Rectangle {
                 HorizontalLayout {
                     spacing: 12px;
                     Btn {
-                        width: 250px;
+                        horizontal-stretch: 3;
                         kind: "go";
+                        font-size: 22px;
                         text: Live.tools-sel-label == "" ? "M6 SELECTED" : "M6 " + Live.tools-sel-label;
                         enabled: Live.tools-sel-label != "" && !locked && Live.power;
                         clicked => { Actions.tools-m6(); }
                     }
-                    Btn { width: 230px; text: "UNLOAD SPINDLE"; enabled: !locked && Live.power; clicked => { Actions.tools-unload(); } }
-                    Rectangle { horizontal-stretch: 1; }
-                    Btn { width: 150px; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
-                    Btn { width: 190px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
-                    Btn { width: 170px; text: "DELETE"; sub: "HOLD"; hold: true; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.tools-delete(); } }
+                    Btn { horizontal-stretch: 3; font-size: 22px; text: "UNLOAD SPINDLE"; enabled: !locked && Live.power; clicked => { Actions.tools-unload(); } }
+                    Rectangle { width: 16px; }
+                    Btn { horizontal-stretch: 2; font-size: 22px; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
+                    Btn { horizontal-stretch: 3; font-size: 22px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
+                    Btn { horizontal-stretch: 2; font-size: 22px; text: "DELETE"; hold: true; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.tools-delete(); } }
                 }
             }
         }
         VerticalLayout {
-            width: 440px;
+            width: 420px;
             spacing: 14px;
             Card {
                 vertical-stretch: 1;
@@ -136,7 +149,7 @@ export component ToolsScreen inherits Rectangle {
                         }
                         if Live.tools-check.length == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: "No T words in the program."; }
                     }
-                    Btn { text: "CREATE MISSING ENTRIES"; enabled: Live.tools-missing && !locked; clicked => { Actions.tools-create-missing(); } }
+                    Btn { font-size: 22px; text: "CREATE MISSING ENTRIES"; enabled: Live.tools-missing && !locked; clicked => { Actions.tools-create-missing(); } }
                 }
             }
             Card {

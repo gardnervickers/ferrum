@@ -403,6 +403,8 @@ pub fn apply_status(ui: &MainWindow, tools: &Rc<RefCell<Tools>>, s: &Status) {
     if changed {
         st.load();
         st.show(ui);
+        let dia = st.tools.iter().find(|t| t.t == s.tool_in_spindle && s.tool_in_spindle > 0).map(|t| format!("{:.3}", t.d));
+        ui.global::<Live>().set_tool_dia(dia.unwrap_or_else(|| "-".into()).into());
     }
 }
 

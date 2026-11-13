@@ -35,8 +35,8 @@ export component FilesScreen inherits Rectangle {
                                 padding-left: 12px;
                                 padding-right: 12px;
                                 Text { horizontal-stretch: 1; vertical-alignment: center; text: (f.dir ? "▸ " : "") + f.name; font-family: Theme.body; font-size: 24px; color: Theme.ink; overflow: elide; }
-                                Text { width: 120px; horizontal-alignment: right; vertical-alignment: center; text: f.size; font-family: Theme.body; font-size: 20px; color: Theme.muted; }
-                                Text { width: 200px; horizontal-alignment: right; vertical-alignment: center; text: f.modified; font-family: Theme.body; font-size: 20px; color: Theme.muted; }
+                                Text { width: 120px; horizontal-alignment: right; vertical-alignment: center; text: f.size; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.ink : Theme.muted; }
+                                Text { width: 200px; horizontal-alignment: right; vertical-alignment: center; text: f.modified; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.ink : Theme.muted; }
                             }
                             ft := TouchArea { clicked => { Actions.files-tap(i); } }
                         }
@@ -81,7 +81,7 @@ export component FilesScreen inherits Rectangle {
                         }
                     }
                 }
-                Note { text: "First lines of the file. The op list, times and top-view preview come from the interpreter later in milestone 3."; }
+                Note { text: "First lines of the file."; }
             }
         }
     }

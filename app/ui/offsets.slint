@@ -2,23 +2,35 @@ import { Theme } from "theme.slint";
 import { Live, Actions, OffsetRow } from "state.slint";
 import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
 
+// A value in its own box, so the tap target is visible and values from
+// neighbouring columns never share one.
 component Cell inherits Rectangle {
     in property <string> text;
     in property <bool> enabled;
     in property <bool> dim;
     callback tapped();
     horizontal-stretch: 1;
-    Text {
-        width: parent.width - 16px;
-        x: 0;
-        horizontal-alignment: right;
-        vertical-alignment: center;
-        text: root.text;
-        font-family: Theme.body;
-        font-size: 26px;
-        color: dim ? Theme.dim : Theme.ink;
+    Rectangle {
+        x: 6px;
+        y: 6px;
+        width: parent.width - 12px;
+        height: parent.height - 12px;
+        border-radius: 5px;
+        background: ta.pressed && root.enabled ? Theme.raised : #ffffff08;
+        border-width: 1px;
+        border-color: ta.pressed && root.enabled ? Theme.sel : #ffffff14;
+        Text {
+            x: 0;
+            width: parent.width - 14px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            text: root.text;
+            font-family: Theme.body;
+            font-size: 26px;
+            color: dim ? Theme.dim : Theme.ink;
+        }
     }
-    TouchArea { enabled: root.enabled; clicked => { root.tapped(); } }
+    ta := TouchArea { enabled: root.enabled; clicked => { root.tapped(); } }
 }
 
 export component OffsetsScreen inherits Rectangle {
@@ -32,8 +44,9 @@ export component OffsetsScreen inherits Rectangle {
                 padding: 14px;
                 spacing: 12px;
                 HorizontalLayout {
+                    height: 44px;
                     spacing: 12px;
-                    H3 { horizontal-stretch: 1; text: "WORK OFFSETS"; }
+                    H3 { horizontal-stretch: 1; vertical-alignment: center; text: "WORK OFFSETS"; }
                     if Live.offsets-g92 != "": Pill { text: Live.offsets-g92 + " ACTIVE"; kind: "warn"; }
                     if Live.offsets-g92 != "": Btn { width: 180px; height: 44px; font-size: 20px; text: "CLEAR G92"; enabled: !locked; clicked => { Actions.offsets-clear-g92(); } }
                     Label { vertical-alignment: center; text: "TAP A ROW · TAP A VALUE TO EDIT"; }
@@ -42,7 +55,11 @@ export component OffsetsScreen inherits Rectangle {
                     padding-left: 12px;
                     padding-right: 12px;
                     Label { width: 220px; text: "WCS"; }
-                    for c in ["X", "Y", "Z", "A", "ROT"]: Label { horizontal-stretch: 1; horizontal-alignment: right; text: c + "    "; }
+                    for c in ["X", "Y", "Z", "A", "ROT"]: Rectangle {
+                        horizontal-stretch: 1;
+                        height: 24px;
+                        Label { x: 0; width: parent.width - 20px; horizontal-alignment: right; text: c; }
+                    }
                 }
                 Rectangle {
                     vertical-stretch: 1;

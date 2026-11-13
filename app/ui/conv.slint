@@ -23,6 +23,7 @@ component FieldRow inherits Rectangle {
                 spacing: 6px;
                 alignment: end;
                 Text { vertical-alignment: center; text: f.value; font-family: f.choice ? Theme.display : Theme.body; font-weight: 600; font-size: f.choice ? 24px : 26px; color: Theme.ink; overflow: elide; }
+                if f.choice: Text { vertical-alignment: center; text: "▾"; font-size: 20px; color: Theme.muted; }
                 if f.unit != "": Text { vertical-alignment: center; text: f.unit; font-family: Theme.body; font-size: 16px; color: Theme.dim; }
             }
             touch := TouchArea { clicked => { Actions.conv-field(f.key); } }

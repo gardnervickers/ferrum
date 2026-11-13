@@ -250,7 +250,7 @@ impl Conv {
                 "BREAK" => "CHIP BREAK DEPTH",
                 "DWELL" => "DWELL SECONDS",
                 "TAP" | "RIGID TAP" => "THREAD PITCH",
-                _ => "",
+                _ => "NO PARAMETER",
             }
             .into(),
             "xy_feed" if orbit(&self.ty) => "FEED".into(),
@@ -261,7 +261,6 @@ impl Conv {
     fn visible(&self, f: &F) -> bool {
         match f.key {
             "z_feed" => !orbit(&self.ty),
-            "cycle_param" => !matches!(self.get("cycle").as_str(), "DRILL" | "MANUAL"),
             _ => true,
         }
     }
@@ -278,7 +277,14 @@ impl Conv {
         }
     }
 
+    fn unused(&self, key: &str) -> bool {
+        key == "cycle_param" && matches!(self.get("cycle").as_str(), "DRILL" | "MANUAL")
+    }
+
     fn row(&self, f: &F) -> ConvField {
+        if self.unused(f.key) {
+            return ConvField { key: f.key.into(), label: self.label(f).into(), value: "—".into(), unit: "".into(), choice: false };
+        }
         ConvField { key: f.key.into(), label: self.label(f).into(), value: self.get(f.key).into(), unit: self.unit(f).into(), choice: matches!(f.kind, Kind::Choice(_) | Kind::Preset) }
     }
 
@@ -541,16 +547,22 @@ pub fn wire(ui: &MainWindow, job: Rc<RefCell<Job>>, settings: Settings) -> Rc<Re
         let Some(ui) = weak.upgrade() else { return };
         let mut c = t.borrow_mut();
         let Some(f) = c.find(&key) else { return };
+        if c.unused(f.key) {
+            return;
+        }
         match f.kind {
             Kind::Choice(opts) => {
                 c.picking = Some(f.key);
-                crate::picker::open(&ui, "conv", &c.label(f), opts.iter().map(|s| s.to_string()).collect());
+                let cur = c.get(f.key);
+                crate::picker::open(&ui, "conv", &c.label(f), opts.iter().map(|s| s.to_string()).collect(), opts.iter().position(|o| *o == cur));
             }
             Kind::Preset => {
                 c.picking = Some(f.key);
                 let mut items = c.presets.clone();
                 items.push("CUSTOM".into());
-                crate::picker::open(&ui, "conv", "THREAD", items);
+                let cur = c.get("preset");
+                let at = items.iter().position(|o| *o == cur);
+                crate::picker::open(&ui, "conv", "THREAD", items, at);
             }
             _ => {
                 drop(c);

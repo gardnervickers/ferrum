@@ -114,12 +114,13 @@ component ToolCard inherits Rectangle {
     border-radius: 8px;
     border-width: highlight ? 2px : 0px;
     border-color: #d99a1e;
+    horizontal-stretch: 1;
     VerticalLayout {
         padding: 16px;
         spacing: 4px;
-        Label { text: title; }
-        Text { text: tool; font-family: Theme.body; font-weight: 600; font-size: 48px; color: Theme.ink; }
-        Note { text: desc == "" ? " " : desc; overflow: elide; }
+        Label { height: 24px; text: title; }
+        Text { height: 56px; text: tool; font-family: Theme.body; font-weight: 600; font-size: 48px; color: Theme.ink; }
+        Text { height: 50px; text: desc; wrap: word-wrap; overflow: elide; font-family: Theme.body; font-size: 19px; color: Theme.muted; }
     }
 }
 
@@ -139,9 +140,9 @@ export component ToolChange inherits Scrim {
             }
             HorizontalLayout {
                 spacing: 14px;
-                height: 140px;
-                ToolCard { title: "REMOVE"; tool: Live.tc-from; desc: Live.tc-from-desc; }
-                ToolCard { title: "INSERT"; tool: Live.tc-tool; desc: Live.tc-tool-desc; highlight: true; }
+                height: 170px;
+                ToolCard { width: 421px; title: "REMOVE"; tool: Live.tc-from; desc: Live.tc-from-desc; }
+                ToolCard { width: 421px; title: "INSERT"; tool: Live.tc-tool; desc: Live.tc-tool-desc; highlight: true; }
             }
             HorizontalLayout {
                 spacing: 12px;
@@ -154,10 +155,11 @@ export component ToolChange inherits Scrim {
                 Btn { height: 84px; text: "RELEASE TOOL"; hold: true; enabled: Live.tc-can-extend; clicked => { Actions.tc-drawbar(true); } }
                 Btn { height: 84px; text: "CLAMP TOOL"; enabled: Live.tc-can-retract; clicked => { Actions.tc-drawbar(false); } }
             }
-            if Live.tc-scratch != "": Rectangle {
+            // Slot kept when empty so the dialog never reflows.
+            Rectangle {
                 height: 48px;
                 border-radius: 6px;
-                background: #43361a;
+                background: Live.tc-scratch != "" ? #43361a : transparent;
                 Text { text: Live.tc-scratch; font-family: Theme.display; font-size: 22px; letter-spacing: 1px; color: #f3c463; }
             }
             Rectangle {
@@ -177,13 +179,13 @@ export component ToolChange inherits Scrim {
                         border-width: 2px;
                         border-color: Live.tc-seated ? #3fb86b : Theme.muted;
                         background: Live.tc-seated ? Theme.go : transparent;
-                        Text { text: Live.tc-seated ? "✓" : ""; font-size: 30px; color: Theme.ink; }
+                        if Live.tc-seated: Path { width: 28px; height: 28px; viewbox-width: 24; viewbox-height: 24; commands: "M4 12l5 5L20 6"; stroke: Theme.ink; stroke-width: 4px; fill: transparent; }
                     }
                     Text { vertical-alignment: center; text: "Tool is seated and the drawbar is clamped"; font-family: Theme.body; font-size: 26px; color: Theme.ink; }
                 }
                 TouchArea { clicked => { Actions.tc-seated-toggle(); } }
             }
-            Text { text: Live.tc-message; wrap: word-wrap; font-family: Theme.display; font-size: 22px; letter-spacing: 1px; color: Theme.muted; }
+            Text { height: 56px; text: Live.tc-message; wrap: word-wrap; overflow: elide; font-family: Theme.display; font-size: 22px; letter-spacing: 1px; color: Theme.muted; }
             Rectangle { vertical-stretch: 1; }
             HorizontalLayout {
                 spacing: 30px;
@@ -210,9 +212,11 @@ export component Picker inherits Scrim {
                 clip: true;
                 Flickable {
                     content-height: items.preferred-height;
+                    // Open with the current choice in view.
+                    init => { self.viewport-y = -max(0px, min(Live.pick-current * 76px - 200px, items.preferred-height - self.height)); }
                     items := VerticalLayout {
                         spacing: 8px;
-                        for it[i] in Live.pick-items: Btn { height: 68px; text: it; font-size: 26px; clicked => { Actions.pick(i); } }
+                        for it[i] in Live.pick-items: Btn { height: 68px; text: it; family: Theme.body; font-size: 28px; on: i == Live.pick-current; clicked => { Actions.pick(i); } }
                     }
                 }
             }
