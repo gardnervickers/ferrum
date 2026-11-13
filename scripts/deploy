@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Build and copy millgui to the Pi's config checkout. Only millgui's own files
+# are written; mymill.ini and the Probe Basic setup are not touched.
+set -euo pipefail
+PI="${MILLGUI_PI:-cnc@cncmill.localdomain}"
+DEST="${MILLGUI_DEST:-linuxcnc/configs/mymill}"
+cd "$(dirname "$0")/.."
+scripts/build
+ssh "$PI" "mkdir -p $DEST/millgui/bin"
+scp -q target/aarch64-unknown-linux-gnu/release/millgui "$PI:$DEST/millgui/bin/millgui.new"
+scp -q run "$PI:$DEST/millgui/run"
+scp -q ../millgui.ini ../millgui_postgui.hal "$PI:$DEST/"
+ssh "$PI" "mv $DEST/millgui/bin/millgui.new $DEST/millgui/bin/millgui && chmod +x $DEST/millgui/run"
+echo "deployed to $PI:$DEST"

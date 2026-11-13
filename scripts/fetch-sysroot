@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Copy the few Pi headers and libraries the cross build links against into
+# ./sysroot (gitignored). Rerun after upgrading LinuxCNC or Debian on the Pi.
+set -euo pipefail
+PI="${MILLGUI_PI:-cnc@cncmill.localdomain}"
+cd "$(dirname "$0")/.."
+mkdir -p sysroot
+A=/usr/lib/aarch64-linux-gnu
+# tar over ssh: works with macOS openrsync-less setups; globs expand on the Pi.
+ssh "$PI" "cd / && tar -c \
+  ${A#/}/pkgconfig usr/share/pkgconfig \
+  usr/include/fontconfig usr/include/freetype2 usr/include/linuxcnc \
+  ${A#/}/libfontconfig.so* ${A#/}/libfreetype.so* ${A#/}/libexpat.so* \
+  ${A#/}/libpng16.so* ${A#/}/libz.so* ${A#/}/libbrotli*.so* \
+  usr/lib/liblinuxcnc*.so* usr/lib/libnml.so* usr/lib/libposemath.so*" \
+  | tar -x -C sysroot
+echo "sysroot ready: $(du -sh sysroot | cut -f1)"

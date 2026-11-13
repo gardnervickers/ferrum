@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Run millgui natively (macOS or Linux) for UI work; HAL shows as unavailable.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [ "$(uname)" = Darwin ]; then
+  ICONV="$(nix build --no-link --print-out-paths nixpkgs#libiconv | tail -1)"
+  export RUSTFLAGS="${RUSTFLAGS:-} -L $ICONV/lib"
+fi
+exec cargo run "$@"
