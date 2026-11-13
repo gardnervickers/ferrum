@@ -15,6 +15,8 @@ mod program;
 mod remote;
 mod settings;
 mod toolchange;
+mod offsets;
+mod tools;
 
 use config::Config;
 use linuxcnc::{Command, Event, Handle, Interp, MessageKind, Status, TaskState, AXIS_LETTERS};
@@ -491,6 +493,16 @@ fn main() -> Result<(), slint::PlatformError> {
                         });
                         plot::sync(ui, &s.file);
                         plot::with(|p| plot::tool_moved(p, tool_tip(&s)));
+                        TOOLS.with(|t| {
+                            if let Some(t) = t.borrow().as_ref() {
+                                tools::apply_status(ui, t, &s);
+                            }
+                        });
+                        OFFSETS.with(|o| {
+                            if let Some(o) = o.borrow().as_ref() {
+                                offsets::apply_status(ui, o, &s);
+                            }
+                        });
                     }
                     Event::Message(m) => {
                         with_manual(|mm| manual::log_message(ui, mm, &m));
@@ -533,6 +545,11 @@ fn main() -> Result<(), slint::PlatformError> {
     } else {
         modules.iter().find_map(|m| m.toolchange())
     };
+    let tools = tools::wire(&ui, &handle, &cfg, tc_io.clone(), args.sim);
+    let _tools_timer = tools::start_timer(&ui, &tools);
+    TOOLS.with(|t| *t.borrow_mut() = Some(tools));
+    let offsets = offsets::wire(&ui, &handle, &cfg, args.sim);
+    OFFSETS.with(|o| *o.borrow_mut() = Some(offsets));
     let _tc_timer = tc_io.map(|io| toolchange::wire(&ui, &handle, &cfg, io));
 
     // Remote (web) screen: [MILLGUI]REMOTE_PORT serves the browser build.
@@ -646,6 +663,10 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
         pending.sim_tool_change = Some(214);
         tc_io.status(&pending);
     }
+    let tools = tools::wire(&ui, &handle, cfg, Some(tc_io.clone() as Rc<dyn toolchange::Io>), true);
+    tools::apply_status(&ui, &tools, &s);
+    let offsets = offsets::wire(&ui, &handle, cfg, true);
+    offsets::apply_status(&ui, &offsets, &s);
     let _tc_timer = toolchange::wire(&ui, &handle, cfg, tc_io);
     let actions = ui.global::<Actions>();
     for what in &args.show {
@@ -721,6 +742,8 @@ type UiEventFn = Box<dyn FnMut(&MainWindow, Event)>;
 
 thread_local! {
     static SIM_TC: RefCell<Option<Rc<toolchange::SimIo>>> = const { RefCell::new(None) };
+    static TOOLS: RefCell<Option<Rc<RefCell<tools::Tools>>>> = const { RefCell::new(None) };
+    static OFFSETS: RefCell<Option<Rc<RefCell<offsets::Offsets>>>> = const { RefCell::new(None) };
     /// The status handler lives on the UI thread; the machine thread only
     /// posts events to it.
     static UI_EVENT: RefCell<Option<UiEventFn>> = RefCell::new(None);

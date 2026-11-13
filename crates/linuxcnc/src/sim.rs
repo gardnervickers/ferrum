@@ -13,6 +13,8 @@ pub struct Sim {
     run_until: Option<i32>,
     messages: VecDeque<Message>,
     selected_tool: i32,
+    /// G54..G59.3: X Y Z A offsets and XY rotation.
+    wcs: [[f64; 5]; 9],
 }
 
 impl Sim {
@@ -34,7 +36,7 @@ impl Sim {
         s.tool_in_spindle = 23;
         s.active_gcodes = [0, 10, 170, 210, 400, 490, 540, 640, 800, 900, 911, 940, 970, 980, -1, -1, -1];
         s.active_mcodes = [0, 5, 9, 48, -1, -1, -1, -1, -1, -1];
-        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, messages: VecDeque::new(), selected_tool: 0 }
+        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, messages: VecDeque::new(), selected_tool: 0, wcs: [[120.0, -95.0, -212.4, 0.0, 0.0], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5]] }
     }
 
     fn msg(&mut self, kind: MessageKind, text: impl Into<String>) {
@@ -82,11 +84,26 @@ impl Sim {
             self.s.mist = false;
             self.s.flood = false;
         }
-        if has('G', 10.0) && has('L', 20.0) {
+        let codes = [54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 59.1, 59.2, 59.3];
+        let active = (self.s.g5x_index - 1).clamp(0, 8) as usize;
+        if has('G', 10.0) && (has('L', 20.0) || has('L', 2.0)) {
+            let p = val('P').unwrap_or(0.0) as usize;
+            let n = if p == 0 { active } else { (p - 1).min(8) };
             for (i, l) in ['X', 'Y', 'Z', 'A'].into_iter().enumerate() {
                 if let Some(v) = val(l) {
-                    self.s.g5x_offset[i] = self.s.actual[i] - self.s.tool_offset[i] - v;
+                    self.wcs[n][i] = if has('L', 20.0) { self.s.actual[i] - self.s.tool_offset[i] - self.s.g92_offset[i] - v } else { v };
                 }
+            }
+            if let Some(r) = val('R') {
+                self.wcs[n][4] = r;
+            }
+        } else if has('G', 92.1) {
+            self.s.g92_offset = [0.0; AXES];
+        } else if let Some(n) = codes.iter().position(|c| has('G', *c)) {
+            self.s.g5x_index = n as i32 + 1;
+            let code = (codes[n] * 10.0).round() as i32;
+            for g in self.s.active_gcodes.iter_mut().filter(|g| (540..=593).contains(*g)) {
+                *g = code;
             }
         } else if has('G', 0.0) || has('G', 1.0) {
             let machine = has('G', 53.0);
@@ -96,6 +113,11 @@ impl Sim {
                 }
             }
         }
+        let a = (self.s.g5x_index - 1).clamp(0, 8) as usize;
+        for i in 0..4 {
+            self.s.g5x_offset[i] = self.wcs[a][i];
+        }
+        self.s.rotation_xy = self.wcs[a][4];
         self.msg(MessageKind::Display, format!("(sim) MDI {line}"));
     }
 }

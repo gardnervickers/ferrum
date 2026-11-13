@@ -6,6 +6,9 @@ export struct NavItem { id: string, label: string, icon: string }
 export struct MsgRow { time: string, text: string, kind: string }
 export struct MdiCard { label: string, desc: string, fill: string, moves: bool }
 export struct FileRow { name: string, dir: bool, modified: string, size: string }
+export struct ToolRow { t: string, len: string, dia: string, comment: string, needs-len: bool, current: bool, scratch: bool }
+export struct CheckRow { t: string, status: string, kind: string, action: string }
+export struct OffsetRow { wcs: string, x: string, y: string, z: string, a: string, rot: string, active: bool, used: bool }
 export struct GotoRow { name: string, x: string, y: string, px: float, py: float }
 
 export global Live {
@@ -123,6 +126,22 @@ export global Live {
     in property <string> tc-nose;
     in property <string> tc-nose-kind;
 
+    // TOOLS screen (tools.rs).
+    in property <[ToolRow]> tools;
+    in property <int> tools-selected: -1;
+    in property <string> tools-sel-label;
+    in property <[CheckRow]> tools-check;
+    in property <bool> tools-missing;
+    in property <string> tools-drawbar: "UNKNOWN";
+    in property <bool> tools-can-extend;
+    in property <bool> tools-can-retract;
+
+    // OFFSETS screen (offsets.rs).
+    in property <[OffsetRow]> offsets;
+    in property <int> offsets-selected;
+    in property <string> offsets-sel-label: "G54";
+    in property <string> offsets-g92;
+
     // Keypad overlay; Rust owns the value and what it is for.
     in property <bool> keypad-open;
     in property <string> keypad-label;
@@ -187,4 +206,18 @@ export global Actions {
     callback tc-drawbar(extend: bool);
     callback tc-resume(touch-off: bool);
     callback tc-abort();
+    callback tools-select(index: int);
+    callback tools-m6();
+    callback tools-unload();
+    callback tools-add-scratch();
+    callback tools-delete();
+    callback tools-create-missing();
+    callback tools-drawbar(extend: bool);
+    callback tools-reload();
+    callback offsets-select(index: int);
+    callback offsets-activate();
+    callback offsets-zero(axis: int);
+    callback offsets-clear();
+    callback offsets-clear-all();
+    callback offsets-clear-g92();
 }

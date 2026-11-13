@@ -53,14 +53,16 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 ## M4 Tooling
 
-- [ ] Tool change matches toolchange_dialog.py and m6_toolchange_optional_touch_off.ngc:
+- [x] Tool change matches toolchange_dialog.py and m6_toolchange_optional_touch_off.ngc:
       seated checkbox gates RESUME; RESUME + TOUCH OFF sets tool-touch-off-request-latch and
       the remap runs tool_touch_off.ngc; disabled for T99; ABORT while released retracts the
       drawbar; T200–249 warn "touch off likely required"; show the spindle nose reference state.
-- [ ] Manual drawbar extend outside M6, and M61 Q0, on Tools.
-- [ ] Tool table add/delete rows and scratch tools T200–249.
-- [ ] Offsets: columns match XYZR; ZERO HERE and CLEAR need a hold; active WCS tagged;
+- [x] Manual drawbar extend outside M6, and M61 Q0, on Tools.
+- [x] Tool table add/delete rows and scratch tools T200–249.
+- [x] Offsets: columns match XYZR; ZERO HERE and CLEAR need a hold; active WCS tagged;
       G92/G52 indicator with CLEAR.
+- [ ] Check on the Pi whether LinuxCNC rewrites PARAMETER_FILE after G10 while running;
+      inactive WCS rows come from it at startup and from edits made in millgui.
 
 ## M5 Probing and util
 

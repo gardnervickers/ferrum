@@ -113,7 +113,8 @@ impl Manual {
         live.set_spindle_rpm(fmt(self.rpm).into());
         live.set_keypad_open(self.keypad.is_some());
         if let Some((what, buf)) = &self.keypad {
-            live.set_keypad_label(label(what).into());
+            let l = KEYPAD.with(|t| t.borrow().iter().find_map(|t| t.label(what))).unwrap_or_else(|| label(what).to_string());
+            live.set_keypad_label(l.into());
             live.set_keypad_value(buf.clone().into());
         }
     }
@@ -143,7 +144,12 @@ impl Manual {
             "pf-dist" => self.pf.dist = v,
             "gt-x" => self.pf.gt_x = v,
             "gt-y" => self.pf.gt_y = v,
-            _ => {}
+            _ => {
+                return match KEYPAD.with(|t| t.borrow().iter().find_map(|t| t.apply(what, v))) {
+                    Some(r) => r,
+                    None => Ok(()),
+                }
+            }
         }
         self.persist();
         Ok(())
@@ -166,9 +172,26 @@ impl Manual {
             "gt-x" => self.pf.gt_x,
             "gt-y" => self.pf.gt_y,
             "gt-feed" => self.pf.gt_feed,
-            _ => 0.0,
+            _ => KEYPAD.with(|t| t.borrow().iter().find_map(|t| t.current(what))).unwrap_or(0.0),
         }
     }
+}
+
+/// Another screen's values edited on the shared keypad (Tools, Offsets).
+/// Each answers only for the names it owns (`None` otherwise).
+pub trait KeypadTarget {
+    fn label(&self, what: &str) -> Option<String>;
+    fn current(&self, what: &str) -> Option<f64>;
+    /// Range-check and store; `Err` keeps the keypad open with the message.
+    fn apply(&self, what: &str, v: f64) -> Option<Result<(), String>>;
+}
+
+thread_local! {
+    static KEYPAD: RefCell<Vec<Rc<dyn KeypadTarget>>> = const { RefCell::new(Vec::new()) };
+}
+
+pub fn add_keypad_target(t: Rc<dyn KeypadTarget>) {
+    KEYPAD.with(|k| k.borrow_mut().push(t));
 }
 
 fn label(what: &str) -> &'static str {

@@ -1,0 +1,258 @@
+//! OFFSETS screen (milestone 4): the nine work coordinate systems, G92.
+//!
+//! Every change is G-code sent through MDI (G10 L2/L20, G5x, G92.1), so
+//! LinuxCNC's interpreter stays the only writer of the offsets.
+//!
+//! Sources: the active system comes from status (always current). The others
+//! come from [RS274NGC]PARAMETER_FILE at startup and from the values this
+//! screen writes. LinuxCNC saves that file when it shuts down, so a program
+//! that changes an inactive system shows here only once it is made active.
+
+use crate::config::Config;
+use crate::manual::KeypadTarget;
+use crate::{Actions, Live, MainWindow, OffsetRow};
+use linuxcnc::{Command, Handle, Status};
+use slint::{ComponentHandle, ModelRc, VecModel};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+pub const CODES: [&str; 9] = ["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"];
+/// Columns: X Y Z A, then XY rotation.
+const COLS: [&str; 5] = ["X", "Y", "Z", "A", "R"];
+
+/// Offsets from a LinuxCNC parameter file (`<number> <value>` lines).
+/// G54 X is #5221; each system is 20 parameters on; R is the 10th.
+pub fn parse_var(text: &str) -> [[f64; 5]; 9] {
+    let mut out = [[0.0; 5]; 9];
+    for line in text.lines() {
+        let mut w = line.split_whitespace();
+        let (Some(n), Some(v)) = (w.next().and_then(|n| n.parse::<i32>().ok()), w.next().and_then(|v| v.parse::<f64>().ok())) else { continue };
+        if !(5221..5400).contains(&n) {
+            continue;
+        }
+        let (sys, k) = ((n - 5221) / 20, (n - 5221) % 20);
+        let col = match k {
+            0..=3 => k as usize,
+            9 => 4,
+            _ => continue,
+        };
+        out[sys as usize][col] = v;
+    }
+    out
+}
+
+pub struct Offsets {
+    table: [[f64; 5]; 9],
+    selected: usize,
+    status: Option<Status>,
+    machine: Handle,
+    ui: slint::Weak<MainWindow>,
+}
+
+impl Offsets {
+    fn active(&self) -> Option<usize> {
+        self.status.as_ref().map(|s| (s.g5x_index - 1).clamp(0, 8) as usize)
+    }
+
+    /// MDI is only allowed with the machine on and nothing running.
+    fn ready(&self) -> Result<&Status, String> {
+        match &self.status {
+            Some(s) if !s.power_on() => Err("Turn the machine on first".into()),
+            Some(s) if s.busy() => Err("Offsets can't change while a program or MDI command runs".into()),
+            Some(s) => Ok(s),
+            None => Err("Not connected to LinuxCNC".into()),
+        }
+    }
+
+    fn mdi(&mut self, line: String) -> Result<(), String> {
+        self.ready()?;
+        self.machine.send(Command::Mdi(line));
+        Ok(())
+    }
+
+    /// G10 L2: set values in a system directly.
+    fn set(&mut self, sys: usize, vals: &[(usize, f64)]) -> Result<(), String> {
+        let words: Vec<String> = vals.iter().map(|(c, v)| format!("{}{v:.6}", COLS[*c])).collect();
+        self.mdi(format!("G10 L2 P{} {}", sys + 1, words.join(" ")))?;
+        for &(c, v) in vals {
+            self.table[sys][c] = v;
+        }
+        Ok(())
+    }
+
+    /// G10 L20: make the current position zero on one axis of a system.
+    fn zero_here(&mut self, sys: usize, axis: usize) -> Result<(), String> {
+        let s = self.ready()?;
+        if s.rotation_xy != 0.0 && axis < 2 {
+            // The expected value below ignores rotation; status corrects the active row.
+            if self.active() != Some(sys) {
+                return Err("Zero X/Y here needs the rotated system to be active".into());
+            }
+        }
+        let v = s.actual[axis] - s.tool_offset[axis] - s.g92_offset[axis];
+        self.mdi(format!("G10 L20 P{} {}0", sys + 1, COLS[axis]))?;
+        self.table[sys][axis] = v;
+        Ok(())
+    }
+
+    fn show(&self, ui: &MainWindow) {
+        let live = ui.global::<Live>();
+        let active = self.active();
+        let fmt = |v: f64| format!("{v:.3}");
+        let rows: Vec<OffsetRow> = (0..9)
+            .map(|i| {
+                let r = self.table[i];
+                OffsetRow {
+                    wcs: CODES[i].into(),
+                    x: fmt(r[0]).into(),
+                    y: fmt(r[1]).into(),
+                    z: fmt(r[2]).into(),
+                    a: fmt(r[3]).into(),
+                    rot: fmt(r[4]).into(),
+                    active: active == Some(i),
+                    used: r.iter().any(|v| *v != 0.0),
+                }
+            })
+            .collect();
+        live.set_offsets(ModelRc::new(VecModel::from(rows)));
+        live.set_offsets_selected(self.selected as i32);
+        live.set_offsets_sel_label(CODES[self.selected].into());
+        let g92 = self.status.as_ref().map(|s| s.g92_offset).unwrap_or_default();
+        let on = g92.iter().any(|v| *v != 0.0);
+        live.set_offsets_g92(if on { format!("G92/G52 X{:.3} Y{:.3} Z{:.3} A{:.3}", g92[0], g92[1], g92[2], g92[3]) } else { String::new() }.into());
+    }
+
+    fn refresh(&self) {
+        if let Some(ui) = self.ui.upgrade() {
+            self.show(&ui);
+        }
+    }
+
+    fn note(&self, r: Result<(), String>) {
+        if let (Err(e), Some(ui)) = (r, self.ui.upgrade()) {
+            let live = ui.global::<Live>();
+            live.set_message(e.into());
+            live.set_message_error(true);
+        }
+    }
+}
+
+/// Keypad values "off-x", "off-y", "off-z", "off-a", "off-r" (selected row).
+struct Keys(Rc<RefCell<Offsets>>);
+
+fn col(what: &str) -> Option<usize> {
+    let c = what.strip_prefix("off-")?;
+    COLS.iter().position(|x| x.eq_ignore_ascii_case(c))
+}
+
+impl KeypadTarget for Keys {
+    fn label(&self, what: &str) -> Option<String> {
+        let c = col(what)?;
+        let o = self.0.borrow();
+        Some(format!("{} {}", CODES[o.selected], if c == 4 { "ROTATION" } else { COLS[c] }))
+    }
+    fn current(&self, what: &str) -> Option<f64> {
+        let c = col(what)?;
+        let o = self.0.borrow();
+        Some(o.table[o.selected][c])
+    }
+    fn apply(&self, what: &str, v: f64) -> Option<Result<(), String>> {
+        let c = col(what)?;
+        let mut o = self.0.borrow_mut();
+        let sel = o.selected;
+        let r = o.set(sel, &[(c, v)]);
+        o.refresh();
+        Some(r)
+    }
+}
+
+pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> Rc<RefCell<Offsets>> {
+    // The simulator starts from its own offsets, not the machine's file.
+    let table = if sim {
+        [[0.0; 5]; 9]
+    } else {
+        let path = cfg.dir().join(cfg.get("RS274NGC", "PARAMETER_FILE").unwrap_or("linuxcnc.var"));
+        std::fs::read_to_string(path).map(|t| parse_var(&t)).unwrap_or([[0.0; 5]; 9])
+    };
+    let o = Rc::new(RefCell::new(Offsets { table, selected: 0, status: None, machine: machine.clone(), ui: ui.as_weak() }));
+    crate::manual::add_keypad_target(Rc::new(Keys(o.clone())));
+    let actions = ui.global::<Actions>();
+    let t = o.clone();
+    actions.on_offsets_select(move |i| {
+        let mut o = t.borrow_mut();
+        o.selected = (i.max(0) as usize).min(8);
+        o.refresh();
+    });
+    let t = o.clone();
+    actions.on_offsets_activate(move || {
+        let mut o = t.borrow_mut();
+        let line = CODES[o.selected].to_string();
+        let r = o.mdi(line);
+        o.note(r);
+    });
+    let t = o.clone();
+    actions.on_offsets_zero(move |axis| {
+        let mut o = t.borrow_mut();
+        let sel = o.selected;
+        let r = o.zero_here(sel, axis.clamp(0, 3) as usize);
+        o.note(r);
+        o.refresh();
+    });
+    let t = o.clone();
+    actions.on_offsets_clear(move || {
+        let mut o = t.borrow_mut();
+        let sel = o.selected;
+        let r = o.set(sel, &[(0, 0.0), (1, 0.0), (2, 0.0), (3, 0.0), (4, 0.0)]);
+        o.note(r);
+        o.refresh();
+    });
+    let t = o.clone();
+    actions.on_offsets_clear_all(move || {
+        let mut o = t.borrow_mut();
+        let r = (0..9).try_for_each(|i| o.set(i, &[(0, 0.0), (1, 0.0), (2, 0.0), (3, 0.0), (4, 0.0)]));
+        o.note(r);
+        o.refresh();
+    });
+    let t = o.clone();
+    actions.on_offsets_clear_g92(move || {
+        let mut o = t.borrow_mut();
+        let r = o.mdi("G92.1".into());
+        o.note(r);
+    });
+    o
+}
+
+/// Status: the active system's offsets are always current here.
+pub fn apply_status(ui: &MainWindow, o: &Rc<RefCell<Offsets>>, s: &Status) {
+    let mut st = o.borrow_mut();
+    let first = st.status.is_none();
+    let a = (s.g5x_index - 1).clamp(0, 8) as usize;
+    let mut row = [s.g5x_offset[0], s.g5x_offset[1], s.g5x_offset[2], s.g5x_offset[3], s.rotation_xy];
+    for v in row.iter_mut() {
+        if v.abs() < 1e-9 {
+            *v = 0.0;
+        }
+    }
+    let changed = first || st.table[a] != row || st.status.as_ref().is_some_and(|o| o.g5x_index != s.g5x_index || o.g92_offset != s.g92_offset);
+    st.table[a] = row;
+    if first {
+        st.selected = a;
+    }
+    st.status = Some(s.clone());
+    if changed {
+        st.show(ui);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn var_file() {
+        let t = parse_var("5220\t1.000000\n5221\t215.637879\n5222\t-94.431314\n5223\t-322.443830\n5230\t15.0\n5241\t1.5\n5383\t-7.0\n");
+        assert_eq!(t[0], [215.637879, -94.431314, -322.443830, 0.0, 15.0]);
+        assert_eq!(t[1][0], 1.5);
+        assert_eq!(t[8][2], -7.0);
+    }
+}

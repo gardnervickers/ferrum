@@ -1,0 +1,163 @@
+import { Theme } from "theme.slint";
+import { Live, Actions, ToolRow, CheckRow } from "state.slint";
+import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
+import { ListView } from "std-widgets.slint";
+
+component Cell inherits Rectangle {
+    in property <string> text;
+    in property <bool> tag;
+    in property <bool> editable;
+    callback tapped();
+    Text {
+        x: 0;
+        width: parent.width - 12px;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+        text: tag ? "NEEDS LENGTH" : root.text;
+        font-family: tag ? Theme.display : Theme.body;
+        font-size: tag ? 19px : 24px;
+        color: tag ? #f3c463 : Theme.ink;
+    }
+    TouchArea { enabled: editable; clicked => { root.tapped(); } }
+}
+
+export component ToolsScreen inherits Rectangle {
+    property <bool> locked: Live.manual-locked;
+    HorizontalLayout {
+        padding: 14px;
+        spacing: 14px;
+        Card {
+            horizontal-stretch: 1.5;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                HorizontalLayout {
+                    H3 { horizontal-stretch: 1; text: "TOOL TABLE"; }
+                    Label { vertical-alignment: center; text: "TAP A ROW · TAP LENGTH OR DIA TO EDIT"; }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    Label { width: 110px; text: "T"; }
+                    Label { width: 170px; horizontal-alignment: right; text: "LENGTH Z"; }
+                    Label { width: 140px; horizontal-alignment: right; text: "DIA"; }
+                    Label { horizontal-stretch: 1; text: "    COMMENT"; }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.well;
+                    border-radius: 6px;
+                    ListView {
+                        for t[i] in Live.tools: Rectangle {
+                            height: 54px;
+                            background: i == Live.tools-selected ? Theme.sel : rt.pressed ? Theme.raised : transparent;
+                            rt := TouchArea { clicked => { Actions.tools-select(i); } }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                HorizontalLayout {
+                                    width: 110px;
+                                    spacing: 6px;
+                                    Text { vertical-alignment: center; text: t.t; font-family: Theme.display; font-size: 26px; color: Theme.ink; }
+                                    if t.current: Text { vertical-alignment: center; text: "● IN"; font-family: Theme.display; font-size: 18px; color: #7fd6a0; }
+                                }
+                                Cell {
+                                    width: 170px;
+                                    text: t.len;
+                                    tag: t.needs-len;
+                                    editable: !locked;
+                                    tapped => { Actions.tools-select(i); Actions.edit("tool-z"); }
+                                }
+                                Cell {
+                                    width: 140px;
+                                    text: t.dia;
+                                    editable: !locked;
+                                    tapped => { Actions.tools-select(i); Actions.edit("tool-d"); }
+                                }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    vertical-alignment: center;
+                                    text: "    " + t.comment;
+                                    font-family: Theme.body;
+                                    font-size: 22px;
+                                    color: t.scratch ? #f3c463 : Theme.muted;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Btn {
+                        width: 250px;
+                        kind: "go";
+                        text: Live.tools-sel-label == "" ? "M6 SELECTED" : "M6 " + Live.tools-sel-label;
+                        enabled: Live.tools-sel-label != "" && !locked && Live.power;
+                        clicked => { Actions.tools-m6(); }
+                    }
+                    Btn { width: 230px; text: "UNLOAD SPINDLE"; enabled: !locked && Live.power; clicked => { Actions.tools-unload(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Btn { width: 150px; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
+                    Btn { width: 190px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
+                    Btn { width: 170px; text: "DELETE"; sub: "HOLD"; hold: true; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.tools-delete(); } }
+                }
+            }
+        }
+        VerticalLayout {
+            width: 440px;
+            spacing: 14px;
+            Card {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    H3 { text: "LOADED PROGRAM CHECK"; }
+                    Note { text: Live.program == "" ? "No program loaded." : "Tools used by " + Live.program + " against the table."; wrap: word-wrap; }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: Theme.well;
+                        border-radius: 6px;
+                        ListView {
+                            for c in Live.tools-check: Rectangle {
+                                height: 62px;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 12px;
+                                    Text { width: 80px; vertical-alignment: center; text: c.t; font-family: Theme.display; font-size: 26px; color: Theme.ink; }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Pill { text: c.status; kind: c.kind; }
+                                    }
+                                    Text { horizontal-stretch: 1; vertical-alignment: center; text: c.action; font-family: Theme.body; font-size: 20px; color: Theme.muted; wrap: word-wrap; }
+                                }
+                            }
+                        }
+                        if Live.tools-check.length == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: "No T words in the program."; }
+                    }
+                    Btn { text: "CREATE MISSING ENTRIES"; enabled: Live.tools-missing && !locked; clicked => { Actions.tools-create-missing(); } }
+                }
+            }
+            Card {
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    HorizontalLayout {
+                        H3 { horizontal-stretch: 1; text: "DRAWBAR"; }
+                        Pill {
+                            text: Live.tools-drawbar;
+                            kind: Live.tools-drawbar == "RETRACTED" ? "good" : Live.tools-drawbar == "EXTENDED" ? "warn" : "";
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Btn { text: "RELEASE TOOL"; sub: "HOLD"; hold: true; enabled: Live.tools-can-extend; clicked => { Actions.tools-drawbar(true); } }
+                        Btn { text: "CLAMP TOOL"; enabled: Live.tools-can-retract; clicked => { Actions.tools-drawbar(false); } }
+                    }
+                    Note { text: "Outside a tool change: spindle off and nothing running. M6 handles the drawbar itself."; wrap: word-wrap; }
+                }
+            }
+        }
+    }
+}

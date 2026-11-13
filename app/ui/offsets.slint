@@ -1,0 +1,88 @@
+import { Theme } from "theme.slint";
+import { Live, Actions, OffsetRow } from "state.slint";
+import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
+
+component Cell inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled;
+    in property <bool> dim;
+    callback tapped();
+    horizontal-stretch: 1;
+    Text {
+        width: parent.width - 16px;
+        x: 0;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+        text: root.text;
+        font-family: Theme.body;
+        font-size: 26px;
+        color: dim ? Theme.dim : Theme.ink;
+    }
+    TouchArea { enabled: root.enabled; clicked => { root.tapped(); } }
+}
+
+export component OffsetsScreen inherits Rectangle {
+    property <bool> locked: Live.manual-locked || !Live.power;
+    VerticalLayout {
+        padding: 14px;
+        spacing: 14px;
+        Card {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    H3 { horizontal-stretch: 1; text: "WORK OFFSETS"; }
+                    if Live.offsets-g92 != "": Pill { text: Live.offsets-g92 + " ACTIVE"; kind: "warn"; }
+                    if Live.offsets-g92 != "": Btn { width: 180px; height: 44px; font-size: 20px; text: "CLEAR G92"; enabled: !locked; clicked => { Actions.offsets-clear-g92(); } }
+                    Label { vertical-alignment: center; text: "TAP A ROW · TAP A VALUE TO EDIT"; }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    Label { width: 220px; text: "WCS"; }
+                    for c in ["X", "Y", "Z", "A", "ROT"]: Label { horizontal-stretch: 1; horizontal-alignment: right; text: c + "    "; }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.well;
+                    border-radius: 6px;
+                    VerticalLayout {
+                        for o[i] in Live.offsets: Rectangle {
+                            vertical-stretch: 1;
+                            background: i == Live.offsets-selected ? Theme.sel : rt.pressed ? Theme.raised : transparent;
+                            rt := TouchArea { clicked => { Actions.offsets-select(i); } }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                HorizontalLayout {
+                                    width: 220px;
+                                    spacing: 12px;
+                                    Text { vertical-alignment: center; text: o.wcs; font-family: Theme.display; font-size: 28px; color: Theme.ink; }
+                                    if o.active: VerticalLayout { alignment: center; Pill { text: "ACTIVE"; kind: "good"; } }
+                                }
+                                Cell { text: o.x; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-x"); } }
+                                Cell { text: o.y; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-y"); } }
+                                Cell { text: o.z; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-z"); } }
+                                Cell { text: o.a; dim: !o.used; enabled: !locked && Live.has-a; tapped => { Actions.offsets-select(i); Actions.edit("off-a"); } }
+                                Cell { text: o.rot; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-r"); } }
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Btn { width: 240px; kind: "go"; text: "MAKE " + Live.offsets-sel-label + " ACTIVE"; enabled: !locked && !Live.offsets[Live.offsets-selected].active; clicked => { Actions.offsets-activate(); } }
+                    Btn { width: 180px; text: "ZERO X HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(0); } }
+                    Btn { width: 180px; text: "ZERO Y HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(1); } }
+                    Btn { width: 180px; text: "ZERO Z HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(2); } }
+                    Btn { width: 200px; text: "CLEAR " + Live.offsets-sel-label; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Btn { width: 190px; kind: "stop"; text: "CLEAR ALL"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear-all(); } }
+                }
+            }
+        }
+        Note { text: "Changes go through MDI (G10 L2 / L20, G5x, G92.1). The active row is live from LinuxCNC; inactive rows come from the parameter file at startup and from edits made here."; }
+    }
+}
