@@ -23,7 +23,9 @@ export component JogPanel inherits VerticalLayout {
         Label { width: 70px; vertical-alignment: center; text: "STEP"; }
         for s in Live.jog-steps: Seg {
             text: s;
-            on: Live.jog-step == s;
+            // A browser can only step: a lost release must not leave an axis moving.
+            enabled: !(Live.remote && s == "CONT");
+            on: Live.jog-step == s && !(Live.remote && s == "CONT");
             clicked => { Actions.jog-step-set(s); }
         }
     }
@@ -56,14 +58,14 @@ export component JogPanel inherits VerticalLayout {
             spacing: 14px;
             width: colw;
             JogBtn { height: ch; text: "▲ Z+"; axis: 2; dir: 1; font-size: 26px; }
-            Label { height: ch; text: "Z"; horizontal-alignment: center; vertical-alignment: center; }
+            Rectangle { height: ch; }
             JogBtn { height: ch; text: "▼ Z−"; axis: 2; dir: -1; font-size: 26px; }
         }
         if Live.has-a: VerticalLayout {
             spacing: 14px;
             width: colw;
             JogBtn { height: ch; text: "A+ ↻"; axis: 3; dir: 1; font-size: 26px; }
-            Label { height: ch; text: "A"; horizontal-alignment: center; vertical-alignment: center; }
+            Rectangle { height: ch; }
             JogBtn { height: ch; text: "A− ↺"; axis: 3; dir: -1; font-size: 26px; }
         }
     }
@@ -179,7 +181,7 @@ component PowerFeedPanel inherits VerticalLayout {
             FeedBtn { text: "▲ Z+"; axis: 2; dir: 1; }
             Label {
                 height: 110px;
-                text: Live.pf-mode == "eot" ? "Z: DIST\nONLY" : "Z";
+                text: Live.pf-mode == "eot" ? "Z: DIST\nONLY" : "";
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }

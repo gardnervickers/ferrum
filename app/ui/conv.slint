@@ -109,6 +109,14 @@ export component ConvScreen inherits Rectangle {
                                 commands: Live.conv-outline;
                                 stroke: Theme.muted; stroke-width: 2px; fill: transparent;
                             }
+                            // What the cutter covers, under its centre line.
+                            Path {
+                                visible: Live.conv-swept > 0 && !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
+                                x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
+                                viewbox-width: 400; viewbox-height: 300;
+                                commands: Live.conv-path;
+                                stroke: #f3c46333; stroke-width: Live.conv-swept * pic.sc * 1px; stroke-line-cap: round; fill: transparent;
+                            }
                             Path {
                                 // The browser build redraws a changed Path over open overlays.
                                 visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
@@ -138,7 +146,7 @@ export component ConvScreen inherits Rectangle {
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    Note { horizontal-stretch: 1; vertical-alignment: center; text: "G-code from the mill_ops generators. ADD TO JOB keeps the fields; the JOB page builds the program."; }
+                    Note { horizontal-stretch: 1; vertical-alignment: center; text: "LOAD AS PROGRAM saves the G-code and opens it on RUN. ADD TO JOB keeps these fields as a job op."; }
                     Btn { width: 260px; text: "LOAD AS PROGRAM"; enabled: !Live.conv-error && !locked; clicked => { Actions.conv-load(); } }
                     Btn { width: 240px; kind: "go"; text: "ADD TO JOB"; enabled: !Live.conv-error && !Live.job-running; clicked => { Actions.conv-add(); } }
                 }

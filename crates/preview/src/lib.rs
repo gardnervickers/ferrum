@@ -8,6 +8,7 @@
 //! `Toolpath`; `software` works without a GPU (the Pi has only llvmpipe).
 
 pub mod canon;
+pub mod machine;
 pub mod mini;
 pub mod rs274;
 pub mod software;

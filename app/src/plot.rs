@@ -3,6 +3,7 @@
 
 use crate::config::Config;
 use crate::{Actions, Live, MainWindow};
+use preview::machine::{Machine, Pose};
 use preview::software::{Base, View, Zoom};
 use preview::{rs274, Toolpath, P4};
 use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer};
@@ -27,6 +28,10 @@ pub struct Plot {
     size: (u32, u32),
     trail: Vec<P4>,
     tool: Option<P4>,
+    /// The machine model drawn around the toolpath, and where it is.
+    machine: Machine,
+    pose: Option<Pose>,
+    show_machine: bool,
     dirty: bool,
     /// The drawn toolpath, and the one being drawn on a worker thread. The
     /// last base stays on screen until its replacement is ready.
@@ -103,7 +108,8 @@ impl Plot {
             }
         }
         let Some((drawn, base)) = &self.base else { return };
-        let pm = base.compose(&self.trail, self.tool);
+        let scene = self.pose.filter(|_| self.show_machine).map(|p| self.machine.scene(&p));
+        let pm = base.compose(&self.trail, self.tool, scene.as_ref());
         let buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(pm.data(), pm.width(), pm.height());
         let live = ui.global::<Live>();
         live.set_plot(Image::from_rgba8(buf));
@@ -234,6 +240,15 @@ pub fn tool_moved(plot: &Rc<RefCell<Plot>>, p: P4) {
     st.dirty = true;
 }
 
+/// Where the machine model is (tool length and diameter, work offset).
+pub fn machine_pose(plot: &Rc<RefCell<Plot>>, pose: Pose) {
+    let mut st = plot.borrow_mut();
+    if st.pose != Some(pose) {
+        st.pose = Some(pose);
+        st.dirty |= st.show_machine;
+    }
+}
+
 thread_local! {
     static PLOT: RefCell<Option<Rc<RefCell<Plot>>>> = const { RefCell::new(None) };
 }
@@ -248,6 +263,9 @@ pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
         size: (0, 0),
         trail: Vec::new(),
         tool: None,
+        machine: Machine::pm728vt(),
+        pose: None,
+        show_machine: true,
         dirty: false,
         base: None,
         pending: None,
@@ -306,6 +324,14 @@ pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
         let Some(ui) = weak.upgrade() else { return };
         let mut st = p.borrow_mut();
         st.zoom = Zoom::default();
+        st.redraw(&ui);
+    });
+    let (p, weak) = (plot.clone(), ui.as_weak());
+    actions.on_plot_machine(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let mut st = p.borrow_mut();
+        st.show_machine = !st.show_machine;
+        ui.global::<Live>().set_plot_machine(st.show_machine);
         st.redraw(&ui);
     });
     let (p, weak) = (plot.clone(), ui.as_weak());

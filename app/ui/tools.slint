@@ -103,18 +103,18 @@ export component ToolsScreen inherits Rectangle {
                 HorizontalLayout {
                     spacing: 12px;
                     Btn {
-                        horizontal-stretch: 3;
+                        horizontal-stretch: 3; preferred-width: 0px; min-width: 0px;
                         kind: "go";
                         font-size: 22px;
                         text: Live.tools-sel-label == "" ? "M6 SELECTED" : "M6 " + Live.tools-sel-label;
                         enabled: Live.tools-sel-label != "" && !locked && Live.power;
                         clicked => { Actions.tools-m6(); }
                     }
-                    Btn { horizontal-stretch: 3; font-size: 22px; text: "UNLOAD SPINDLE"; enabled: !locked && Live.power; clicked => { Actions.tools-unload(); } }
+                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: 22px; text: "UNLOAD SPINDLE"; sub: "HOLD"; hold: true; enabled: !locked && Live.power; clicked => { Actions.tools-unload(); } }
                     Rectangle { width: 16px; }
-                    Btn { horizontal-stretch: 2; font-size: 22px; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
-                    Btn { horizontal-stretch: 3; font-size: 22px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
-                    Btn { horizontal-stretch: 2; font-size: 22px; text: "DELETE"; hold: true; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.tools-delete(); } }
+                    Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: 22px; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
+                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: 22px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
+                    Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: 22px; text: "DELETE"; hold: true; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.tools-delete(); } }
                 }
             }
         }

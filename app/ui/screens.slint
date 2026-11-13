@@ -56,9 +56,11 @@ component MdiPanel inherits VerticalLayout {
             border-width: 1px;
             border-color: input.has-focus ? Theme.sel : Theme.line;
             border-radius: 6px;
+            clip: true;
+            // A long line slides left so its end (where typing happens) stays in view.
             input := TextInput {
-                x: 16px;
-                width: parent.width - 32px;
+                x: min(16px, parent.width - 16px - self.preferred-width);
+                width: max(parent.width - 32px, self.preferred-width);
                 vertical-alignment: center;
                 text <=> Live.mdi-text;
                 font-family: Theme.display;
@@ -210,10 +212,10 @@ component ProgramCard inherits Card {
                 property <length> b-x;
                 property <length> b-y;
                 property <bool> dragging;
-                // Whether this and the previous press were drags: a quick
+                // Whether this press and the one before were drags: a quick
                 // second drag must not count as a double tap.
-                property <bool> was-drag;
-                property <bool> prev-drag;
+                property <bool> cur-drag;
+                property <bool> last-drag;
                 property <int> landed: Live.plot-landed;
                 function show() {
                     Live.plot-dx = (self.a-x + self.b-x + (self.dragging ? self.mouse-x - self.pressed-x : 0)) / 1px;
@@ -233,9 +235,9 @@ component ProgramCard inherits Card {
                 pointer-event(e) => {
                     if e.kind == PointerEventKind.down {
                         self.dragging = false;
+                        self.last-drag = self.cur-drag;
+                        self.cur-drag = false;
                     } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
-                        self.prev-drag = self.was-drag;
-                        self.was-drag = self.dragging;
                         if self.dragging {
                             self.dragging = false;
                             self.seq = max(self.seq, Live.plot-pan-seq) + 1;
@@ -256,6 +258,7 @@ component ProgramCard inherits Card {
                 moved => {
                     if self.pressed && (self.dragging || abs(self.mouse-x - self.pressed-x) + abs(self.mouse-y - self.pressed-y) > 8px) {
                         self.dragging = true;
+                        self.cur-drag = true;
                         self.show();
                     }
                 }
@@ -264,9 +267,16 @@ component ProgramCard inherits Card {
                     Actions.plot-zoom(e.delta-y > 0 ? 1.2 : 1 / 1.2, self.mouse-x / self.width, self.mouse-y / self.height);
                     accept
                 }
-                double-clicked => { if !self.was-drag && !self.prev-drag { Actions.plot-fit(); } }
+                double-clicked => { if !self.cur-drag && !self.last-drag { Actions.plot-fit(); } }
             }
             if Live.program == "": Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
+            // Show or hide the machine model (table, head, column).
+            Seg {
+                x: parent.width - self.width - 10px; y: 10px;
+                width: 130px; height: 48px; font-size: 20px;
+                text: "MACHINE"; on: Live.plot-machine;
+                clicked => { Actions.plot-machine(); }
+            }
             Text {
                 // Top corner: the work origin's axes often sit bottom left.
                 x: 14px; y: 10px;

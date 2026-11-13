@@ -797,12 +797,7 @@ impl Probe {
             "setter" => "tool length on the setter".into(),
             _ => "spindle nose reference".into(),
         };
-        let call = {
-            // Show the macro name without consuming a token.
-            let mut tmp = Probe { token: self.token, flow: self.flow.clone(), ..self.shallow() };
-            tmp.call(&sel).map(|(c, _)| c).unwrap_or_default()
-        };
-        live.set_pr_routine(format!("Runs: {what}\n{}", call.split_whitespace().next().unwrap_or("")).into());
+        live.set_pr_routine(format!("Runs: {what}").into());
         live.set_pr_note(
             match self.mode {
                 "find" => "",
@@ -844,37 +839,6 @@ impl Probe {
         live.set_pr_run_label(run_label.into());
         live.set_pr_running(self.run.is_some());
         live.set_pr_ready(self.check(&sel).err().unwrap_or_default().into());
-    }
-
-    /// A copy of the selection, for computing labels without side effects.
-    fn shallow(&self) -> Probe {
-        Probe {
-            mode: self.mode,
-            shape: self.shape,
-            tgt: self.tgt,
-            axes: self.axes,
-            angle: self.angle,
-            start: self.start,
-            both: self.both,
-            ridge: self.ridge,
-            wcs: self.wcs,
-            runv: BTreeMap::new(),
-            locv: self.locv.clone(),
-            defaults: BTreeMap::new(),
-            results: Vec::new(),
-            result_text: String::new(),
-            flow: None,
-            token: 0,
-            run: None,
-            status: None,
-            state: Settings::memory(),
-            restore_pending: false,
-            probe_tool: self.probe_tool,
-            machine: self.machine.clone(),
-            io: None,
-            ui: self.ui.clone(),
-            rotation: Box::new(|_| 0.0),
-        }
     }
 
     fn refresh(&self) {
@@ -1306,7 +1270,9 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
 
 pub fn apply_status(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, s: &Status) {
     let mut p = probe.borrow_mut();
-    let was = p.status.as_ref().map(|o| (o.tool_in_spindle, o.power_on(), o.busy(), o.g5x_index));
+    // Everything `check` reads, so the readiness hint never goes stale.
+    let key = |o: &Status| (o.tool_in_spindle, o.power_on(), o.busy(), o.g5x_index, o.all_homed(), o.active_gcodes.contains(&400), o.g92_offset.iter().any(|v| *v != 0.0));
+    let was = p.status.as_ref().map(key);
     p.status = Some(s.clone());
     // A run that never restored its defaults (crash): restore them now.
     if p.restore_pending && p.run.is_none() && s.power_on() && !s.busy() {
@@ -1315,7 +1281,7 @@ pub fn apply_status(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, s: &Status) {
         p.restore_pending = false;
     }
     p.pump();
-    if was != Some((s.tool_in_spindle, s.power_on(), s.busy(), s.g5x_index)) || p.run.is_some() {
+    if was != Some(key(s)) || p.run.is_some() {
         p.show(ui);
     }
 }

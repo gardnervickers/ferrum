@@ -47,4 +47,26 @@ export component MainWindow inherits Window {
         if Live.keypad-open: Keypad {}
     }
     BottomBar { x: 0; y: parent.height - 128px; width: parent.width; height: 128px; }
+    if Live.toast != "": Rectangle {
+        x: parent.width - self.width - 14px;
+        y: parent.height - 128px - self.height - 14px;
+        width: 860px;
+        height: 84px;
+        background: #4a1c1c;
+        border-width: 2px;
+        border-color: #ff8f8a;
+        border-radius: 8px;
+        Text {
+            x: 24px;
+            width: parent.width - 48px;
+            vertical-alignment: center;
+            text: Live.toast;
+            wrap: word-wrap;
+            font-family: Theme.body;
+            font-weight: 600;
+            font-size: 26px;
+            color: #ffe2e0;
+        }
+        TouchArea { clicked => { Live.toast = ""; } }
+    }
 }

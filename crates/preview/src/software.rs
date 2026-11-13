@@ -1,6 +1,7 @@
 //! CPU renderer (tiny-skia). Draws the toolpath once into a cached base
 //! image per view and size; the tool marker and live trail go on a copy.
 
+use crate::machine::{Layer, Line, Solid};
 use crate::{Kind, Toolpath, P4};
 use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
@@ -216,7 +217,7 @@ impl Software {
             self.base = Some(Base::draw(tp, view, w, h, highlight, Zoom::default()));
             self.key = Some(key);
         }
-        self.base.as_ref().expect("base").compose(trail, tool)
+        self.base.as_ref().expect("base").compose(trail, tool, None)
     }
 }
 
@@ -224,8 +225,8 @@ impl Base {
     pub fn draw(tp: &Toolpath, view: View, w: u32, h: u32, highlight: Option<usize>, zoom: Zoom) -> Base {
         let w = w.max(16);
         let h = h.max(16);
+        // Transparent: `compose` puts it over the background and the table.
         let mut pm = Pixmap::new(w, h).expect("pixmap size");
-        pm.fill(Color::from_rgba8(BG[0], BG[1], BG[2], 255));
         let fit = Fit::new(tp, view, w, h, zoom);
 
         // Work origin axes.
@@ -266,10 +267,29 @@ impl Base {
         Base { pm, fit }
     }
 
-    /// A copy of the base with the trail and the tool marker on it.
-    pub fn compose(&self, trail: &[P4], tool: Option<P4>) -> Pixmap {
-        let mut pm = self.pm.clone();
+    /// The base over the background, with the machine (if given: the table
+    /// under the toolpath, the moving parts see-through over it), the trail
+    /// and the tool marker.
+    pub fn compose(&self, trail: &[P4], tool: Option<P4>, machine: Option<&(Vec<Solid>, Vec<Line>)>) -> Pixmap {
+        let mut pm = Pixmap::new(self.pm.width(), self.pm.height()).expect("pixmap size");
+        pm.fill(Color::from_rgba8(BG[0], BG[1], BG[2], 255));
         let fit = self.fit;
+        if let Some((solids, lines)) = machine {
+            draw_solids(&mut pm, &fit, solids, Layer::Under);
+            let mut pb = PathBuilder::new();
+            for (a, b) in lines {
+                let (a, b) = (fit.map([a[0], a[1], a[2], 0.0]), fit.map([b[0], b[1], b[2], 0.0]));
+                pb.move_to(a.0, a.1);
+                pb.line_to(b.0, b.1);
+            }
+            if let Some(path) = pb.finish() {
+                pm.stroke_path(&path, &paint([0x12, 0x15, 0x18], 255), &stroke(3.0), Transform::identity(), None);
+            }
+        }
+        pm.draw_pixmap(0, 0, self.pm.as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), None);
+        if let Some((solids, _)) = machine {
+            draw_solids(&mut pm, &fit, solids, Layer::Over);
+        }
         if trail.len() > 1 {
             let mut pb = PathBuilder::new();
             let a = fit.map(trail[0]);
@@ -297,6 +317,53 @@ impl Base {
             }
         }
         pm
+    }
+}
+
+/// Toward the viewer, for back-face culling and depth order.
+fn toward_viewer(v: View) -> [f64; 3] {
+    match v {
+        View::Top => [0.0, 0.0, 1.0],
+        View::Front => [0.0, -1.0, 0.0],
+        View::Iso => [-1.0, -1.0, 1.0],
+    }
+}
+
+/// Boxes as flat-shaded faces, farthest first. The table is solid; the
+/// moving parts are see-through so the toolpath stays readable.
+fn draw_solids(pm: &mut Pixmap, fit: &Fit, solids: &[Solid], layer: Layer) {
+    let n = toward_viewer(fit.view);
+    let depth = |s: &Solid| (0..3).map(|i| (s.lo[i] + s.hi[i]) / 2.0 * n[i]).sum::<f64>();
+    let mut list: Vec<&Solid> = solids.iter().filter(|s| s.layer == layer).collect();
+    list.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
+    let (fill, edge) = if layer == Layer::Under { (255, 255) } else { (22, 110) };
+    for s in list {
+        for axis in 0..3 {
+            for side in [-1.0, 1.0] {
+                if n[axis] * side <= 0.0 {
+                    continue;
+                }
+                // The face's four corners, in order around it.
+                let (u, w) = ((axis + 1) % 3, (axis + 2) % 3);
+                let at = if side > 0.0 { s.hi[axis] } else { s.lo[axis] };
+                let mut pb = PathBuilder::new();
+                for (k, (a, b)) in [(0, 0), (1, 0), (1, 1), (0, 1)].into_iter().enumerate() {
+                    let mut p = [0.0; 4];
+                    p[axis] = at;
+                    p[u] = if a == 0 { s.lo[u] } else { s.hi[u] };
+                    p[w] = if b == 0 { s.lo[w] } else { s.hi[w] };
+                    let q = fit.map(p);
+                    if k == 0 { pb.move_to(q.0, q.1) } else { pb.line_to(q.0, q.1) }
+                }
+                pb.close();
+                let Some(path) = pb.finish() else { continue };
+                // Tops lightest, then the sides.
+                let shade = if axis == 2 { 1.0 } else if axis == 0 { 0.78 } else { 0.62 };
+                let rgb = s.rgb.map(|c| (c as f64 * shade) as u8);
+                pm.fill_path(&path, &paint(rgb, fill), tiny_skia::FillRule::Winding, Transform::identity(), None);
+                pm.stroke_path(&path, &paint(s.rgb.map(|c| c.saturating_add(30)), edge), &stroke(1.0), Transform::identity(), None);
+            }
+        }
     }
 }
 

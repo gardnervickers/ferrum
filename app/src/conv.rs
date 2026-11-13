@@ -357,8 +357,14 @@ impl Conv {
                 self.summary = if self.error {
                     errors.join("\n")
                 } else {
-                    r["message"].as_str().or(r["summary"].as_str()).unwrap_or("").to_string()
+                    r["summary"].as_str().unwrap_or("").to_string()
                 };
+                // ADD / LOAD results go to the message line; the summary
+                // keeps describing the operation.
+                if let (false, Some(m), Some(ui)) = (self.error, r["message"].as_str(), self.ui.upgrade()) {
+                    ui.global::<Live>().set_message(m.into());
+                    ui.global::<Live>().set_message_error(false);
+                }
                 (!self.error).then_some(r)
             }
             Err(e) => {
@@ -367,6 +373,13 @@ impl Conv {
                 None
             }
         }
+    }
+
+    fn tool_dia(&self) -> f64 {
+        let t = self.num("tool_number") as i32;
+        let path = self.job.borrow().tool_table();
+        let tools = std::fs::read_to_string(path).map(|s| crate::tools::parse(&s)).unwrap_or_default();
+        tools.iter().find(|x| x.t == t).map_or(0.0, |x| x.d)
     }
 
     fn tool_label(&self) -> String {
@@ -380,7 +393,10 @@ impl Conv {
     }
 
     /// Outline and toolpath sketch in a 400x300 box.
-    fn picture(&self) -> (String, String) {
+    /// Outline, toolpath, and the cutter's width in sketch units (facing
+    /// draws the path that wide, so the sketch shows what gets cut).
+    fn picture(&self) -> (String, String, f64) {
+        let mut swept = 0.0;
         let mut outline = String::new();
         let mut path = String::new();
         // Fit points (part coordinates, Y up) into the box.
@@ -407,6 +423,7 @@ impl Conv {
                 let mut pts = vec![(xs, ys), (xe, ye), (0.0, 0.0)];
                 pts.extend(self.face_moves.iter().flat_map(|(a, b)| [*a, *b]));
                 let m = fit(&pts);
+                swept = (m(self.tool_dia(), 0.0).0 - m(0.0, 0.0).0).abs();
                 let (a, b) = (m(xs, ys), m(xe, ye));
                 outline.push_str(&format!("M{:.1} {:.1}H{:.1}V{:.1}H{:.1}Z", a.0, a.1, b.0, b.1, a.0));
                 let o = m(0.0, 0.0);
@@ -458,7 +475,7 @@ impl Conv {
                 }
             }
         }
-        (outline, path)
+        (outline, path, swept)
     }
 
     fn show(&self, ui: &MainWindow) {
@@ -479,7 +496,8 @@ impl Conv {
         };
         live.set_conv_holes(ModelRc::new(VecModel::from(holes)));
         live.set_conv_hole_sel(self.hole_sel.map_or(-1, |i| i as i32));
-        let (outline, path) = self.picture();
+        let (outline, path, swept) = self.picture();
+        live.set_conv_swept(swept as f32);
         live.set_conv_outline(outline.into());
         live.set_conv_path(path.into());
         live.set_conv_summary(self.summary.clone().into());

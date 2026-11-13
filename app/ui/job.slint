@@ -33,8 +33,10 @@ component OpRow inherits Rectangle {
             width: 120px;
             if op.state != "done" && op.state != "current": Btn {
                 height: 64px;
-                text: op.enabled ? "RUN" : "SKIP";
-                kind: op.enabled ? "go" : "";
+                // Whether the op is part of the job (not "run it now").
+                font-size: 20px;
+                text: op.enabled ? "INCLUDED" : "SKIPPED";
+                on: op.enabled;
                 enabled: op.can-toggle;
                 clicked => { Actions.job-toggle(root.index); }
             }

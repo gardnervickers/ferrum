@@ -248,6 +248,13 @@ fn refresh_pills(ui: &MainWindow, st: &UiState, modules: &[Box<dyn Module>], axe
 }
 
 /// The tool tip in work coordinates, the frame the interpreter preview uses.
+/// The backplot's machine model: tool length, the tool's diameter (from the
+/// TOOL DIA readout) and the work offset.
+fn machine_pose(ui: &MainWindow, s: &Status) -> preview::machine::Pose {
+    let dia = ui.global::<Live>().get_tool_dia().trim().parse().unwrap_or(0.0);
+    preview::machine::Pose { tip: tool_tip(s), tool_len: s.tool_offset[2], tool_dia: dia, offset: [s.g5x_offset[0], s.g5x_offset[1], s.g5x_offset[2]] }
+}
+
 fn tool_tip(s: &Status) -> [f64; 4] {
     let w = s.work_position();
     [w[0], w[1], w[2], w[3]]
@@ -378,8 +385,9 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             };
             if let Some(p) = problem {
                 let live = ui.global::<Live>();
-                live.set_message(p.into());
+                live.set_message(p.clone().into());
                 live.set_message_error(true);
+                toast(&ui, format!("CYCLE START refused: {p}"));
                 return;
             }
         }
@@ -532,7 +540,10 @@ fn main() -> Result<(), slint::PlatformError> {
                             }
                         });
                         plot::sync(ui, &s.file);
-                        plot::with(|p| plot::tool_moved(p, tool_tip(&s)));
+                        plot::with(|p| {
+                            plot::tool_moved(p, tool_tip(&s));
+                            plot::machine_pose(p, machine_pose(ui, &s));
+                        });
                         TOOLS.with(|t| {
                             if let Some(t) = t.borrow().as_ref() {
                                 tools::apply_status(ui, t, &s);
@@ -669,8 +680,19 @@ fn main() -> Result<(), slint::PlatformError> {
         let weak = ui.as_weak();
         let state = state.clone();
         let modules = modules.clone();
+        let last_message = RefCell::new(SharedString::default());
         tick.start(slint::TimerMode::Repeated, Duration::from_millis(200), move || {
             let Some(ui) = weak.upgrade() else { return };
+            // Messages the screens raise go to the log too (LinuxCNC's are
+            // logged as they arrive; the log skips a repeat of its top row).
+            let msg = ui.global::<Live>().get_message();
+            if *last_message.borrow() != msg {
+                if !msg.is_empty() {
+                    let error = ui.global::<Live>().get_message_error();
+                    with_manual(|m| manual::log_text(m, &msg, error));
+                }
+                *last_message.borrow_mut() = msg;
+            }
             let st = state.borrow();
             refresh_pills(&ui, &st, &modules, &axes);
             let live = ui.global::<Live>();
@@ -744,6 +766,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     let plot = plot::wire(&ui, cfg);
     plot::load_now(&ui, &plot, &s.file);
     plot::tool_moved(&plot, tool_tip(&s));
+    plot::machine_pose(&plot, machine_pose(&ui, &s));
     manual::apply_status(&ui, &manual, &s);
     let tc_io = Rc::new(toolchange::SimIo::new(handle.clone()));
     if args.show.iter().any(|w| w == "tc") {
@@ -865,6 +888,27 @@ thread_local! {
     /// posts events to it.
     static UI_EVENT: RefCell<Option<UiEventFn>> = RefCell::new(None);
     static MANUAL: RefCell<Option<Rc<RefCell<manual::Manual>>>> = RefCell::new(None);
+}
+
+thread_local! {
+    static TOAST: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Show a refusal over the bottom bar for a few seconds.
+fn toast(ui: &MainWindow, text: String) {
+    ui.global::<Live>().set_toast(text.into());
+    let n = TOAST.with(|t| {
+        t.set(t.get() + 1);
+        t.get()
+    });
+    let weak = ui.as_weak();
+    slint::Timer::single_shot(Duration::from_secs(5), move || {
+        if TOAST.with(|t| t.get()) == n {
+            if let Some(ui) = weak.upgrade() {
+                ui.global::<Live>().set_toast("".into());
+            }
+        }
+    });
 }
 
 fn with_manual(f: impl FnOnce(&Rc<RefCell<manual::Manual>>)) {

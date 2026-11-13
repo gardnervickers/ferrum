@@ -27,7 +27,9 @@ pub struct Manual {
     rpm: f64,
     linear: Range,
     angular: Range,
-    keypad: Option<(String, String)>,
+    /// What the keypad edits, its text, and whether the text is still the
+    /// old value (the first digit replaces it, as on a calculator).
+    keypad: Option<(String, String, bool)>,
     status: Option<Status>,
     pf: PowerFeed,
     settings: Settings,
@@ -112,7 +114,8 @@ impl Manual {
         live.set_jog_speed_a(fmt(self.speed_a).into());
         live.set_spindle_rpm(fmt(self.rpm).into());
         live.set_keypad_open(self.keypad.is_some());
-        if let Some((what, buf)) = &self.keypad {
+        live.set_keypad_fresh(self.keypad.as_ref().is_some_and(|k| k.2));
+        if let Some((what, buf, _)) = &self.keypad {
             let l = KEYPAD.with(|t| t.borrow().iter().find_map(|t| t.label(what))).unwrap_or_else(|| label(what).to_string());
             live.set_keypad_label(l.into());
             live.set_keypad_value(buf.clone().into());
@@ -235,6 +238,7 @@ pub fn apply_status(ui: &MainWindow, manual: &Rc<RefCell<Manual>>, s: &Status) {
     let live = ui.global::<Live>();
     live.set_manual_locked(locked(s));
     live.set_mist(s.mist);
+    live.set_flood(s.flood);
     let mut m = manual.borrow_mut();
     m.status = Some(s.clone());
     m.show(&live);
@@ -264,6 +268,18 @@ pub fn log_message(ui: &MainWindow, manual: &Rc<RefCell<Manual>>, m: &Message) {
         log.remove(LOG);
     }
     let _ = ui;
+}
+
+/// A message from the screens themselves, unless it repeats the newest row.
+pub fn log_text(manual: &Rc<RefCell<Manual>>, text: &str, error: bool) {
+    let log = manual.borrow().log.clone();
+    if log.row_data(0).is_some_and(|r| r.text.as_str() == text.trim()) {
+        return;
+    }
+    log.insert(0, MsgRow { time: chrono::Local::now().format("%H:%M:%S").to_string().into(), text: text.trim().into(), kind: if error { "error" } else { "text" }.into() });
+    while log.row_count() > LOG {
+        log.remove(LOG);
+    }
 }
 
 fn note(ui: &MainWindow, text: impl Into<SharedString>, error: bool) {
@@ -338,11 +354,25 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         mc.send(if dir == 0 { Command::SpindleOff } else { Command::SpindleOn(rpm * dir as f64) });
     });
 
-    let (mc, mm) = (machine.clone(), manual.clone());
-    actions.on_mist_toggle(move || {
-        let on = mm.borrow().status.as_ref().is_some_and(|s| s.mist);
-        mc.send(Command::Mdi(if on { "M9" } else { "M7" }.into()));
-    });
+    // M9 stops both coolants, so turning one off restarts the other.
+    let coolant = |which: &'static str| {
+        let (mc, mm) = (machine.clone(), manual.clone());
+        move || {
+            let (mist, flood) = mm.borrow().status.as_ref().map_or((false, false), |s| (s.mist, s.flood));
+            let (mist, flood) = if which == "mist" { (!mist, flood) } else { (mist, !flood) };
+            if !mist || !flood {
+                mc.send(Command::Mdi("M9".into()));
+            }
+            if mist {
+                mc.send(Command::Mdi("M7".into()));
+            }
+            if flood {
+                mc.send(Command::Mdi("M8".into()));
+            }
+        }
+    };
+    actions.on_mist_toggle(coolant("mist"));
+    actions.on_flood_toggle(coolant("flood"));
 
     let mc = machine.clone();
     actions.on_zero_xyz(move || mc.send(Command::Mdi("G10 L20 P0 X0 Y0 Z0".into())));
@@ -374,7 +404,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     actions.on_edit(move |what| {
         let mut m = mm.borrow_mut();
         let cur = fmt(m.current(&what));
-        m.keypad = Some((what.into(), cur));
+        m.keypad = Some((what.into(), cur, true));
         if let Some(ui) = weak.upgrade() {
             m.show(&ui.global::<Live>());
         }
@@ -382,7 +412,10 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     let (mm, weak) = (manual.clone(), ui.as_weak());
     actions.on_keypad_key(move |k| {
         let mut m = mm.borrow_mut();
-        if let Some((_, buf)) = m.keypad.as_mut() {
+        if let Some((_, buf, fresh)) = m.keypad.as_mut() {
+            if std::mem::take(fresh) && (k.as_str() == "." || k.chars().all(|c| c.is_ascii_digit())) {
+                buf.clear();
+            }
             key(buf, &k);
         }
         if let Some(ui) = weak.upgrade() {
@@ -394,7 +427,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         let Some(ui) = weak.upgrade() else { return };
         let mut m = mm.borrow_mut();
         if ok {
-            if let Some((what, buf)) = m.keypad.clone() {
+            if let Some((what, buf, _)) = m.keypad.clone() {
                 let r = buf.parse::<f64>().map_err(|_| format!("Not a number: {buf}"));
                 if let Err(e) = r.and_then(|v| m.apply(&what, v)) {
                     // Keep the keypad open so the entry can be corrected.

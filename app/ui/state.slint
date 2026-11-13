@@ -30,6 +30,8 @@ export global Live {
     in property <[PillData]> pills;
     in property <string> message;
     in property <bool> message-error;
+    // A refusal the operator must not miss (CYCLE START blocked); clears itself.
+    in-out property <string> toast;
     in property <string> clock;
 
     in property <[DroRow]> dro;
@@ -68,11 +70,13 @@ export global Live {
     in property <string> jog-speed-a: "180";
     in property <string> spindle-rpm: "300";
     in property <bool> mist;
+    in property <bool> flood;
 
     in-out property <string> run-tab: "program";
     in property <image> plot;
     in property <string> plot-summary;
     in property <string> plot-view: "iso";
+    in property <bool> plot-machine: true;
     // Drag preview offset of the backplot image (per screen, not mirrored).
     in-out property <float> plot-dx;
     in-out property <float> plot-dy;
@@ -233,6 +237,8 @@ export global Live {
     in property <int> conv-hole-sel: -1;
     in property <string> conv-outline;
     in property <string> conv-path;
+    // Cutter width in sketch units (facing): the path is drawn this wide too.
+    in property <float> conv-swept;
     in property <string> conv-summary;
     in property <bool> conv-error;
 
@@ -246,6 +252,8 @@ export global Live {
     in property <bool> keypad-open;
     in property <string> keypad-label;
     in property <string> keypad-value;
+    // The value is still the old one: the first digit replaces it.
+    in property <bool> keypad-fresh;
 }
 
 export global Actions {
@@ -270,6 +278,7 @@ export global Actions {
     callback set-a-reference();
     callback spindle(dir: int);
     callback mist-toggle();
+    callback flood-toggle();
     callback zero-xyz();
     callback z-to-work-zero();
     callback retract-xy-to-zero();
@@ -302,6 +311,7 @@ export global Actions {
     callback plot-pan(dx: float, dy: float, seq: int);
     callback plot-zoom(factor: float, x: float, y: float);
     callback plot-fit();
+    callback plot-machine();
     callback mdi-category-set(category: string);
     callback mdi-pick(fill: string);
     callback mdi-key(key: string);

@@ -15,6 +15,7 @@ G-code stays in ``mill_ops``.
 
 import importlib.util
 import json
+import re
 import os
 import sys
 import traceback
@@ -66,6 +67,15 @@ def _tool_comments(path):
         pass
     return out
 
+
+
+def tidy(text):
+    """The generators' summaries for people: 100.0000 -> 100, 2.5000 -> 2.5,
+    "1 depth pass(es)" -> "1 depth pass", "2 hole(s)" -> "2 holes"."""
+    text = re.sub(r'(\d+\.\d*?[1-9])0+\b', r'\1', text)
+    text = re.sub(r'(\d+)\.0+\b', r'\1', text)
+    text = re.sub(r'\b1 ((?:\w+ )*?\w+)\((?:es|s)\)', r'1 \1', text)
+    return re.sub(r'(\w+)\((es|s)\)', r'\1\2', text)
 
 class Helper(object):
     def __init__(self):
@@ -277,7 +287,7 @@ class Helper(object):
             lines = self._lines(req, gen)
         except self.mill_ops.OperationError as exc:
             return {'errors': exc.errors}
-        summary = gen.summary(cycle) if req['type'] == 'drill' else gen.summary()
+        summary = tidy(gen.summary(cycle) if req['type'] == 'drill' else gen.summary())
         action = req.get('action', 'check')
         out = {'errors': [], 'summary': summary}
         if req['type'] == 'face':
@@ -286,15 +296,15 @@ class Helper(object):
         if action == 'add':
             pos = self.session.add_from_generator(gen, cycle if req['type'] == 'drill' else None,
                                                   req.get('cycle_param') if req['type'] == 'drill' else None)
-            out['message'] = 'ADDED TO {} AS OP {}. HOLD BUILD AND LOAD ON THE JOB PAGE.'.format(
-                self.session.job.name.upper(), pos)
+            out['message'] = 'Added to {} as op {}. Hold BUILD AND LOAD on the JOB page.'.format(
+                self.session.job.name, pos)
             out['snap'] = self.snapshot()
         elif action == 'post':
             path = self._free_program_path(req.get('name') or 'conv')
             with open(path, 'w') as f:
                 f.write(self.mill_ops.program_text([lines]))
             out['load'] = path
-            out['message'] = '{} SAVED TO {}.'.format(summary, os.path.basename(path))
+            out['message'] = 'Saved {} and loaded it.'.format(os.path.basename(path))
         return out
 
     def _free_program_path(self, name):

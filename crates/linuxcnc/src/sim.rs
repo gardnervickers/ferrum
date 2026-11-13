@@ -66,7 +66,7 @@ impl Sim {
 }
 
 impl Sim {
-    /// Just enough G-code for the manual screens: M7/M9, G10 L20 P0, G0/G53 G0.
+    /// Just enough G-code for the manual screens: M7/M8/M9, G10 L20 P0, G0/G53 G0.
     fn mdi(&mut self, line: &str) {
         let up = line.to_ascii_uppercase();
         if up.starts_with("O<") && up.contains("CALL") {
@@ -100,6 +100,9 @@ impl Sim {
         }
         if has('M', 7.0) {
             self.s.mist = true;
+        }
+        if has('M', 8.0) {
+            self.s.flood = true;
         }
         if has('M', 9.0) {
             self.s.mist = false;
@@ -187,6 +190,7 @@ impl Sim {
                 }
             }
             n if n.contains("edge_angle") => out.push(set("edge_angle", 0.12)),
+            "unload_spindle" => self.s.tool_in_spindle = 0,
             _ => {}
         }
         self.msg(MessageKind::Display, format!("(sim) {line}"));

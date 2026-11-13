@@ -54,9 +54,11 @@ export component StatusBar inherits Rectangle {
                 clicked => { Actions.home-all(); }
             }
         }
-        for p in Live.pills: VerticalLayout {
+        // The first pill is the mode (E-STOP, AUTO, MDI...): a fixed width
+        // keeps the others from shifting as it changes.
+        for p[i] in Live.pills: VerticalLayout {
             alignment: center;
-            Pill { text: p.text; kind: p.kind; }
+            Pill { text: p.text; kind: p.kind; min-width: i == 0 ? 132px : 0px; }
         }
         Text {
             horizontal-stretch: 1;
@@ -244,6 +246,50 @@ export component LeftColumn inherits Rectangle {
             }
         }
         Rectangle { vertical-stretch: 1; }
+        // Used all the time, so on every screen.
+        VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                Btn {
+                    height: 58px; font-size: 22px;
+                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+                    text: "MIST"; on: Live.mist;
+                    enabled: Live.connected && Live.power;
+                    clicked => { Actions.mist-toggle(); }
+                }
+                Btn {
+                    height: 58px; font-size: 22px;
+                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+                    text: "FLOOD"; on: Live.flood;
+                    enabled: Live.connected && Live.power;
+                    clicked => { Actions.flood-toggle(); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                // Released: tap to clamp. Clamped: hold to release (spindle
+                // off, nothing running); releasing also clears the tool.
+                Btn {
+                    height: 58px; font-size: 22px;
+                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+                    visible: Live.tools-drawbar != "NOT FITTED";
+                    text: Live.tools-drawbar == "EXTENDED" ? "CLAMP TOOL" : "RELEASE TOOL";
+                    kind: Live.tools-drawbar == "EXTENDED" ? "hold" : "";
+                    hold: Live.tools-drawbar != "EXTENDED";
+                    sub: Live.tools-drawbar == "EXTENDED" ? "" : "HOLD";
+                    enabled: Live.tools-drawbar == "EXTENDED" ? Live.tools-can-retract : Live.tools-can-extend;
+                    clicked => { Actions.tools-drawbar(Live.tools-drawbar != "EXTENDED"); }
+                }
+                Btn {
+                    height: 58px; font-size: 22px;
+                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+                    text: "HOME ALL"; sub: "HOLD"; hold: true;
+                    enabled: Live.connected && Live.power && !Live.running;
+                    clicked => { Actions.home-all(); }
+                }
+            }
+        }
     }
 }
 

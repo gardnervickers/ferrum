@@ -321,7 +321,14 @@ pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<
         }
     });
     let t = tools.clone();
-    actions.on_tools_unload(move || t.borrow().machine.send(Command::Mdi("M61 Q0".into())));
+    actions.on_tools_unload(move || {
+        let st = t.borrow();
+        let cur = st.status.as_ref().map_or(0, |s| s.tool_in_spindle);
+        st.machine.send(Command::Mdi("M61 Q0".into()));
+        if cur > 0 {
+            st.note(format!("LinuxCNC now has no tool loaded. Take T{cur} out of the spindle."), false);
+        }
+    });
     let t = tools.clone();
     actions.on_tools_add_scratch(move || {
         let mut st = t.borrow_mut();
@@ -380,6 +387,11 @@ pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<
                 st.note("The drawbar can only release with the spindle off and nothing running", true);
             } else {
                 io.set_manual_request(extend);
+                // With the drawbar released the tool comes out: clear the
+                // logical tool too (as Probe Basic's drawbar button did).
+                if extend && st.status.as_ref().is_some_and(|s| s.tool_in_spindle > 0) {
+                    st.machine.send(Command::Mdi("o<unload_spindle> call".into()));
+                }
             }
         }
         st.refresh();

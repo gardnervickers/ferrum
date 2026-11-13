@@ -30,7 +30,15 @@ export component Keypad inherits Scrim {
                 border-width: 1px;
                 border-color: Theme.sel;
                 border-radius: 6px;
-                Text {
+                // Shown selected until the first key replaces it.
+                if Live.keypad-fresh: Rectangle {
+                    x: parent.width - 16px - self.width + 6px;
+                    width: fresh-text.preferred-width + 12px;
+                    height: 60px;
+                    border-radius: 4px;
+                    background: Theme.sel.with-alpha(0.45);
+                }
+                fresh-text := Text {
                     x: 16px;
                     width: parent.width - 32px;
                     horizontal-alignment: right;
@@ -128,7 +136,7 @@ component ToolCard inherits Rectangle {
 export component ToolChange inherits Scrim {
     Dialog {
         width: 900px;
-        height: 800px;
+        height: 820px;
         VerticalLayout {
             padding: 22px;
             spacing: 14px;
