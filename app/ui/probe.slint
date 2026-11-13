@@ -10,6 +10,9 @@ component Stepper inherits Rectangle {
     background: p.changed ? #43361a : Theme.panel2;
     border-radius: 6px;
     min-width: 170px;
+    // Equal columns whatever the label length.
+    preferred-width: 170px;
+    horizontal-stretch: 1;
     height: 104px;
     VerticalLayout {
         padding: 8px;
@@ -122,18 +125,24 @@ export component ProbeScreen inherits Rectangle {
                     property <length> oy: 24px + (self.height - 24px - 300px * sc) / 2;
                     Label { x: 0; y: 4px; width: parent.width; horizontal-alignment: center; text: Live.pr-hint; }
                     Path {
+                        // The browser build redraws a changed Path over open overlays.
+                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-outline;
                         stroke: Theme.muted; stroke-width: 2px; fill: transparent;
                     }
                     Path {
+                        // The browser build redraws a changed Path over open overlays.
+                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-arrows;
                         stroke: #f3c46380; stroke-width: 2px; fill: transparent;
                     }
                     Path {
+                        // The browser build redraws a changed Path over open overlays.
+                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-heads;
@@ -231,7 +240,8 @@ export component ProbeScreen inherits Rectangle {
     if more-open: Dialog {
         title: "MORE SETTINGS · THIS RUN ONLY";
         dw: 1300px;
-        dh: 620px;
+        // Sized to the rows so no empty band is left below them.
+        dh: min(900px, 200px + ceil(Live.pr-more.length / 3) * 114px);
         close => { root.more-open = false; }
         Note { text: "Changed values show in amber and go back to the default after the run. Defaults live under DEFAULTS."; }
         GridLayout {
@@ -246,6 +256,7 @@ export component ProbeScreen inherits Rectangle {
         dh: 840px;
         close => { root.defaults-open = false; }
         HorizontalLayout {
+            height: 60px;
             spacing: 0;
             Seg { horizontal-stretch: 1; text: "TOUCH PROBE"; on: root.defaults-tab == "probe"; clicked => { root.defaults-tab = "probe"; } }
             Seg { horizontal-stretch: 1; text: "TOOL SETTER"; on: root.defaults-tab == "setter"; clicked => { root.defaults-tab = "setter"; } }

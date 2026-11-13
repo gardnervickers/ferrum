@@ -198,7 +198,8 @@ component ProgramCard inherits Card {
             Image { width: parent.width; height: parent.height; source: Live.plot; image-fit: fill; }
             if Live.program == "": Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
             Text {
-                x: 14px; y: parent.height - self.height - 10px;
+                // Top corner: the work origin's axes often sit bottom left.
+                x: 14px; y: 10px;
                 text: (Live.plot-view == "top" ? "TOP VIEW" : Live.plot-view == "front" ? "FRONT VIEW" : "ISO VIEW") + (Live.plot-summary == "" ? "" : " · " + Live.plot-summary);
                 font-family: Theme.body; font-size: 16px; color: Theme.dim;
             }

@@ -128,7 +128,7 @@ component ToolCard inherits Rectangle {
 export component ToolChange inherits Scrim {
     Dialog {
         width: 900px;
-        height: 780px;
+        height: 850px;
         VerticalLayout {
             padding: 22px;
             spacing: 14px;
@@ -152,8 +152,8 @@ export component ToolChange inherits Scrim {
             }
             HorizontalLayout {
                 spacing: 30px;
-                Btn { height: 84px; text: "RELEASE TOOL"; hold: true; enabled: Live.tc-can-extend; clicked => { Actions.tc-drawbar(true); } }
-                Btn { height: 84px; text: "CLAMP TOOL"; enabled: Live.tc-can-retract; clicked => { Actions.tc-drawbar(false); } }
+                Btn { preferred-width: 0; horizontal-stretch: 1; height: 84px; text: "RELEASE TOOL"; hold: true; enabled: Live.tc-can-extend; clicked => { Actions.tc-drawbar(true); } }
+                Btn { preferred-width: 0; horizontal-stretch: 1; height: 84px; text: "CLAMP TOOL"; enabled: Live.tc-can-retract; clicked => { Actions.tc-drawbar(false); } }
             }
             // Slot kept when empty so the dialog never reflows.
             Rectangle {
@@ -193,7 +193,7 @@ export component ToolChange inherits Scrim {
                 Btn { height: 84px; text: "ABORT"; kind: "stop"; clicked => { Actions.tc-abort(); } }
                 Btn { height: 84px; text: "RESUME"; kind: "go"; enabled: Live.tc-can-resume; clicked => { Actions.tc-resume(false); } }
             }
-            Note { text: Live.tc-touch-off-tip + ". Touch off runs after the change, from the M6 remap. The spindle cannot start while the drawbar is extended."; wrap: word-wrap; }
+            Note { text: Live.tc-touch-off-tip + ". Touch off runs after the change, from the M6 remap. The spindle cannot start while the drawbar is extended."; wrap: word-wrap; height: 52px; }
         }
     }
 }

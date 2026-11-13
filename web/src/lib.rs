@@ -105,7 +105,16 @@ pub fn start() -> Result<(), JsValue> {
     let weak = ui.as_weak();
     actions.on_navigate(move |id| {
         if let Some(ui) = weak.upgrade() {
-            ui.global::<Live>().set_screen(id);
+            // As on the touchscreen: an open keypad or picker belongs to the
+            // screen being left (they are shared, so the mill closes them).
+            let live = ui.global::<Live>();
+            if live.get_keypad_open() {
+                send(json!({ "a": "keypad-done", "args": [false] }));
+            }
+            if live.get_pick_open() {
+                send(json!({ "a": "pick", "args": [-1] }));
+            }
+            live.set_screen(id);
         }
     });
 

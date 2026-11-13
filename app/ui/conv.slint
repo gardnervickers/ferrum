@@ -102,12 +102,16 @@ export component ConvScreen inherits Rectangle {
                             property <length> ox: (self.width - 400px * sc) / 2;
                             property <length> oy: (self.height - 300px * sc) / 2;
                             Path {
+                                // The browser build redraws a changed Path over open overlays.
+                                visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
                                 x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                                 viewbox-width: 400; viewbox-height: 300;
                                 commands: Live.conv-outline;
                                 stroke: Theme.muted; stroke-width: 2px; fill: transparent;
                             }
                             Path {
+                                // The browser build redraws a changed Path over open overlays.
+                                visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
                                 x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                                 viewbox-width: 400; viewbox-height: 300;
                                 commands: Live.conv-path;
