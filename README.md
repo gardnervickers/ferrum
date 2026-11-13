@@ -23,7 +23,10 @@ millgui/scripts/deploy
 - `scripts/fetch-sysroot` copies those headers and libraries from the Pi into
   `sysroot/` (gitignored, ~330 MB). Rerun it after upgrading the Pi.
 - `scripts/deploy` copies only millgui's own files: `millgui/run`,
-  `millgui/bin/millgui`, `millgui/mdi.toml`, `millgui/hal/*.hal` and `millgui.ini`.
+  `millgui/bin/millgui`, `millgui/mdi.toml`, `millgui/hal/*.hal`, `millgui/web/dist` (the
+  browser screen, from `scripts/build-web`) and `millgui.ini`.
+- Browser screen: with `[MILLGUI]REMOTE_PORT = 8088`, open `http://<pi>:8088/` (`?perf` logs
+  frame timings to the console). It mirrors the touchscreen; navigation is per screen.
 - Override the target with `MILLGUI_PI=user@host` and `MILLGUI_DEST=path`.
 
 ## Develop on the Mac

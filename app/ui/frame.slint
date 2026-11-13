@@ -21,6 +21,8 @@ export component StatusBar inherits Rectangle {
                 text: Live.estop ? "RESET E-STOP" : "E-STOP";
                 kind: Live.estop ? "tripped" : "stop";
                 hold: Live.estop;
+                // From a browser the network can drop it: the hardware chain is the e-stop.
+                sub: Live.remote && !Live.estop ? "REMOTE REQUEST" : "";
                 enabled: Live.connected;
                 pressed => { if !Live.estop { Actions.estop-trip(); } }
                 clicked => { if Live.estop { Actions.estop-reset(); } }
@@ -81,7 +83,7 @@ export component StatusBar inherits Rectangle {
         // Closing the display ends the LinuxCNC session; never mid-program.
         VerticalLayout {
             alignment: center;
-            Btn {
+            if !Live.remote: Btn {
                 width: 110px;
                 height: 48px;
                 text: "EXIT";

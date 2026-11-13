@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Build the browser screen (web/) into web/dist: wasm + JS glue + index.html.
+# millgui on the Pi serves web/dist when [MILLGUI]REMOTE_PORT is set.
+# wasm-bindgen-cli comes from nixpkgs and must match the crate's pinned
+# wasm-bindgen version (web/Cargo.toml).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [ "$(uname)" = Darwin ]; then
+  ICONV="$(nix build --no-link --print-out-paths nixpkgs#libiconv | tail -1)"
+  export LIBRARY_PATH="$ICONV/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+fi
+cargo build -p millgui-web --release --target wasm32-unknown-unknown
+rm -rf web/dist && mkdir -p web/dist
+nix shell nixpkgs#wasm-bindgen-cli -c wasm-bindgen --target web --no-typescript \
+  --out-dir web/dist target/wasm32-unknown-unknown/release/millgui_web.wasm
+cp web/static/index.html web/dist/
+gzip -9 -k web/dist/millgui_web_bg.wasm web/dist/millgui_web.js
+ls -la web/dist

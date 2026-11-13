@@ -13,8 +13,11 @@ export { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, Fil
 // is shown, so a disabled module's screen never exists.
 export component MainWindow inherits Window {
     title: "millgui";
-    width: 1920px;
-    height: 1080px;
+    // Fixed on the touchscreen; the browser build may be larger in one direction.
+    preferred-width: 1920px;
+    preferred-height: 1080px;
+    min-width: 1920px;
+    min-height: 1080px;
     background: Theme.frame;
     default-font-family: Theme.body;
 

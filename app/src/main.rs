@@ -12,6 +12,7 @@ mod modules;
 mod plot;
 mod powerfeed;
 mod program;
+mod remote;
 mod settings;
 
 use config::Config;
@@ -499,6 +500,31 @@ fn main() -> Result<(), slint::PlatformError> {
         live.set_message_error(true);
     }
     MANUAL.with(|m| *m.borrow_mut() = Some(manual));
+
+    // Remote (web) screen: [MILLGUI]REMOTE_PORT serves the browser build.
+    let _remote = match cfg.get("MILLGUI", "REMOTE_PORT").map(|p| p.trim().parse::<u16>()) {
+        Some(Ok(port)) => {
+            let root = cfg.get("MILLGUI", "REMOTE_ROOT").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("millgui/web"));
+            let root = if root.is_absolute() { root } else { cfg.dir().join(root) };
+            match remote::start(&ui, port, root) {
+                Ok((timer, r)) => {
+                    remote::install(r);
+                    Some(timer)
+                }
+                Err(e) => {
+                    live.set_message(e.into());
+                    live.set_message_error(true);
+                    None
+                }
+            }
+        }
+        Some(Err(_)) => {
+            live.set_message("[MILLGUI]REMOTE_PORT is not a port number".into());
+            live.set_message_error(true);
+            None
+        }
+        None => None,
+    };
 
     // Pills read HAL pins, which change without a status update; refresh them
     // with the clock and cycle timer.

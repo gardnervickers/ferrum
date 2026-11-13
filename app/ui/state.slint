@@ -9,6 +9,8 @@ export struct FileRow { name: string, dir: bool, modified: string, size: string 
 export struct GotoRow { name: string, x: string, y: string, px: float, py: float }
 
 export global Live {
+    // True in the browser build (not mirrored).
+    in property <bool> remote;
     in property <bool> connected;
     in property <bool> estop: true;
     in property <bool> power;

@@ -82,11 +82,14 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 ## M8 Remote web (see ARCHITECTURE.md, Remote access)
 
-- [ ] Slint wasm build of the same UI; `Remote` Machine over a websocket.
-- [ ] `remote` module on the Pi: serves the bundle, streams Status, messages and pills.
-- [ ] Remote control enabled for now (Gardner, 2026-11-13); access policy (read-only default, grant) later.
-- [ ] Remote jogs incremental only (or a jog lease); remote E-STOP labelled as a request.
-- [ ] Slow or dropped clients never stall the worker or the touchscreen.
+- [x] Slint wasm build of the same UI (software renderer into a canvas, fills and resizes with
+      the window); Live/Actions mirrored over a websocket (uimirror generates the glue).
+- [x] `remote` on the Pi ([MILLGUI]REMOTE_PORT): serves the bundle (gzip), streams property diffs
+      at 20 Hz and the backplot PNG at 4 Hz.
+- [x] Remote control enabled for now (Gardner, 2026-11-13); access policy (read-only default, grant) later.
+- [x] Remote jogs step-only (the Pi refuses CONT); remote E-STOP labelled as a request.
+- [x] Slow or dropped clients never stall the worker or the touchscreen (merged pending slot per client).
+- [ ] Access policy (read-only default, grant); show who is connected on the touchscreen.
 
 ## Before calling parity done
 

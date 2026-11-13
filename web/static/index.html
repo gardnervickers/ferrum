@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>millgui</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d0f12; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { width: 100vw; height: 100vh; display: block; touch-action: none; }
+  #loading { position: fixed; color: #8a93a3; font: 18px system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div id="loading">Loading the mill screen…</div>
+<canvas id="screen" width="1920" height="1080"></canvas>
+<script type="module">
+  import init from "./millgui_web.js";
+  init().then(() => document.getElementById("loading").remove())
+        .catch(e => { document.getElementById("loading").textContent = "Failed to start: " + e; });
+</script>
+</body>
+</html>
