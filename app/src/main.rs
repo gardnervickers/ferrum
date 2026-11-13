@@ -583,7 +583,10 @@ fn main() -> Result<(), slint::PlatformError> {
 
     wire_actions(&ui, &handle, &state, &cfg);
     let manual = manual::wire(&ui, &handle, &cfg, settings::Settings::load(), axes.contains(&3));
-    files::wire(&ui, &handle, files::root(&cfg));
+    // The sim browses its own folder (where CONV and JOB write in the sim),
+    // seeded with the sample programs; PROGRAM_PREFIX is on the Pi.
+    let files_root = if args.sim { sim_nc_dir() } else { files::root(&cfg) };
+    files::wire(&ui, &handle, files_root);
     program::wire(&ui);
     let plot = plot::wire(&ui, &cfg);
     let _plot_timer = plot::start_timer(&ui, &plot);
@@ -827,6 +830,20 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
 }
 
 /// Sample programs for headless screenshots (millgui/testdata/nc_files).
+fn sim_nc_dir() -> PathBuf {
+    let dir = job::cache_dir().join("sim-nc");
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(rd) = std::fs::read_dir(sample_dir()) {
+        for e in rd.flatten() {
+            let to = dir.join(e.file_name());
+            if e.path().is_file() && !to.exists() {
+                let _ = std::fs::copy(e.path(), to);
+            }
+        }
+    }
+    dir
+}
+
 fn sample_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/nc_files")
 }

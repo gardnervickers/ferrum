@@ -64,6 +64,26 @@ export component FilesScreen inherits Rectangle {
                 padding: 14px;
                 spacing: 12px;
                 H3 { text: Live.files-name == "" ? "SELECT A FILE" : Live.files-name; overflow: elide; }
+                // Ops and estimated times from the interpreter; fixed height
+                // so the preview below never moves.
+                Rectangle {
+                    height: 180px;
+                    background: Theme.panel2;
+                    border-radius: 6px;
+                    clip: true;
+                    Flickable {
+                        content-height: sm.preferred-height + 16px;
+                        sm := Text {
+                            x: 12px;
+                            y: 8px;
+                            width: parent.width - 24px;
+                            text: Live.files-summary;
+                            font-family: Theme.body;
+                            font-size: 21px;
+                            color: Theme.ink;
+                        }
+                    }
+                }
                 Rectangle {
                     vertical-stretch: 1;
                     background: Theme.well;
@@ -81,7 +101,7 @@ export component FilesScreen inherits Rectangle {
                         }
                     }
                 }
-                Note { text: "First lines of the file."; }
+                Note { text: "Times are estimates from feed rates, without acceleration."; }
             }
         }
     }

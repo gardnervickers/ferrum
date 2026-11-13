@@ -122,6 +122,41 @@ pub fn root(cfg: &Config) -> PathBuf {
     if p.is_absolute() { p } else { cfg.dir().join(p) }
 }
 
+thread_local! {
+    /// Bumped per selection, so a slow read of an earlier file is dropped.
+    static SUMMARY_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Ops and times for the selected file, read in the background.
+fn summarize(ui: &MainWindow, path: Option<PathBuf>) {
+    let gen = SUMMARY_GEN.with(|g| {
+        g.set(g.get() + 1);
+        g.get()
+    });
+    let live = ui.global::<Live>();
+    let Some(path) = path else {
+        live.set_files_summary(SharedString::new());
+        return;
+    };
+    live.set_files_summary("Reading the program…".into());
+    let mut wired = false;
+    let weak = ui.as_weak();
+    crate::plot::with(|p| {
+        wired = true;
+        crate::plot::analyze(p, path, move |tp| {
+            if SUMMARY_GEN.with(|g| g.get()) != gen {
+                return;
+            }
+            if let Some(ui) = weak.upgrade() {
+                ui.global::<Live>().set_files_summary(crate::plot::op_summary(&tp).into());
+            }
+        });
+    });
+    if !wired {
+        live.set_files_summary(SharedString::new());
+    }
+}
+
 pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
     let files = Rc::new(RefCell::new(Files { entries: list(&root), cwd: root.clone(), root, selected: None }));
     let live = ui.global::<Live>();
@@ -142,6 +177,9 @@ pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
             st.selected = Some(i as usize);
         }
         st.show(&ui.global::<Live>());
+        let path = st.selected_path();
+        drop(st);
+        summarize(&ui, path);
     });
     let (f, weak) = (files.clone(), ui.as_weak());
     actions.on_files_up(move || {
@@ -155,6 +193,8 @@ pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
         st.entries = list(&st.cwd);
         st.selected = None;
         st.show(&ui.global::<Live>());
+        drop(st);
+        summarize(&ui, None);
     });
     let (f, weak) = (files.clone(), ui.as_weak());
     actions.on_files_refresh(move || {
@@ -164,6 +204,9 @@ pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
         st.entries = list(&st.cwd);
         st.selected = keep.and_then(|n| st.entries.iter().position(|e| e.name == n));
         st.show(&ui.global::<Live>());
+        let path = st.selected_path();
+        drop(st);
+        summarize(&ui, path);
     });
     let (f, mc, weak) = (files.clone(), machine.clone(), ui.as_weak());
     actions.on_files_load(move || {

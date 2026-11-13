@@ -252,7 +252,7 @@ export component BottomBar inherits Rectangle {
     Rectangle { y: 0; height: 1px; background: Theme.line; }
     HorizontalLayout {
         padding-left: 14px;
-        padding-right: 14px;
+        padding-right: 8px;
         spacing: 8px;
         for n in Live.nav: VerticalLayout {
             alignment: center;
@@ -300,14 +300,22 @@ export component BottomBar inherits Rectangle {
                 clicked => { Actions.stop(); }
             }
         }
-        Rectangle { width: 24px; }
+        Rectangle { width: 18px; }
         VerticalLayout {
             alignment: center;
-            Btn {
-                width: 180px; height: 100px; font-size: 32px; kind: "go";
-                text: Live.paused ? "RESUME" : "CYCLE START";
-                enabled: Live.can-start;
-                clicked => { Actions.cycle-start(); }
+            // A static ring (no flashing) says CYCLE START will resume.
+            Rectangle {
+                width: 192px; height: 112px;
+                border-radius: 10px;
+                border-width: Live.paused ? 4px : 0;
+                border-color: #9ff0bd;
+                Btn {
+                    x: 6px; y: 6px;
+                    width: 180px; height: 100px; font-size: 32px; kind: "go";
+                    text: Live.paused ? "RESUME" : "CYCLE START";
+                    enabled: Live.can-start;
+                    clicked => { Actions.cycle-start(); }
+                }
             }
         }
     }

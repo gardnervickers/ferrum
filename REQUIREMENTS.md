@@ -50,9 +50,10 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] Run: G-CODE | MDI | JOG tabs; JOG keeps the backplot visible (mockup v18). JOG nav renamed MANUAL
       (POWER FEED, GO TO, spindle card); MODULES accepts the old "jog" id.
 - [x] Files: no USB; browse PROGRAM_PREFIX (G-code and folders, newest first), preview, LOAD.
-- [ ] Files: ops and estimated time per file; top-view preview plus op list (needs the interpreter).
+- [x] Files: ops (name, tool) and estimated time per file from the interpreter, read in the background.
+- [ ] Files: top-view preview of the selected file (the RUN backplot covers the loaded one).
 - [x] Run: G-code view follows the executing line; NEXT M6 finds the next tool change.
-- [ ] CYCLE START has a static outline when it can resume.
+- [x] CYCLE START has a static outline when it can resume.
 - [ ] Run from line: refused inside a job (job_session.cycle_start_problem); design restoring
       tool/spindle/offsets properly or drop it (it is not LinuxCNC behavior).
 - [ ] Decide whether [FILTER] keeps .py.

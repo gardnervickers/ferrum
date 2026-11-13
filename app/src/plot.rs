@@ -136,14 +136,29 @@ pub fn fmt_time(s: f64) -> String {
     }
 }
 
-/// Build the toolpath for `file` off the UI thread.
-pub fn load(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
-    let weak = ui.as_weak();
-    let path = PathBuf::from(file);
+/// Read `path` through the interpreter (or the stand-in) on a worker
+/// thread; `done` runs on the UI thread with the result.
+pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpath) + Send + 'static) {
     let (setup, rapid) = {
         let p = plot.borrow();
         (p.setup.as_ref().map(|s| rs274::Setup { ini: s.ini.clone(), config_dir: s.config_dir.clone(), var_file: s.var_file.clone(), tool_table: s.tool_table.clone(), rapid_mm_s: s.rapid_mm_s }), p.rapid)
     };
+    std::thread::spawn(move || {
+        let tp = match &setup {
+            Some(s) => rs274::run(s, &path),
+            None => match std::fs::read_to_string(&path) {
+                Ok(t) => preview::mini::parse(&t, rapid),
+                Err(e) => Toolpath { error: Some(e.to_string()), ..Default::default() },
+            },
+        };
+        let _ = slint::invoke_from_event_loop(move || done(tp));
+    });
+}
+
+/// Build the toolpath for `file` off the UI thread.
+pub fn load(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
+    let weak = ui.as_weak();
+    let path = PathBuf::from(file);
     {
         let mut p = plot.borrow_mut();
         p.trail.clear();
@@ -153,24 +168,33 @@ pub fn load(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
         return;
     }
     ui.global::<Live>().set_plot_summary("READING PROGRAM…".into());
-    std::thread::spawn(move || {
-        let tp = match &setup {
-            Some(s) => rs274::run(s, &path),
-            None => match std::fs::read_to_string(&path) {
-                Ok(t) => preview::mini::parse(&t, rapid),
-                Err(e) => Toolpath { error: Some(e.to_string()), ..Default::default() },
-            },
-        };
-        let _ = slint::invoke_from_event_loop(move || {
-            if let Some(ui) = weak.upgrade() {
-                PLOT.with(|p| {
-                    if let Some(p) = p.borrow().as_ref() {
-                        p.borrow_mut().set_toolpath(&ui, tp);
-                    }
-                });
-            }
-        });
+    analyze(plot, path, move |tp| {
+        if let Some(ui) = weak.upgrade() {
+            with(|p| p.borrow_mut().set_toolpath(&ui, tp));
+        }
     });
+}
+
+/// One line per op for the FILES screen: name, tool, estimated time.
+pub fn op_summary(tp: &Toolpath) -> String {
+    if let Some(e) = &tp.error {
+        if tp.segs.is_empty() {
+            return format!("Cannot read: {e}");
+        }
+    }
+    if tp.segs.is_empty() {
+        return "No moves.".into();
+    }
+    let mut out = format!("{} OPS · ~{}", tp.ops.len(), fmt_time(tp.seconds()));
+    for (i, o) in tp.ops.iter().enumerate() {
+        let tool = if o.tool > 0 { format!("T{}", o.tool) } else { "—".into() };
+        let name = if o.name.is_empty() { format!("OP {}", i + 1) } else { o.name.clone() };
+        out += &format!("\n{}  {}  ·  {}  ·  ~{}", i + 1, name, tool, fmt_time(o.seconds));
+    }
+    if let Some(e) = &tp.error {
+        out += &format!("\nStops early: {e}");
+    }
+    out
 }
 
 /// Follow the tool (work coordinates) and extend the trail.
