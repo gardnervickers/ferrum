@@ -18,7 +18,7 @@ export component Btn inherits Rectangle {
     // Fires when the touch ends or is cancelled (continuous jog stops on it).
     callback released();
 
-    property <bool> arming: touch.pressed && hold && enabled;
+    property <bool> arming: touch.pressed && hold && enabled && !fired;
     property <bool> fired;
     preferred-height: 64px;
     border-radius: 6px;
@@ -91,7 +91,10 @@ export component Btn inherits Rectangle {
         enabled: root.enabled;
         pointer-event(e) => {
             if e.kind == PointerEventKind.down {
-                root.fired = false;
+                // A hold counts only if the button was a hold button when the
+                // touch began: E-STOP turns into RESET under the finger, and
+                // keeping the finger down must not reset it.
+                root.fired = !root.hold;
                 root.pressed();
             } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
                 root.released();

@@ -40,7 +40,10 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 - [x] Backplot from stand-alone rs274 (private HOME, copied var/tool files, REMAPs stripped) on a
       background thread; tiny-skia software renderer; ISO/TOP/FRONT, colours per op, tool marker and trail.
-- [ ] Backplot: GPU renderer choice at startup if software rendering is too slow on big programs.
+- [x] Backplot speed (M7): sub-pixel moves merge into polylines, and the toolpath image is drawn on a
+      worker thread (the old image stays up meanwhile). Mac: 200k moves 0.2 s, 1M moves ~1 s per view
+      change; frames with the tool marker stay ~2 ms. No GL renderer: the Pi has only llvmpipe, so GL
+      would also run on the CPU. Re-measure on the Pi (`cargo run --release -p preview --example bench`).
 - [x] Run: G-CODE | MDI | JOG tabs; JOG keeps the backplot visible (mockup v18). JOG nav renamed MANUAL
       (POWER FEED, GO TO, spindle card); MODULES accepts the old "jog" id.
 - [x] Files: no USB; browse PROGRAM_PREFIX (G-code and folders, newest first), preview, LOAD.

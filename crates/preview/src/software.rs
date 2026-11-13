@@ -81,10 +81,71 @@ fn stroke(width: f32) -> Stroke {
     Stroke { width, line_cap: LineCap::Round, ..Default::default() }
 }
 
+/// Builds a path from segments in screen space: consecutive segments join
+/// into one polyline, and moves shorter than a fraction of a pixel merge into
+/// the next, so a dense program costs about as much as the pixels it covers.
+#[derive(Default)]
+struct Polyline {
+    pb: PathBuilder,
+    /// Last point emitted, and the latest point not yet emitted.
+    drawn: Option<(f32, f32)>,
+    pending: Option<(f32, f32)>,
+}
+
+impl Polyline {
+    const MERGE: f32 = 0.6;
+
+    fn pen(&self) -> Option<(f32, f32)> {
+        self.pending.or(self.drawn)
+    }
+
+    fn seg(&mut self, a: (f32, f32), b: (f32, f32)) {
+        let joined = self.pen().is_some_and(|p| (p.0 - a.0).abs() < 0.05 && (p.1 - a.1).abs() < 0.05);
+        if !joined {
+            self.flush();
+            self.pb.move_to(a.0, a.1);
+            self.drawn = Some(a);
+        }
+        let d = self.drawn.expect("pen");
+        if (b.0 - d.0).abs() < Self::MERGE && (b.1 - d.1).abs() < Self::MERGE {
+            self.pending = Some(b);
+        } else {
+            self.pb.line_to(b.0, b.1);
+            self.drawn = Some(b);
+            self.pending = None;
+        }
+    }
+
+    fn flush(&mut self) {
+        if let Some(p) = self.pending.take() {
+            self.pb.line_to(p.0, p.1);
+            self.drawn = Some(p);
+        }
+    }
+
+    fn finish(mut self) -> Option<tiny_skia::Path> {
+        // A lone point (all moves merged) still needs a line to show its cap.
+        if let (Some(d), None) = (self.drawn, self.pending) {
+            if self.pb.len() == 1 {
+                self.pb.line_to(d.0 + 0.01, d.1);
+            }
+        }
+        self.flush();
+        self.pb.finish()
+    }
+}
+
+/// The toolpath drawn for one view and size. Drawing it is the slow part
+/// (proportional to the program), so callers can do it off the UI thread and
+/// `compose` the live marker and trail onto it each frame.
+pub struct Base {
+    pm: Pixmap,
+    fit: Fit,
+}
+
 pub struct Software {
     key: Option<(usize, View, u32, u32, Option<usize>)>,
-    base: Option<Pixmap>,
-    fit: Option<Fit>,
+    base: Option<Base>,
 }
 
 impl Default for Software {
@@ -95,10 +156,36 @@ impl Default for Software {
 
 impl Software {
     pub fn new() -> Self {
-        Self { key: None, base: None, fit: None }
+        Self { key: None, base: None }
     }
 
-    fn draw_base(tp: &Toolpath, view: View, w: u32, h: u32, highlight: Option<usize>) -> (Pixmap, Fit) {
+    /// Render to RGBA8 (opaque). `tool` is the current work position;
+    /// `trail` is where the tool has been this session.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(
+        &mut self,
+        tp: &Toolpath,
+        tp_id: usize,
+        view: View,
+        w: u32,
+        h: u32,
+        highlight: Option<usize>,
+        trail: &[P4],
+        tool: Option<P4>,
+    ) -> Pixmap {
+        let key = (tp_id, view, w, h, highlight);
+        if self.key != Some(key) {
+            self.base = Some(Base::draw(tp, view, w, h, highlight));
+            self.key = Some(key);
+        }
+        self.base.as_ref().expect("base").compose(trail, tool)
+    }
+}
+
+impl Base {
+    pub fn draw(tp: &Toolpath, view: View, w: u32, h: u32, highlight: Option<usize>) -> Base {
+        let w = w.max(16);
+        let h = h.max(16);
         let mut pm = Pixmap::new(w, h).expect("pixmap size");
         pm.fill(Color::from_rgba8(BG[0], BG[1], BG[2], 255));
         let fit = Fit::new(tp, view, w, h);
@@ -120,14 +207,13 @@ impl Software {
         }
 
         // Rapids dashed-looking (thin, dim), then feeds per op.
-        let mut rapids = PathBuilder::new();
-        let mut feeds: Vec<PathBuilder> = (0..tp.ops.len().max(1)).map(|_| PathBuilder::new()).collect();
+        let mut rapids = Polyline::default();
+        let mut feeds: Vec<Polyline> = (0..tp.ops.len().max(1)).map(|_| Polyline::default()).collect();
         for s in &tp.segs {
             let a = fit.map(s.from);
             let b = fit.map(s.to);
-            let pb = if s.kind == Kind::Rapid { &mut rapids } else { &mut feeds[s.op] };
-            pb.move_to(a.0, a.1);
-            pb.line_to(b.0, b.1);
+            let pl = if s.kind == Kind::Rapid { &mut rapids } else { &mut feeds[s.op] };
+            pl.seg(a, b);
         }
         if let Some(path) = rapids.finish() {
             pm.stroke_path(&path, &paint([0x6b, 0x74, 0x7b], 150), &stroke(1.0), Transform::identity(), None);
@@ -139,34 +225,13 @@ impl Software {
                 pm.stroke_path(&path, &paint(rgb, if dim { 40 } else { 230 }), &stroke(1.5), Transform::identity(), None);
             }
         }
-        (pm, fit)
+        Base { pm, fit }
     }
 
-    /// Render to RGBA8 (opaque). `tool` is the current work position;
-    /// `trail` is where the tool has been this session.
-    #[allow(clippy::too_many_arguments)]
-    pub fn render(
-        &mut self,
-        tp: &Toolpath,
-        tp_id: usize,
-        view: View,
-        w: u32,
-        h: u32,
-        highlight: Option<usize>,
-        trail: &[P4],
-        tool: Option<P4>,
-    ) -> Pixmap {
-        let w = w.max(16);
-        let h = h.max(16);
-        let key = (tp_id, view, w, h, highlight);
-        if self.key != Some(key) {
-            let (base, fit) = Self::draw_base(tp, view, w, h, highlight);
-            self.base = Some(base);
-            self.fit = Some(fit);
-            self.key = Some(key);
-        }
-        let mut pm = self.base.clone().expect("base");
-        let fit = self.fit.expect("fit");
+    /// A copy of the base with the trail and the tool marker on it.
+    pub fn compose(&self, trail: &[P4], tool: Option<P4>) -> Pixmap {
+        let mut pm = self.pm.clone();
+        let fit = self.fit;
         if trail.len() > 1 {
             let mut pb = PathBuilder::new();
             let a = fit.map(trail[0]);

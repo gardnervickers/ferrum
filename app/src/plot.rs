@@ -3,25 +3,34 @@
 
 use crate::config::Config;
 use crate::{Actions, Live, MainWindow};
-use preview::software::{Software, View};
+use preview::software::{Base, View};
 use preview::{rs274, Toolpath, P4};
 use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 const TRAIL_MAX: usize = 50_000;
 
+/// What a base image was drawn for: toolpath id, view, size.
+type Key = (usize, View, u32, u32);
+
 pub struct Plot {
-    tp: Rc<Toolpath>,
+    tp: Arc<Toolpath>,
     id: usize,
     view: View,
     size: (u32, u32),
     trail: Vec<P4>,
     tool: Option<P4>,
     dirty: bool,
-    renderer: Software,
+    /// The drawn toolpath, and the one being drawn on a worker thread. The
+    /// last base stays on screen until its replacement is ready.
+    base: Option<(Key, Base)>,
+    pending: Option<Key>,
+    /// Draw inline (headless screenshots).
+    inline: bool,
     setup: Option<rs274::Setup>,
     rapid: f64,
     file: String,
@@ -68,7 +77,30 @@ impl Plot {
         if w < 16 || h < 16 {
             return;
         }
-        let pm = self.renderer.render(&self.tp, self.id, self.view, w, h, None, &self.trail, self.tool);
+        let key = (self.id, self.view, w, h);
+        if self.base.as_ref().map(|b| b.0) != Some(key) {
+            if self.inline {
+                self.base = Some((key, Base::draw(&self.tp, self.view, w, h, None)));
+            } else if self.pending != Some(key) {
+                self.pending = Some(key);
+                let tp = self.tp.clone();
+                std::thread::spawn(move || {
+                    let b = Base::draw(&tp, key.1, key.2, key.3, None);
+                    let _ = slint::invoke_from_event_loop(move || {
+                        with(|p| {
+                            let mut st = p.borrow_mut();
+                            if st.pending == Some(key) {
+                                st.pending = None;
+                                st.base = Some((key, b));
+                                st.dirty = true;
+                            }
+                        })
+                    });
+                });
+            }
+        }
+        let Some((_, base)) = &self.base else { return };
+        let pm = base.compose(&self.trail, self.tool);
         let buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(pm.data(), pm.width(), pm.height());
         ui.global::<Live>().set_plot(Image::from_rgba8(buf));
     }
@@ -87,7 +119,7 @@ impl Plot {
             live.set_message(format!("Preview: {e}").into());
             live.set_message_error(true);
         }
-        self.tp = Rc::new(tp);
+        self.tp = Arc::new(tp);
         self.id += 1;
         self.redraw(ui);
     }
@@ -164,14 +196,16 @@ thread_local! {
 
 pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
     let plot = Rc::new(RefCell::new(Plot {
-        tp: Rc::new(Toolpath::default()),
+        tp: Arc::new(Toolpath::default()),
         id: 0,
         view: View::Iso,
         size: (0, 0),
         trail: Vec::new(),
         tool: None,
         dirty: false,
-        renderer: Software::new(),
+        base: None,
+        pending: None,
+        inline: false,
         setup: setup(cfg),
         rapid: rapid(cfg),
         file: String::new(),
@@ -228,6 +262,7 @@ pub fn start_timer(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) -> slint::Timer {
 /// Synchronous load for headless screenshots.
 pub fn load_now(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
     let rapid = plot.borrow().rapid;
+    plot.borrow_mut().inline = true;
     plot.borrow_mut().file = file.to_string();
     let tp = std::fs::read_to_string(file).map(|t| preview::mini::parse(&t, rapid)).unwrap_or_default();
     plot.borrow_mut().set_toolpath(ui, tp);

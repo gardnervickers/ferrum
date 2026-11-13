@@ -213,7 +213,7 @@ export component Picker inherits Scrim {
                 Flickable {
                     content-height: items.preferred-height;
                     // Open with the current choice in view.
-                    init => { self.viewport-y = -max(0px, min(Live.pick-current * 76px - 200px, items.preferred-height - self.height)); }
+                    init => { self.content-y = -max(0px, min(Live.pick-current * 76px - 200px, items.preferred-height - self.height)); }
                     items := VerticalLayout {
                         spacing: 8px;
                         for it[i] in Live.pick-items: Btn { height: 68px; text: it; family: Theme.body; font-size: 28px; on: i == Live.pick-current; clicked => { Actions.pick(i); } }
