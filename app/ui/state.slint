@@ -10,7 +10,9 @@ export struct ToolRow { t: string, len: string, dia: string, comment: string, ne
 export struct CheckRow { t: string, status: string, kind: string, action: string }
 export struct OffsetRow { wcs: string, x: string, y: string, z: string, a: string, rot: string, active: bool, used: bool }
 export struct ProbeItem { id: string, label: string, on: bool }
-export struct ProbeSpot { id: string, x: float, y: float, w: float, h: float, r: float, on: bool, label: string }
+export struct ProbeSpot { id: string, x: float, y: float, w: float, h: float, r: float, on: bool }
+// A choice under the probe picture; a disabled one keeps its slot.
+export struct ProbeOpt { id: string, label: string, on: bool, enabled: bool }
 export struct ProbeParam { id: string, label: string, value: string, unit: string, changed: bool, def: string }
 export struct WarmStage { rpm: string, minutes: string, state: string }
 export struct StatusRow { key: string, value: string, kind: string }
@@ -164,7 +166,11 @@ export global Live {
     in property <string> pr-arrows;
     in property <string> pr-heads;
     in property <[ProbeSpot]> pr-spots;
-    in property <[ProbeItem]> pr-opts;
+    // Up to two rows of choices under the picture, each with a row label.
+    in property <string> pr-opts-label;
+    in property <[ProbeOpt]> pr-opts;
+    in property <string> pr-opts2-label;
+    in property <[ProbeOpt]> pr-opts2;
     in property <[ProbeParam]> pr-params;
     in property <[ProbeParam]> pr-more;
     in property <[ProbeParam]> pr-defaults;

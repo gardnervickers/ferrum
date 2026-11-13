@@ -22,7 +22,7 @@ use crate::config::Config;
 use crate::manual::KeypadTarget;
 use crate::settings::Settings;
 use crate::toolchange::Io;
-use crate::{Actions, Live, MainWindow, ProbeItem, ProbeParam, ProbeSpot};
+use crate::{Actions, Live, MainWindow, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot};
 use linuxcnc::{Command, Handle, Message, MessageKind, Status};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
@@ -135,6 +135,12 @@ struct Target {
     kind: &'static str,
 }
 
+/// Picture spot sizes in picture units (the picture is drawn at about
+/// 1.2–1.5 px per unit, so each spot is at least 56 px across).
+const CORNER_R: f64 = 28.0;
+const CENTER_R: f64 = 34.0;
+const EDGE_T: f64 = 46.0;
+
 fn corner(id: &'static str, x: f64, y: f64, label: &str) -> Target {
     Target { id, x, y, w: 0.0, h: 0.0, label: label.into(), kind: "corner" }
 }
@@ -238,15 +244,19 @@ impl Probe {
         match self.shape {
             "block" => {
                 let ctr = if self.axes == "XY" { "STOCK CENTER".to_string() } else { format!("CENTER IN {}", self.axes) };
+                // The block is 200 × 160 at (100, 70). Edge bars sit on the
+                // edge lines, between the corner spots, and are thick enough
+                // to tap (EDGE_T).
+                const T: f64 = EDGE_T;
                 vec![
                     corner("c-bl", 100.0, 70.0, "BACK LEFT CORNER"),
                     corner("c-br", 300.0, 70.0, "BACK RIGHT CORNER"),
                     corner("c-fl", 100.0, 230.0, "FRONT LEFT CORNER"),
                     corner("c-fr", 300.0, 230.0, "FRONT RIGHT CORNER"),
-                    edge("e-b", 140.0, 58.0, 120.0, 24.0, "BACK EDGE"),
-                    edge("e-f", 140.0, 218.0, 120.0, 24.0, "FRONT EDGE"),
-                    edge("e-l", 88.0, 105.0, 24.0, 90.0, "LEFT EDGE"),
-                    edge("e-r", 288.0, 105.0, 24.0, 90.0, "RIGHT EDGE"),
+                    edge("e-b", 136.0, 70.0 - T / 2.0, 128.0, T, "BACK EDGE"),
+                    edge("e-f", 136.0, 230.0 - T / 2.0, 128.0, T, "FRONT EDGE"),
+                    edge("e-l", 100.0 - T / 2.0, 106.0, T, 88.0, "LEFT EDGE"),
+                    edge("e-r", 300.0 - T / 2.0, 106.0, T, 88.0, "RIGHT EDGE"),
                     center(if self.axes == "XY" { "stock" } else { "two" }, 200.0, 150.0, &format!("{ctr} · FROM {}", side_name(self.start))),
                 ]
             }
@@ -278,7 +288,15 @@ impl Probe {
         t.iter().find(|t| t.id == self.tgt).cloned().unwrap_or_else(|| t[0].clone())
     }
 
-    /// The two to four values a routine depends on; the rest are under MORE.
+    /// Whether the picture's spots pick the target (several real places on
+    /// the part). Other shapes have one target, or pick it in the option rows.
+    fn picks_on_picture(&self) -> bool {
+        matches!(self.shape, "block" | "pocket")
+    }
+
+    /// The values a routine depends on; the rest are under MORE. Together
+    /// with `locals` there are never more than three, so the screen keeps
+    /// three fixed slots.
     fn key_params(&self, kind: &str) -> Vec<u16> {
         match kind {
             "corner" | "icorner" => vec![3023, 3019, 3018],
@@ -290,7 +308,9 @@ impl Probe {
             "pocket" => vec![3026, 3027, 3018],
             "bore" => vec![3025, 3018],
             "slot" => vec![if self.axes == "Y" { 3029 } else { 3028 }, 3019],
-            "cyl" | "flat" | "dia" | "runout" | "defl" => vec![3021, 3019],
+            "cyl" | "flat" | "dia" | "runout" => vec![3021, 3019],
+            // Two operator inputs (locals) take the other slots; XY clearance is under MORE.
+            "defl" => vec![3021],
             "setter" | "nose" => vec![3005, 3009],
             "ring" => vec![3033],
             _ => vec![],
@@ -303,6 +323,36 @@ impl Probe {
             "setter" | "nose" => vec![3004, 3005, 3006, 3007, 3009],
             "ring" => vec![3033, 3016, 3015, 3017, 3023, 3020, 3021],
             _ => vec![3023, 3019, 3021, 3018, 3020, 3022, 3016, 3015, 3017],
+        }
+    }
+
+    /// The two option rows under the picture: (label, choices) each.
+    fn options(&self, sel: &Target) -> (&'static str, Vec<ProbeOpt>, &'static str, Vec<ProbeOpt>) {
+        let it = |id: &str, label: &str, on: bool| ProbeOpt { id: id.into(), label: label.into(), on, enabled: true };
+        match (self.shape, sel.kind) {
+            (_, "edge") if self.mode == "find" => ("EDGE ANGLE", vec![it("angle-off", "NO", !self.angle), it("angle-on", "ALSO MEASURE", self.angle)], "", vec![]),
+            ("block", "stock" | "two") => {
+                let one = if self.both { "" } else { side_axis(self.start) };
+                let axes = vec![it("both", "X AND Y", self.both), it("axis-X", "X ONLY", one == "X"), it("axis-Y", "Y ONLY", one == "Y")];
+                let sides = ['F', 'B', 'L', 'R']
+                    .iter()
+                    .map(|k| ProbeOpt {
+                        id: format!("start-{k}").into(),
+                        label: side_name(*k).into(),
+                        on: *k == self.start,
+                        enabled: self.both || side_axis(*k) == one,
+                    })
+                    .collect();
+                ("MEASURE", axes, "FIRST SIDE", sides)
+            }
+            ("slot", _) => (
+                "TYPE",
+                vec![it("ridge", "RIDGE", self.ridge), it("valley", "SLOT", !self.ridge)],
+                "ACROSS",
+                vec![it("X", "X", self.axes != "Y"), it("Y", "Y", self.axes == "Y")],
+            ),
+            ("cyl", _) => ("FIND", vec![it("tgt-ctr", "CENTERLINE Y, Z", sel.id == "ctr"), it("tgt-flat", "A0 ON A FLAT", sel.id == "flat")], "", vec![]),
+            _ => ("", vec![], "", vec![]),
         }
     }
 
@@ -660,51 +710,38 @@ impl Probe {
         let targets = self.targets();
         let sel = self.selected();
         live.set_pr_title(sel.label.clone().into());
-        live.set_pr_hint(if targets.len() > 1 { "TAP A TARGET" } else { "" }.into());
-        // Picture
+        let on_picture = self.picks_on_picture();
+        live.set_pr_hint(if on_picture { "TAP A BLUE SPOT TO CHOOSE WHERE" } else { "" }.into());
+        // Picture: the spots are the only controls on it.
         let (outline, arrows, heads) = picture(self, &sel);
         live.set_pr_outline(outline.into());
         live.set_pr_arrows(arrows.into());
         live.set_pr_heads(heads.into());
-        let mut spots: Vec<ProbeSpot> = Vec::new();
-        if targets.len() > 1 {
-            for t in &targets {
-                spots.push(ProbeSpot {
+        let spots: Vec<ProbeSpot> = if on_picture {
+            targets
+                .iter()
+                .map(|t| ProbeSpot {
                     id: t.id.into(),
                     x: t.x as f32,
                     y: t.y as f32,
                     w: t.w as f32,
                     h: t.h as f32,
-                    r: if t.id == "ctr" { 26.0 } else { 22.0 },
+                    r: if t.id == "ctr" { CENTER_R } else { CORNER_R } as f32,
                     on: t.id == sel.id,
-                    label: "".into(),
-                });
-            }
-        }
-        if self.shape == "block" && sel.id == "ctr" {
-            for (k, x, y) in [('F', 200.0, 262.0), ('B', 200.0, 38.0), ('L', 46.0, 150.0), ('R', 354.0, 150.0)] {
-                let on = k == self.start;
-                spots.push(ProbeSpot { id: format!("start-{k}").into(), x, y, w: 96.0, h: 34.0, r: 17.0, on, label: if on { "START HERE" } else { "START" }.into() });
-            }
-        }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         live.set_pr_spots(ModelRc::new(VecModel::from(spots)));
-        // Options under the picture
-        let mut opts: Vec<ProbeItem> = Vec::new();
-        let it = |id: &str, label: String, on: bool| ProbeItem { id: id.into(), label: label.into(), on };
-        if self.mode == "find" && sel.kind == "edge" {
-            opts.push(it("angle", "ALSO MEASURE ANGLE".into(), self.angle));
-        }
-        if self.shape == "block" && sel.id == "ctr" {
-            opts.push(it("both", "BOTH AXES".into(), self.both));
-            opts.push(it("one", format!("{} ONLY", side_axis(self.start)), !self.both));
-        }
-        if self.shape == "slot" {
-            opts.push(it("ridge", "RIDGE".into(), self.ridge));
-            opts.push(it("valley", "SLOT".into(), !self.ridge));
-            opts.push(it("X", "ACROSS X".into(), self.axes != "Y"));
-            opts.push(it("Y", "ACROSS Y".into(), self.axes == "Y"));
-        }
-        live.set_pr_opts(ModelRc::new(VecModel::from(opts)));
+        // Choices under the picture: two labelled rows, always the same
+        // buttons for a target (a choice that doesn't apply is disabled, not
+        // removed), so nothing moves under the finger.
+        let (l1, o1, l2, o2) = self.options(&sel);
+        live.set_pr_opts_label(l1.into());
+        live.set_pr_opts(ModelRc::new(VecModel::from(o1)));
+        live.set_pr_opts2_label(l2.into());
+        live.set_pr_opts2(ModelRc::new(VecModel::from(o2)));
         // Values
         let key = self.key_params(sel.kind);
         let row = |n: u16| {
@@ -863,6 +900,42 @@ impl Probe {
         }
     }
 
+    /// A choice from the option rows under the picture.
+    fn option(&mut self, o: &str) {
+        match o {
+            "angle-on" => self.angle = true,
+            "angle-off" => self.angle = false,
+            "both" => self.both = true,
+            // One axis: keep the first side if it is on that axis.
+            "axis-X" | "axis-Y" => {
+                let axis = &o[5..];
+                self.both = false;
+                if side_axis(self.start) != axis {
+                    self.start = if axis == "X" { 'L' } else { 'F' };
+                }
+            }
+            s if s.starts_with("start-") => {
+                let k = s.chars().nth(6).unwrap_or('F');
+                // With one axis only that axis's sides are offered.
+                if self.both || side_axis(k) == side_axis(self.start) {
+                    self.start = k;
+                }
+            }
+            s if s.starts_with("tgt-") => {
+                if let Some(t) = self.targets().into_iter().find(|t| t.id == &s[4..]) {
+                    self.tgt = t.id;
+                }
+            }
+            "ridge" => self.ridge = true,
+            "valley" => self.ridge = false,
+            "X" => self.axes = "X",
+            "Y" => self.axes = "Y",
+            _ => {}
+        }
+        self.flow = None;
+        self.settle();
+    }
+
     fn set_value(&mut self, id: &str, v: f64) {
         let v = (v * 1000.0).round() / 1000.0;
         if let Some(i) = id.strip_prefix('L').and_then(|i| i.parse::<usize>().ok()) {
@@ -964,13 +1037,17 @@ fn picture(p: &Probe, sel: &Target) -> (String, String, String) {
     };
     let mut lines = String::new();
     let mut heads = String::new();
-    for [x1, y1, x2, y2] in segs(p, sel) {
+    // Walks that start on a chosen side mark the first touch with a bigger head.
+    let first_big = matches!(sel.kind, "stock" | "two");
+    for (i, [x1, y1, x2, y2]) in segs(p, sel).into_iter().enumerate() {
         lines += &format!("M {x1:.1} {y1:.1} L {x2:.1} {y2:.1} ");
         let (dx, dy) = (x2 - x1, y2 - y1);
         let l = (dx * dx + dy * dy).sqrt().max(1e-6);
         let (ux, uy) = (dx / l, dy / l);
-        let (bx, by) = (x2 - ux * 12.0, y2 - uy * 12.0);
-        heads += &format!("M {x2:.1} {y2:.1} L {:.1} {:.1} L {:.1} {:.1} Z ", bx - uy * 6.0, by + ux * 6.0, bx + uy * 6.0, by - ux * 6.0);
+        let k = if first_big && i == 0 { 2.0 } else { 1.0 };
+        let (bx, by) = (x2 - ux * 12.0 * k, y2 - uy * 12.0 * k);
+        let w = 6.0 * k;
+        heads += &format!("M {x2:.1} {y2:.1} L {:.1} {:.1} L {:.1} {:.1} Z ", bx - uy * w, by + ux * w, bx + uy * w, by - ux * w);
     }
     (outline, lines, heads)
 }
@@ -989,17 +1066,15 @@ fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
         };
     }
     if k == "edge" {
-        return if t.w > t.h {
-            let y0 = if t.y < 150.0 { 18.0 } else { 282.0 };
-            vec![[200.0, y0, 200.0, t.y + 12.0]]
-        } else {
-            let x0 = if t.x < 200.0 { 40.0 } else { 360.0 };
-            let mut v = vec![[x0, 150.0, t.x + 12.0, 150.0]];
-            if p.angle {
-                v.push([x0, 200.0, t.x + 12.0, 200.0]);
-            }
-            v
+        // From outside the block to its edge line (70/230, 100/300); with
+        // the angle, a second touch further along the edge.
+        let (a, b) = match t.id {
+            "e-b" => ([200.0, 6.0, 200.0, 70.0], [160.0, 6.0, 160.0, 70.0]),
+            "e-f" => ([200.0, 294.0, 200.0, 230.0], [240.0, 294.0, 240.0, 230.0]),
+            "e-l" => ([14.0, 150.0, 100.0, 150.0], [14.0, 185.0, 100.0, 185.0]),
+            _ => ([386.0, 150.0, 300.0, 150.0], [386.0, 115.0, 300.0, 115.0]),
         };
+        return if p.angle { vec![a, b] } else { vec![a] };
     }
     let stock = |c: char| match c {
         'L' => [40.0, 150.0, 100.0, 150.0],
@@ -1166,9 +1241,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
     let p = probe.clone();
     actions.on_probe_target(move |id| {
         let mut p = p.borrow_mut();
-        if let Some(k) = id.strip_prefix("start-").and_then(|k| k.chars().next()) {
-            p.start = k;
-        } else if let Some(t) = p.targets().into_iter().find(|t| t.id == id.as_str()) {
+        if let Some(t) = p.targets().into_iter().find(|t| t.id == id.as_str()) {
             p.tgt = t.id;
         }
         p.flow = None;
@@ -1178,18 +1251,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
     let p = probe.clone();
     actions.on_probe_opt(move |o| {
         let mut p = p.borrow_mut();
-        match o.as_str() {
-            "angle" => p.angle = !p.angle,
-            "both" => p.both = true,
-            "one" => p.both = false,
-            "ridge" => p.ridge = true,
-            "valley" => p.ridge = false,
-            "X" => p.axes = "X",
-            "Y" => p.axes = "Y",
-            _ => {}
-        }
-        p.flow = None;
-        p.settle();
+        p.option(&o);
         p.refresh();
     });
     let p = probe.clone();
@@ -1301,6 +1363,144 @@ mod tests {
         assert_eq!(l.len(), 3);
         assert!(l.iter().all(|l| l.len() < 200));
         assert_eq!(l[0].split_whitespace().next(), Some("#3004=1.000000"));
+    }
+
+    fn probe() -> Probe {
+        Probe {
+            mode: "find",
+            shape: "block",
+            tgt: "c-fl",
+            axes: "XY",
+            angle: false,
+            start: 'F',
+            both: true,
+            ridge: true,
+            wcs: None,
+            runv: BTreeMap::new(),
+            locv: BTreeMap::new(),
+            defaults: BTreeMap::new(),
+            results: Vec::new(),
+            result_text: String::new(),
+            flow: None,
+            token: 7,
+            run: None,
+            status: None,
+            state: Settings::memory(),
+            restore_pending: false,
+            probe_tool: 99,
+            machine: linuxcnc::spawn(Box::new(linuxcnc::Sim::new()), Duration::from_secs(3600), |_| {}),
+            io: None,
+            ui: slint::Weak::default(),
+            rotation: Box::new(|_| 0.0),
+        }
+    }
+
+    /// The macro call for the current selection (the stock/two-face token
+    /// is the one after 7).
+    fn call_now(p: &mut Probe) -> String {
+        let t = p.selected();
+        p.token = 7;
+        p.call(&t).unwrap().0
+    }
+
+    fn pick(p: &mut Probe, mode: &'static str, shape: &'static str) {
+        p.mode = mode;
+        p.shape = shape;
+        p.settle();
+    }
+
+    #[test]
+    fn block_center_choices_pick_the_same_routines() {
+        let mut p = probe();
+        p.tgt = "ctr";
+        p.settle();
+        assert_eq!(call_now(&mut p), "o<probe_auto_stock_center> call [2] [150.000] [8]");
+        p.option("start-L");
+        assert_eq!(call_now(&mut p), "o<probe_auto_stock_center> call [0] [150.000] [8]");
+        p.option("axis-X");
+        assert_eq!((p.both, p.start, p.axes), (false, 'L', "X"));
+        assert_eq!(call_now(&mut p), "o<probe_two_face> call [0] [1] [1] [8]");
+        p.option("start-R");
+        assert_eq!(call_now(&mut p), "o<probe_two_face> call [0] [-1] [1] [8]");
+        // Front is disabled with X only: the tap changes nothing.
+        p.option("start-F");
+        assert_eq!(p.start, 'R');
+        p.option("axis-Y");
+        assert_eq!((p.start, p.axes), ('F', "Y"));
+        assert_eq!(call_now(&mut p), "o<probe_two_face> call [1] [1] [1] [8]");
+        p.option("start-B");
+        assert_eq!(call_now(&mut p), "o<probe_two_face> call [1] [-1] [1] [8]");
+        p.option("both");
+        assert_eq!(call_now(&mut p), "o<probe_auto_stock_center> call [3] [150.000] [8]");
+    }
+
+    #[test]
+    fn option_rows_pick_the_same_routines() {
+        let mut p = probe();
+        p.tgt = "e-l";
+        assert_eq!(call_now(&mut p), "o<probe_x_plus_wco> call");
+        p.option("angle-on");
+        assert_eq!(call_now(&mut p), "o<probe_top_left_edge_angle> call");
+        p.option("angle-off");
+        assert_eq!(call_now(&mut p), "o<probe_x_plus_wco> call");
+        pick(&mut p, "find", "slot");
+        assert_eq!(call_now(&mut p), "o<probe_ridge_x> call");
+        p.option("valley");
+        p.option("Y");
+        assert_eq!(call_now(&mut p), "o<probe_valley_y_center_start> call");
+        pick(&mut p, "find", "cyl");
+        assert_eq!(call_now(&mut p), "o<probe_a_setup_cylinder_center> call [30.000] [1] [0]");
+        p.option("tgt-flat");
+        assert_eq!(call_now(&mut p), "o<probe_a_rotary> call [1]");
+        p.option("tgt-ctr");
+        assert_eq!(call_now(&mut p), "o<probe_a_setup_cylinder_center> call [30.000] [1] [0]");
+    }
+
+    /// Every target of every shape: at most three values on the screen (the
+    /// three fixed slots), every routine still reachable, and the option rows
+    /// never offer more buttons than fit.
+    #[test]
+    fn every_target_fits_and_every_routine_is_reachable() {
+        let mut p = probe();
+        let mut macros = std::collections::BTreeSet::new();
+        for (mode, shapes) in SHAPES {
+            for (shape, _) in *shapes {
+                pick(&mut p, mode, shape);
+                let combos: [&[&str]; 8] = [&[], &["angle-on"], &["axis-X"], &["axis-Y"], &["valley"], &["Y"], &["valley", "Y"], &["tgt-flat"]];
+                for opts in combos {
+                    for o in opts {
+                        p.option(o);
+                    }
+                    for t in p.targets() {
+                        p.tgt = t.id;
+                        let sel = p.selected();
+                        let shown = p.key_params(sel.kind).len() + locals(sel.kind).len();
+                        assert!(shown <= 3, "{mode}/{shape}/{}: {shown} values", sel.id);
+                        let (_, o1, _, o2) = p.options(&sel);
+                        assert!(o1.len() <= 4 && o2.len() <= 4);
+                        macros.insert(call_now(&mut p).split_whitespace().next().unwrap().to_string());
+                    }
+                    p.angle = false;
+                    p.both = true;
+                    p.ridge = true;
+                    p.axes = "XY";
+                    p.settle();
+                }
+            }
+        }
+        let want = [
+            "o<probe_a_measure_deflection>", "o<probe_a_measure_diameter>", "o<probe_a_measure_runout>", "o<probe_a_rotary>",
+            "o<probe_a_setup_cylinder_center>", "o<probe_auto_stock_center>", "o<probe_back_left_inside_corner>",
+            "o<probe_back_left_top_corner>", "o<probe_back_right_inside_corner>", "o<probe_back_right_top_corner>",
+            "o<probe_cal_round_pocket>", "o<probe_front_left_inside_corner>", "o<probe_front_left_top_corner>",
+            "o<probe_front_right_inside_corner>", "o<probe_front_right_top_corner>", "o<probe_rect_pocket_center_start>",
+            "o<probe_ridge_x>", "o<probe_ridge_y>", "o<probe_round_boss>", "o<probe_round_pocket_center_start>",
+            "o<probe_spindle_nose>", "o<probe_top_back_edge_angle>", "o<probe_top_front_edge_angle>",
+            "o<probe_top_left_edge_angle>", "o<probe_top_right_edge_angle>", "o<probe_two_face>",
+            "o<probe_valley_x_center_start>", "o<probe_valley_y_center_start>", "o<probe_x_minus_wco>", "o<probe_x_plus_wco>",
+            "o<probe_y_minus_wco>", "o<probe_y_plus_wco>", "o<tool_touch_off>",
+        ];
+        assert_eq!(macros.iter().map(String::as_str).collect::<Vec<_>>(), want);
     }
 
     #[test]
