@@ -23,9 +23,12 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] Jog: step/continuous, speed in mm/s (DEFAULT_LINEAR_VELOCITY 50 is mm/s), A at its own 180°/s.
 - [x] "A: set reference here".
 - [x] MIST M7/M9; Z TO WORK Z0 and RETRACT 10, XY TO WORK 0 on hold.
-- [ ] Power feed parity with powerfeed.py/custom_config.yml: own WCS (powerfeed.wcs-index),
+- [x] Power feed parity with powerfeed.py/custom_config.yml: own WCS (powerfeed.wcs-index),
       remembered feed/distance/RPM, GOTO list with save/update/delete and XY preview.
-      END OF TRAVEL needs a hold and disables Z.
+      END OF TRAVEL needs a hold and disables Z. (Settings and GOTO list persist in
+      ~/.local/state/millgui/settings; Probe Basic kept GOTO points in memory only.)
+- [ ] Spindle start preflight from powerfeed.py (_spindle_start_block_reason: probe selected,
+      drawbar requested/extended, rearm) as a clear message; HAL still enforces it.
 - [ ] Jog, power feed, spindle, offsets, tools and probe locked while running or paused.
 - [x] MDI with history; keypad overlay.
 
@@ -71,7 +74,7 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 - [ ] Slint wasm build of the same UI; `Remote` Machine over a websocket.
 - [ ] `remote` module on the Pi: serves the bundle, streams Status, messages and pills.
-- [ ] Read-only by default; override (INI permit + touchscreen grant, to confirm).
+- [ ] Remote control enabled for now (Gardner, 2026-11-13); access policy (read-only default, grant) later.
 - [ ] Remote jogs incremental only (or a jog lease); remote E-STOP labelled as a request.
 - [ ] Slow or dropped clients never stall the worker or the touchscreen.
 

@@ -96,7 +96,10 @@ Classification:
 - **Availability.** A browser disconnect or slow client must not stall the
   worker or the touchscreen: per-client bounded queues that drop stale status
   and keep the newest.
-- **Misuse safeguards.** Read-only by default. The override is a design
+- **Decision (Gardner, 2026-11-13):** remote control is enabled for now, with
+  no touchscreen grant; the access policy comes later. Remote jogs stay
+  incremental only, which is a correctness item above, not policy.
+- **Misuse safeguards (policy, deferred).** Read-only by default. The override is a design
   choice with options: a touchscreen grant ("ALLOW REMOTE CONTROL") that ends
   when the browser disconnects, which needs someone at the machine; an INI
   setting `[MILLGUI]REMOTE_CONTROL = allow` for a trusted setup; or both

@@ -43,6 +43,12 @@ pub trait Module {
     /// Status bar pills, refreshed several times a second.
     fn pills(&self, _status: Option<&Status>, _out: &mut Vec<Pill>) {}
 
+    /// Why GUI-started motion should not begin now, if this module knows.
+    /// A preflight for clear messages only; HAL holds motion regardless.
+    fn motion_block(&self) -> Option<String> {
+        None
+    }
+
     /// Flags other screens check, e.g. "rotary" or "toolsetter".
     #[allow(dead_code)] // read by the screens from milestone 2 on
     fn capabilities(&self) -> &'static [&'static str] {
@@ -150,6 +156,10 @@ impl Module for Drives {
             Pill::new("DRIVES OFF", "")
         });
     }
+    fn motion_block(&self) -> Option<String> {
+        let ready = self.ready.as_ref()?;
+        (!ready.get()).then(|| "Wait for all drives to become ready".into())
+    }
 }
 
 /// Power drawbar (spindle_drawbar_guard). The pins are commands, not
@@ -216,6 +226,9 @@ impl Module for Interlock {
         }
         let reason = if why.is_empty() { "UNKNOWN".to_string() } else { why.join(" + ") };
         out.push(Pill::new(format!("MOTION HELD: {reason}"), "bad"));
+    }
+    fn motion_block(&self) -> Option<String> {
+        self.held.as_ref().is_some_and(|p| p.get()).then(|| "Motion is held (probe fault or drives)".into())
     }
 }
 

@@ -7,6 +7,8 @@ mod config;
 mod headless;
 mod manual;
 mod modules;
+mod powerfeed;
+mod settings;
 
 use config::Config;
 use linuxcnc::{Command, Event, Handle, Interp, MessageKind, Status, TaskState, AXIS_LETTERS};
@@ -468,7 +470,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     wire_actions(&ui, &handle, &state, &cfg);
-    let manual = manual::wire(&ui, &handle, &cfg, axes.contains(&3));
+    let manual = manual::wire(&ui, &handle, &cfg, settings::Settings::load(), axes.contains(&3));
     MANUAL.with(|m| *m.borrow_mut() = Some(manual));
 
     // Pills read HAL pins, which change without a status update; refresh them
@@ -484,6 +486,11 @@ fn main() -> Result<(), slint::PlatformError> {
             let st = state.borrow();
             refresh_pills(&ui, &st, &modules, &axes);
             let live = ui.global::<Live>();
+            let block: SharedString = modules.iter().find_map(|m| m.motion_block()).unwrap_or_default().into();
+            if live.get_motion_block() != block {
+                live.set_motion_block(block);
+                with_manual(|m| manual::refresh(&ui, m));
+            }
             live.set_clock(chrono::Local::now().format("%H:%M").to_string().into());
             let elapsed = st.cycle_started.map_or(st.cycle_elapsed, |t| t.elapsed());
             live.set_cycle_time(fmt_elapsed(elapsed).into());
@@ -537,7 +544,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     live.set_message("Simulated machine".into());
 
     let handle = linuxcnc::spawn(Box::new(linuxcnc::Sim::new()), Duration::from_secs(3600), |_| {});
-    let manual = manual::wire(&ui, &handle, cfg, axis_indices(cfg).contains(&3));
+    let manual = manual::wire(&ui, &handle, cfg, settings::Settings::memory(), axis_indices(cfg).contains(&3));
     manual::apply_status(&ui, &manual, &s);
     let actions = ui.global::<Actions>();
     for what in &args.show {
@@ -555,6 +562,25 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                     actions.invoke_mdi_send(l.into());
                 }
                 live.set_mdi_text("G0 Z25".into());
+            }
+            "feed" | "goto" => live.set_jog_tab(what.as_str().into()),
+            "gotos" => {
+                for (x, y) in [(0.0, 0.0), (-12.0, 0.0), (50.0, -30.0), (150.0, -150.0)] {
+                    actions.invoke_edit("gt-x".into());
+                    actions.invoke_keypad_key("CLR".into());
+                    for k in format!("{x}").chars() {
+                        actions.invoke_keypad_key(if k == '-' { "±".into() } else { k.to_string().into() });
+                    }
+                    actions.invoke_keypad_done(true);
+                    actions.invoke_edit("gt-y".into());
+                    actions.invoke_keypad_key("CLR".into());
+                    for k in format!("{y}").chars() {
+                        actions.invoke_keypad_key(if k == '-' { "±".into() } else { k.to_string().into() });
+                    }
+                    actions.invoke_keypad_done(true);
+                    actions.invoke_goto_save();
+                }
+                actions.invoke_goto_select(2);
             }
             "messages" => {
                 live.set_drawer_open(true);

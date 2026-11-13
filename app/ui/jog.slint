@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Live, Actions } from "state.slint";
+import { Live, Actions, GotoRow } from "state.slint";
 import { Btn, Seg, Card, Label, NumField, H3, Note } from "widgets.slint";
 
 // Hold-to-move button: continuous jogs run while pressed, steps fire once.
@@ -90,6 +90,214 @@ component JogPanel inherits VerticalLayout {
     Rectangle { vertical-stretch: 1; }
 }
 
+component WcsRow inherits HorizontalLayout {
+    spacing: 0px;
+    Label { width: 120px; vertical-alignment: center; text: "WCS"; }
+    for c in Live.wcs-codes: Seg {
+        text: c;
+        font-size: 20px;
+        on: Live.pf-wcs == c;
+        enabled: !Live.running;
+        clicked => { Actions.pf-wcs-set(c); }
+    }
+}
+
+component StatusLine inherits Rectangle {
+    height: 52px;
+    background: Theme.well;
+    border-radius: 6px;
+    Text {
+        x: 14px;
+        width: parent.width - 28px;
+        vertical-alignment: center;
+        overflow: elide;
+        text: Live.pf-status;
+        font-family: Theme.body;
+        font-size: 21px;
+        color: Live.pf-status-error ? #ff8f8a : Theme.muted;
+    }
+}
+
+// End-of-travel moves need the hold; distance moves are one tap.
+component FeedBtn inherits Btn {
+    in property <int> axis;
+    in property <int> dir;
+    height: 110px;
+    font-size: 32px;
+    hold: Live.pf-mode == "eot";
+    enabled: Live.pf-ready && Live.pf-axis-enabled[axis];
+    clicked => { Actions.pf-move(axis, dir); }
+}
+
+component PowerFeedPanel inherits VerticalLayout {
+    spacing: 14px;
+    WcsRow { }
+    HorizontalLayout {
+        spacing: 0px;
+        Label { width: 120px; vertical-alignment: center; text: "MODE"; }
+        Seg { text: "DISTANCE"; on: Live.pf-mode == "dist"; enabled: !Live.running; clicked => { Actions.pf-mode-set("dist"); } }
+        Seg { text: "END OF TRAVEL"; on: Live.pf-mode == "eot"; enabled: !Live.running; clicked => { Actions.pf-mode-set("eot"); } }
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        Label { width: 150px; vertical-alignment: center; text: "FEED MM/MIN"; }
+        NumField { width: 170px; value: Live.pf-feed; edit => { Actions.edit("pf-feed"); } }
+        Rectangle { width: 30px; }
+        Label { width: 150px; vertical-alignment: center; text: "DISTANCE MM"; }
+        NumField { width: 170px; value: Live.pf-dist; enabled: Live.pf-mode == "dist"; edit => { Actions.edit("pf-dist"); } }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 40px;
+        GridLayout {
+            spacing: 12px;
+            Row {
+                Rectangle { width: 130px; height: 110px; }
+                FeedBtn { width: 130px; text: "▲ Y+"; axis: 1; dir: 1; }
+                Rectangle { width: 130px; }
+            }
+            Row {
+                FeedBtn { text: "◀ X−"; axis: 0; dir: -1; }
+                Btn { height: 110px; text: "STOP FEED"; kind: "stop"; font-size: 24px; clicked => { Actions.motion-stop(); } }
+                FeedBtn { text: "X+ ▶"; axis: 0; dir: 1; }
+            }
+            Row {
+                Rectangle { height: 110px; }
+                FeedBtn { text: "▼ Y−"; axis: 1; dir: -1; }
+                Rectangle { }
+            }
+        }
+        VerticalLayout {
+            spacing: 12px;
+            width: 130px;
+            FeedBtn { text: "▲ Z+"; axis: 2; dir: 1; }
+            Label {
+                height: 110px;
+                text: Live.pf-mode == "eot" ? "Z: DIST\nONLY" : "Z";
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            FeedBtn { text: "▼ Z−"; axis: 2; dir: -1; }
+        }
+    }
+    Note {
+        text: Live.pf-mode == "eot"
+            ? "Hold to feed X or Y to 1 mm short of the soft limit. Z moves by distance only."
+            : "Feeds the axis by the distance at the set rate, in the selected WCS. The active WCS is unchanged afterwards.";
+    }
+    Rectangle { vertical-stretch: 1; }
+    StatusLine { }
+}
+
+component GotoPanel inherits VerticalLayout {
+    spacing: 14px;
+    WcsRow { }
+    HorizontalLayout {
+        spacing: 16px;
+        VerticalLayout {
+            spacing: 12px;
+            width: 400px;
+            HorizontalLayout {
+                spacing: 10px;
+                Label { width: 190px; vertical-alignment: center; text: "TARGET X (WORK)"; }
+                NumField { value: Live.gt-x; edit => { Actions.edit("gt-x"); } }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Label { width: 190px; vertical-alignment: center; text: "TARGET Y (WORK)"; }
+                NumField { value: Live.gt-y; edit => { Actions.edit("gt-y"); } }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Label { width: 190px; vertical-alignment: center; text: "FEED MM/MIN"; }
+                NumField { value: Live.gt-feed; edit => { Actions.edit("gt-feed"); } }
+            }
+            Label { text: "SAVED LOCATIONS"; }
+            Rectangle {
+                vertical-stretch: 1;
+                min-height: 140px;
+                background: Theme.well;
+                border-radius: 6px;
+                clip: true;
+                Flickable {
+                    content-height: glist.preferred-height;
+                    glist := VerticalLayout {
+                        padding: 6px;
+                        spacing: 4px;
+                        alignment: start;
+                        for g[i] in Live.gotos: Rectangle {
+                            height: 48px;
+                            border-radius: 4px;
+                            background: i == Live.goto-selected ? Theme.sel : gt.pressed ? Theme.raised : transparent;
+                            Text {
+                                x: 12px;
+                                vertical-alignment: center;
+                                text: g.name + "   X" + g.x + "  Y" + g.y;
+                                font-family: Theme.body;
+                                font-size: 23px;
+                                color: Theme.ink;
+                            }
+                            gt := TouchArea { clicked => { Actions.goto-select(i); } }
+                        }
+                        if Live.gotos.length == 0: Note { text: "SAVE stores the target above."; }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Btn { text: "SAVE"; clicked => { Actions.goto-save(); } }
+                Btn { text: "UPDATE"; enabled: Live.goto-selected >= 0; clicked => { Actions.goto-update(); } }
+                Btn { text: "DELETE"; hold: true; enabled: Live.goto-selected >= 0; clicked => { Actions.goto-delete(); } }
+            }
+        }
+        // XY preview in the selected WCS: saved points, target (ring), origin (cross).
+        Rectangle {
+            horizontal-stretch: 1;
+            background: Theme.well;
+            border-radius: 6px;
+            clip: true;
+            property <length> side: min(self.width, self.height) - 30px;
+            property <length> ox: (self.width - side) / 2;
+            property <length> oy: (self.height - side) / 2;
+            Rectangle { x: ox + side * Live.gt-ox - 12px; y: oy + side * Live.gt-oy; width: 24px; height: 2px; background: Theme.dim; }
+            Rectangle { x: ox + side * Live.gt-ox; y: oy + side * Live.gt-oy - 12px; width: 2px; height: 24px; background: Theme.dim; }
+            for g[i] in Live.gotos: Rectangle {
+                x: ox + side * g.px - 7px;
+                y: oy + side * g.py - 7px;
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: i == Live.goto-selected ? Theme.sel : Theme.muted;
+                Text {
+                    x: 18px;
+                    y: -6px;
+                    text: g.name;
+                    font-family: Theme.body;
+                    font-size: 18px;
+                    color: Theme.muted;
+                }
+            }
+            Rectangle {
+                x: ox + side * Live.gt-px - 13px;
+                y: oy + side * Live.gt-py - 13px;
+                width: 26px;
+                height: 26px;
+                border-radius: 13px;
+                border-width: 3px;
+                border-color: #f2c14e;
+            }
+            Text { x: 10px; y: 8px; text: Live.pf-wcs + " XY"; font-family: Theme.display; font-size: 22px; color: Theme.dim; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 40px;
+        Btn { height: 84px; text: "GO TO XY"; kind: "go"; hold: true; enabled: Live.pf-ready; clicked => { Actions.goto-go(); } }
+        Btn { height: 84px; text: "STOP MOVE"; kind: "stop"; clicked => { Actions.motion-stop(); } }
+    }
+    StatusLine { }
+}
+
 component SpindleCard inherits Card {
     VerticalLayout {
         padding: 14px;
@@ -141,27 +349,23 @@ component SpindleCard inherits Card {
 }
 
 export component JogScreen inherits Rectangle {
-    property <string> tab: "jog";
     VerticalLayout {
         padding: 14px;
         spacing: 14px;
         HorizontalLayout {
             width: 620px;
             spacing: 0px;
-            Seg { text: "JOG"; on: tab == "jog"; clicked => { tab = "jog"; } }
-            Seg { text: "POWER FEED"; on: tab == "feed"; clicked => { tab = "feed"; } }
-            Seg { text: "GO TO"; on: tab == "goto"; clicked => { tab = "goto"; } }
+            Seg { text: "JOG"; on: Live.jog-tab == "jog"; clicked => { Live.jog-tab = "jog"; } }
+            Seg { text: "POWER FEED"; on: Live.jog-tab == "feed"; clicked => { Live.jog-tab = "feed"; } }
+            Seg { text: "GO TO"; on: Live.jog-tab == "goto"; clicked => { Live.jog-tab = "goto"; } }
         }
         HorizontalLayout {
             spacing: 14px;
             Card {
                 width: 800px;
-                if tab == "jog": JogPanel { x: 14px; y: 14px; width: parent.width - 28px; height: parent.height - 28px; }
-                if tab != "jog": VerticalLayout {
-                    alignment: center;
-                    H3 { horizontal-alignment: center; text: tab == "feed" ? "POWER FEED" : "GO TO"; }
-                    Note { horizontal-alignment: center; text: "Next in milestone 2: parity with the Powerfeed tab (own WCS, saved locations)."; }
-                }
+                if Live.jog-tab == "jog": JogPanel { x: 14px; y: 14px; width: parent.width - 28px; height: parent.height - 28px; }
+                if Live.jog-tab == "feed": PowerFeedPanel { x: 14px; y: 14px; width: parent.width - 28px; height: parent.height - 28px; }
+                if Live.jog-tab == "goto": GotoPanel { x: 14px; y: 14px; width: parent.width - 28px; height: parent.height - 28px; }
             }
             SpindleCard { horizontal-stretch: 1; }
         }

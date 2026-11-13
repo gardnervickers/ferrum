@@ -3,7 +3,9 @@
 //! is paused (`Live.manual-locked`); LinuxCNC enforces its own mode rules.
 
 use crate::config::Config;
-use crate::{Actions, Live, MainWindow, MsgRow};
+use crate::powerfeed::{self, Mode, PowerFeed};
+use crate::settings::Settings;
+use crate::{Actions, GotoRow, Live, MainWindow, MsgRow};
 use linuxcnc::{Command, Handle, Interp, Message, MessageKind, Status};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
@@ -28,6 +30,10 @@ pub struct Manual {
     angular: Range,
     keypad: Option<(String, String)>,
     status: Option<Status>,
+    pf: PowerFeed,
+    settings: Settings,
+    /// Last power feed / GO TO message, and whether it is an error.
+    pf_note: Option<(String, bool)>,
     history: Rc<VecModel<SharedString>>,
     log: Rc<VecModel<MsgRow>>,
 }
@@ -38,13 +44,16 @@ fn fmt(v: f64) -> String {
 }
 
 impl Manual {
-    fn from_config(cfg: &Config) -> Self {
+    fn from_config(cfg: &Config, settings: Settings) -> Self {
         let f = |k: &str, d: f64| cfg.get_f64("DISPLAY", k).unwrap_or(d);
         Self {
             step: "CONT".into(),
-            speed: f("DEFAULT_LINEAR_VELOCITY", 50.0),
-            speed_a: f("DEFAULT_ANGULAR_VELOCITY", 180.0),
-            rpm: 300.0,
+            speed: settings.f64("jog.speed", f("DEFAULT_LINEAR_VELOCITY", 50.0)),
+            speed_a: settings.f64("jog.speed-a", f("DEFAULT_ANGULAR_VELOCITY", 180.0)),
+            rpm: settings.f64("powerfeed.spindle-rpm", 300.0),
+            pf: PowerFeed::new(cfg, &settings),
+            settings,
+            pf_note: None,
             linear: Range { min: f("MIN_LINEAR_VELOCITY", 0.01), max: f("MAX_LINEAR_VELOCITY", 100.0) },
             angular: Range { min: f("MIN_ANGULAR_VELOCITY", 0.01), max: f("MAX_ANGULAR_VELOCITY", 180.0) },
             keypad: None,
@@ -54,7 +63,53 @@ impl Manual {
         }
     }
 
+    fn ready(&self, live: &Live) -> Result<(), String> {
+        match &self.status {
+            Some(s) => powerfeed::ready(s, live.get_motion_block().as_str()),
+            None => Err("LinuxCNC status unavailable".into()),
+        }
+    }
+
     fn show(&self, live: &Live) {
+        let pf = &self.pf;
+        live.set_pf_mode(if pf.mode == Mode::EndOfTravel { "eot" } else { "dist" }.into());
+        live.set_pf_feed(fmt(pf.feed).into());
+        live.set_pf_dist(fmt(pf.dist).into());
+        live.set_pf_wcs(pf.wcs_code().into());
+        live.set_pf_axis_enabled(ModelRc::new(VecModel::from((0..3).map(|a| pf.axis_enabled(a)).collect::<Vec<_>>())));
+        live.set_gt_x(format!("{:.3}", pf.gt_x).into());
+        live.set_gt_y(format!("{:.3}", pf.gt_y).into());
+        live.set_gt_feed(fmt(pf.gt_feed).into());
+        let (pts, target, origin) = pf.preview();
+        let rows: Vec<GotoRow> = pf
+            .gotos
+            .iter()
+            .zip(pts)
+            .map(|(g, (px, py))| GotoRow {
+                name: g.name.clone().into(),
+                x: format!("{:.3}", g.x).into(),
+                y: format!("{:.3}", g.y).into(),
+                px,
+                py,
+            })
+            .collect();
+        live.set_gotos(ModelRc::new(VecModel::from(rows)));
+        live.set_goto_selected(pf.selected.map_or(-1, |i| i as i32));
+        live.set_gt_px(target.0);
+        live.set_gt_py(target.1);
+        live.set_gt_ox(origin.0);
+        live.set_gt_oy(origin.1);
+        let ready = self.ready(live);
+        let busy = self.status.as_ref().is_some_and(|s| s.busy());
+        live.set_pf_ready(ready.is_ok());
+        let (text, error) = match (&self.pf_note, &ready) {
+            (Some((t, e)), _) if busy || ready.is_ok() || *e => (t.clone(), *e),
+            (_, Err(reason)) => (reason.clone(), true),
+            _ => (format!("Ready · moves run in {}", pf.wcs_code()), false),
+        };
+        live.set_pf_status(text.into());
+        live.set_pf_status_error(error);
+
         live.set_jog_step(self.step.clone().into());
         live.set_jog_speed(fmt(self.speed).into());
         live.set_jog_speed_a(fmt(self.speed_a).into());
@@ -84,9 +139,24 @@ impl Manual {
                 }
                 self.rpm = v;
             }
+            "pf-feed" | "gt-feed" if v <= 0.0 => return Err("Feed must be greater than zero".into()),
+            "pf-feed" => self.pf.feed = v,
+            "gt-feed" => self.pf.gt_feed = v,
+            "pf-dist" if v <= 0.0 => return Err("Distance must be greater than zero".into()),
+            "pf-dist" => self.pf.dist = v,
+            "gt-x" => self.pf.gt_x = v,
+            "gt-y" => self.pf.gt_y = v,
             _ => {}
         }
+        self.persist();
         Ok(())
+    }
+
+    fn persist(&mut self) {
+        self.settings.set("jog.speed", self.speed);
+        self.settings.set("jog.speed-a", self.speed_a);
+        self.settings.set("powerfeed.spindle-rpm", self.rpm);
+        self.pf.save(&mut self.settings);
     }
 
     fn current(&self, what: &str) -> f64 {
@@ -94,6 +164,11 @@ impl Manual {
             "jog-speed" => self.speed,
             "jog-speed-a" => self.speed_a,
             "spindle-rpm" => self.rpm,
+            "pf-feed" => self.pf.feed,
+            "pf-dist" => self.pf.dist,
+            "gt-x" => self.pf.gt_x,
+            "gt-y" => self.pf.gt_y,
+            "gt-feed" => self.pf.gt_feed,
             _ => 0.0,
         }
     }
@@ -104,6 +179,10 @@ fn label(what: &str) -> &'static str {
         "jog-speed" => "JOG SPEED MM/S",
         "jog-speed-a" => "A SPEED °/S",
         "spindle-rpm" => "SPINDLE RPM",
+        "pf-feed" | "gt-feed" => "FEED MM/MIN",
+        "pf-dist" => "DISTANCE MM",
+        "gt-x" => "TARGET X (WORK)",
+        "gt-y" => "TARGET Y (WORK)",
         _ => "VALUE",
     }
 }
@@ -136,7 +215,14 @@ pub fn apply_status(ui: &MainWindow, manual: &Rc<RefCell<Manual>>, s: &Status) {
     let live = ui.global::<Live>();
     live.set_manual_locked(locked(s));
     live.set_mist(s.mist);
-    manual.borrow_mut().status = Some(s.clone());
+    let mut m = manual.borrow_mut();
+    m.status = Some(s.clone());
+    m.show(&live);
+}
+
+/// Re-evaluate readiness when module state (drives, interlock) changes.
+pub fn refresh(ui: &MainWindow, manual: &Rc<RefCell<Manual>>) {
+    manual.borrow().show(&ui.global::<Live>());
 }
 
 pub fn log_message(ui: &MainWindow, manual: &Rc<RefCell<Manual>>, m: &Message) {
@@ -166,8 +252,8 @@ fn note(ui: &MainWindow, text: impl Into<SharedString>, error: bool) {
     live.set_message_error(error);
 }
 
-pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, has_a: bool) -> Rc<RefCell<Manual>> {
-    let manual = Rc::new(RefCell::new(Manual::from_config(cfg)));
+pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings, has_a: bool) -> Rc<RefCell<Manual>> {
+    let manual = Rc::new(RefCell::new(Manual::from_config(cfg, settings)));
     let actions = ui.global::<Actions>();
     let live = ui.global::<Live>();
     {
@@ -232,19 +318,29 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, has_a: bool) -> Rc<
 
     let mc = machine.clone();
     actions.on_zero_xyz(move || mc.send(Command::Mdi("G10 L20 P0 X0 Y0 Z0".into())));
-    let mc = machine.clone();
-    actions.on_z_to_work_zero(move || mc.send(Command::Mdi("G90 G0 Z0".into())));
+    // Both run in the active WCS through o<mymill_powerfeed>, which restores
+    // modal state afterwards.
+    let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
+    actions.on_z_to_work_zero(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let m = mm.borrow();
+        match m.ready(&ui.global::<Live>()) {
+            Ok(()) => mc.send(Command::Mdi(m.pf.z_zero_cmd())),
+            Err(e) => note(&ui, e, true),
+        }
+    });
     let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
     actions.on_retract_xy_to_zero(move || {
-        let Some(s) = mm.borrow().status.clone() else { return };
-        // Absolute moves, so the result does not depend on G90/G91 (G90 stays set).
-        let z = s.work_position()[2] + 10.0;
-        if let Some(ui) = weak.upgrade() {
-            note(&ui, format!("Retract to work Z{z:.3}, then XY to work 0"), false);
+        let Some(ui) = weak.upgrade() else { return };
+        let m = mm.borrow();
+        let cmd = m.ready(&ui.global::<Live>()).and_then(|_| m.pf.retract_cmd(m.status.as_ref().unwrap(), 10.0));
+        match cmd {
+            Ok(c) => mc.send(Command::Mdi(c)),
+            Err(e) => note(&ui, e, true),
         }
-        mc.send(Command::Mdi(format!("G90 G0 Z{z:.4}")));
-        mc.send(Command::Mdi("G0 X0 Y0".into()));
     });
+
+    wire_powerfeed(ui, machine, &manual);
 
     let (mm, weak) = (manual.clone(), ui.as_weak());
     actions.on_edit(move |what| {
@@ -312,6 +408,101 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, has_a: bool) -> Rc<
     manual
 }
 
+fn wire_powerfeed(ui: &MainWindow, machine: &Handle, manual: &Rc<RefCell<Manual>>) {
+    let actions = ui.global::<Actions>();
+    // Each handler edits the power feed state, then the screen is redrawn
+    // from it and the values are saved.
+    let update = |f: Box<dyn Fn(&mut Manual, &Live)>| {
+        let (mm, weak) = (manual.clone(), ui.as_weak());
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let live = ui.global::<Live>();
+            let mut m = mm.borrow_mut();
+            f(&mut m, &live);
+            m.persist();
+            m.show(&live);
+        }
+    };
+    let (mm, weak) = (manual.clone(), ui.as_weak());
+    actions.on_pf_mode_set(move |mode| {
+        let Some(ui) = weak.upgrade() else { return };
+        let mut m = mm.borrow_mut();
+        m.pf.mode = if mode == "eot" { Mode::EndOfTravel } else { Mode::Distance };
+        m.pf_note = None;
+        m.persist();
+        m.show(&ui.global::<Live>());
+    });
+    let (mm, weak) = (manual.clone(), ui.as_weak());
+    actions.on_pf_wcs_set(move |code| {
+        let Some(ui) = weak.upgrade() else { return };
+        let mut m = mm.borrow_mut();
+        if let Some(i) = powerfeed::WCS.iter().position(|c| *c == code.as_str()) {
+            m.pf.wcs = i + 1;
+        }
+        m.pf_note = None;
+        m.persist();
+        m.show(&ui.global::<Live>());
+    });
+    let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
+    actions.on_pf_move(move |axis, dir| {
+        let Some(ui) = weak.upgrade() else { return };
+        let live = ui.global::<Live>();
+        let mut m = mm.borrow_mut();
+        let r = m.ready(&live).and_then(|_| m.pf.move_cmd(m.status.as_ref().unwrap(), axis as usize, dir));
+        m.pf_note = Some(match r {
+            Ok((cmd, msg)) => {
+                mc.send(Command::Mdi(cmd));
+                (msg, false)
+            }
+            Err(e) => (e, true),
+        });
+        m.show(&live);
+    });
+    let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
+    actions.on_goto_go(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let live = ui.global::<Live>();
+        let mut m = mm.borrow_mut();
+        let r = m.ready(&live).and_then(|_| m.pf.goto_cmd());
+        m.pf_note = Some(match r {
+            Ok((cmd, msg)) => {
+                mc.send(Command::Mdi(cmd));
+                (msg, false)
+            }
+            Err(e) => (e, true),
+        });
+        m.show(&live);
+    });
+    let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
+    actions.on_motion_stop(move || {
+        mc.send(Command::Abort);
+        if let Some(ui) = weak.upgrade() {
+            let mut m = mm.borrow_mut();
+            m.pf_note = Some(("Stopped".into(), false));
+            m.show(&ui.global::<Live>());
+        }
+    });
+    let (mm, weak) = (manual.clone(), ui.as_weak());
+    actions.on_goto_select(move |i| {
+        let Some(ui) = weak.upgrade() else { return };
+        let mut m = mm.borrow_mut();
+        m.pf.select(i.max(0) as usize);
+        m.show(&ui.global::<Live>());
+    });
+    actions.on_goto_save(update(Box::new(|m, _| {
+        m.pf.save_goto();
+        m.pf_note = Some(("Saved WCS-relative GO TO target".into(), false));
+    })));
+    actions.on_goto_update(update(Box::new(|m, _| {
+        m.pf.update_goto();
+        m.pf_note = Some(("Updated the selected target".into(), false));
+    })));
+    actions.on_goto_delete(update(Box::new(|m, _| {
+        m.pf.delete_goto();
+        m.pf_note = Some(("Deleted the selected target".into(), false));
+    })));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,7 +521,7 @@ mod tests {
 
     #[test]
     fn speed_limits_from_ini() {
-        let mut m = Manual::from_config(&Config::default());
+        let mut m = Manual::from_config(&Config::default(), Settings::memory());
         assert!(m.apply("jog-speed", 500.0).is_err());
         assert!(m.apply("jog-speed", 25.0).is_ok());
         assert_eq!(m.speed, 25.0);

@@ -44,6 +44,17 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Test helper: add a key to a section.
+    #[cfg(test)]
+    pub fn insert(&mut self, section: &str, key: &str, value: &str) {
+        if self.section_tag(section).is_none() {
+            let n = self.first_section_index.len() + 1;
+            self.first_section_index.push((section.to_string(), n));
+        }
+        let tag = self.section_tag(section).unwrap();
+        self.entries.push((tag, key.to_string(), value.to_string()));
+    }
+
     fn section_tag(&self, section: &str) -> Option<String> {
         self.first_section_index
             .iter()
