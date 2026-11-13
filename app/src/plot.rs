@@ -253,7 +253,8 @@ thread_local! {
     static PLOT: RefCell<Option<Rc<RefCell<Plot>>>> = const { RefCell::new(None) };
 }
 
-pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
+pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) -> Rc<RefCell<Plot>> {
+    ui.global::<Live>().set_plot_machine(model.show);
     let plot = Rc::new(RefCell::new(Plot {
         tp: Arc::new(Toolpath::default()),
         id: 0,
@@ -263,9 +264,9 @@ pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
         size: (0, 0),
         trail: Vec::new(),
         tool: None,
-        machine: Machine::pm728vt(),
+        machine: model.machine(),
         pose: None,
-        show_machine: true,
+        show_machine: model.show,
         dirty: false,
         base: None,
         pending: None,

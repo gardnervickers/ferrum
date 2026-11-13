@@ -32,6 +32,11 @@ export global Live {
     in property <bool> message-error;
     // A refusal the operator must not miss (CYCLE START blocked); clears itself.
     in-out property <string> toast;
+    // machine.toml [buttons]: which quick buttons to show.
+    in property <bool> quick-mist: true;
+    in property <bool> quick-flood: true;
+    in property <bool> quick-drawbar: true;
+    in property <bool> quick-home: true;
     in property <string> clock;
 
     in property <[DroRow]> dro;

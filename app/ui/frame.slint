@@ -251,14 +251,14 @@ export component LeftColumn inherits Rectangle {
             spacing: 8px;
             HorizontalLayout {
                 spacing: 8px;
-                Btn {
+                if Live.quick-mist: Btn {
                     height: 58px; font-size: 22px;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: "MIST"; on: Live.mist;
                     enabled: Live.connected && Live.power;
                     clicked => { Actions.mist-toggle(); }
                 }
-                Btn {
+                if Live.quick-flood: Btn {
                     height: 58px; font-size: 22px;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: "FLOOD"; on: Live.flood;
@@ -270,10 +270,9 @@ export component LeftColumn inherits Rectangle {
                 spacing: 8px;
                 // Released: tap to clamp. Clamped: hold to release (spindle
                 // off, nothing running); releasing also clears the tool.
-                Btn {
+                if Live.quick-drawbar && Live.tools-drawbar != "NOT FITTED": Btn {
                     height: 58px; font-size: 22px;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
-                    visible: Live.tools-drawbar != "NOT FITTED";
                     text: Live.tools-drawbar == "EXTENDED" ? "CLAMP TOOL" : "RELEASE TOOL";
                     kind: Live.tools-drawbar == "EXTENDED" ? "hold" : "";
                     hold: Live.tools-drawbar != "EXTENDED";
@@ -281,7 +280,7 @@ export component LeftColumn inherits Rectangle {
                     enabled: Live.tools-drawbar == "EXTENDED" ? Live.tools-can-retract : Live.tools-can-extend;
                     clicked => { Actions.tools-drawbar(Live.tools-drawbar != "EXTENDED"); }
                 }
-                Btn {
+                if Live.quick-home: Btn {
                     height: 58px; font-size: 22px;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: "HOME ALL"; sub: "HOLD"; hold: true;

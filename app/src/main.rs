@@ -8,6 +8,7 @@ mod conv;
 mod files;
 mod headless;
 mod job;
+mod machine_cfg;
 mod manual;
 mod mdi;
 mod modules;
@@ -609,9 +610,11 @@ fn main() -> Result<(), slint::PlatformError> {
     let files_root = if args.sim { sim_nc_dir() } else { files::root(&cfg) };
     files::wire(&ui, &handle, files_root);
     program::wire(&ui);
-    let plot = plot::wire(&ui, &cfg);
-    let _plot_timer = plot::start_timer(&ui, &plot);
     let mut mdi_notes = Vec::new();
+    let machine_cfg = machine_cfg::MachineCfg::load(&cfg, &mut mdi_notes);
+    machine_cfg.apply(&ui);
+    let plot = plot::wire(&ui, &cfg, &machine_cfg.model);
+    let _plot_timer = plot::start_timer(&ui, &plot);
     mdi::wire(&ui, &handle, &cfg, &mut mdi_notes);
     if !mdi_notes.is_empty() {
         live.set_message(mdi_notes.join("; ").into());
@@ -769,7 +772,9 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     files::wire(&ui, &handle, sample_dir());
     program::wire(&ui);
     program::sync(&ui, &s.file);
-    let plot = plot::wire(&ui, cfg);
+    let machine_cfg = machine_cfg::MachineCfg::load(cfg, &mut Vec::new());
+    machine_cfg.apply(&ui);
+    let plot = plot::wire(&ui, cfg, &machine_cfg.model);
     plot::load_now(&ui, &plot, &s.file);
     plot::tool_moved(&plot, tool_tip(&s));
     plot::machine_pose(&plot, machine_pose(&ui, &s));
