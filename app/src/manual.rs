@@ -323,8 +323,17 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     let mc = machine.clone();
     actions.on_set_a_reference(move || mc.send(Command::Home(A_AXIS)));
 
-    let (mc, mm) = (machine.clone(), manual.clone());
+    let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
     actions.on_spindle(move |dir| {
+        if dir != 0 {
+            if let Some(ui) = weak.upgrade() {
+                let block = ui.global::<Live>().get_spindle_block();
+                if !block.is_empty() {
+                    note(&ui, block.to_string(), true);
+                    return;
+                }
+            }
+        }
         let rpm = mm.borrow().rpm;
         mc.send(if dir == 0 { Command::SpindleOff } else { Command::SpindleOn(rpm * dir as f64) });
     });

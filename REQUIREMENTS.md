@@ -28,9 +28,12 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       remembered feed/distance/RPM, GOTO list with save/update/delete and XY preview.
       END OF TRAVEL needs a hold and disables Z. (Settings and GOTO list persist in
       ~/.local/state/millgui/settings; Probe Basic kept GOTO points in memory only.)
-- [ ] Spindle start preflight from powerfeed.py (_spindle_start_block_reason: probe selected,
-      drawbar requested/extended, rearm) as a clear message; HAL still enforces it.
-- [ ] Jog, power feed, spindle, offsets, tools and probe locked while running or paused.
+- [x] Spindle start preflight from powerfeed.py (_spindle_start_block_reason: probe selected,
+      drawbar requested/extended, rearm) as a clear message, for manual spindle start and the
+      warm-up; HAL still enforces it. (Unlike Probe Basic, missing pins mean no check, not a block:
+      the module that owns them is not loaded.)
+- [x] Jog, power feed, spindle, offsets, tools and probe locked while running or paused
+      (`manual-locked` = interpreter not idle).
 - [x] MDI with history; keypad overlay.
 - [x] MDI screen per mockup v17: command line, help line (library match), categories with
       RECENT as history, code cards tagged MOVES, G-code keypad; library in millgui/mdi.toml

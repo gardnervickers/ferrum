@@ -82,6 +82,12 @@ impl Util {
                 return Err("The drawbar must be clamped".into());
             }
         }
+        if let Some(ui) = self.ui.upgrade() {
+            let block = ui.global::<Live>().get_spindle_block();
+            if !block.is_empty() {
+                return Err(block.to_string());
+            }
+        }
         if !self.secure {
             return Err("Confirm the tool holder is secure".into());
         }

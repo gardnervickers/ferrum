@@ -672,6 +672,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 live.set_motion_block(block);
                 with_manual(|m| manual::refresh(&ui, m));
             }
+            let block: SharedString = modules.iter().find_map(|m| m.spindle_block()).unwrap_or_default().into();
+            if live.get_spindle_block() != block {
+                live.set_spindle_block(block);
+            }
             live.set_clock(chrono::Local::now().format("%H:%M").to_string().into());
             let elapsed = st.cycle_started.map_or(st.cycle_elapsed, |t| t.elapsed());
             live.set_cycle_time(fmt_elapsed(elapsed).into());

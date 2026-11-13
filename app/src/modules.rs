@@ -50,6 +50,12 @@ pub trait Module {
         None
     }
 
+    /// Why the spindle should not start now (powerfeed.py's
+    /// _spindle_start_block_reason). A clear message only; HAL enforces it.
+    fn spindle_block(&self) -> Option<String> {
+        None
+    }
+
     /// Flags other screens check, e.g. "rotary" or "toolsetter".
     #[allow(dead_code)] // read by the screens from milestone 2 on
     fn capabilities(&self) -> &'static [&'static str] {
@@ -146,6 +152,10 @@ impl Module for Probe {
     fn capabilities(&self) -> &'static [&'static str] {
         &["probe"]
     }
+    fn spindle_block(&self) -> Option<String> {
+        let sel = self.selected.as_ref()?;
+        sel.get().then(|| "Remove the probe before starting the spindle".into())
+    }
     fn setter(&self) -> Option<Rc<SetterHal>> {
         self.setter.clone()
     }
@@ -216,6 +226,19 @@ impl Module for Drawbar {
     }
     fn capabilities(&self) -> &'static [&'static str] {
         &["drawbar"]
+    }
+    fn spindle_block(&self) -> Option<String> {
+        let io = self.io.as_ref()?;
+        let i = crate::toolchange::Io::read(io.as_ref());
+        if i.manual_request {
+            Some("Release the drawbar request before starting the spindle".into())
+        } else if io.extended() {
+            Some("Retract the drawbar before starting the spindle".into())
+        } else if io.rearm_required() {
+            Some("Stop the spindle command before restarting".into())
+        } else {
+            None
+        }
     }
     fn toolchange(&self) -> Option<Rc<dyn crate::toolchange::Io>> {
         self.io.clone().map(|io| io as Rc<dyn crate::toolchange::Io>)
