@@ -27,6 +27,11 @@ impl Handle {
     pub fn send(&self, cmd: Command) {
         let _ = self.tx.send(cmd);
     }
+
+    /// A handle with no machine behind it (tests): commands are dropped.
+    pub fn detached() -> Self {
+        Self { tx: mpsc::channel().0 }
+    }
 }
 
 pub fn spawn<F>(mut machine: Box<dyn Machine>, period: Duration, mut on_event: F) -> Handle

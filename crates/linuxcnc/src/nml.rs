@@ -227,6 +227,7 @@ impl Machine for Nml {
             on_soft_limit: r.on_soft_limit != 0,
             echo_serial: r.echo_serial,
             command_status: r.command_status,
+            sim_tool_change: None,
         })
     }
 
@@ -267,6 +268,7 @@ impl Machine for Nml {
                 Command::SpindleOff => lcnc_spindle_off(c),
                 Command::LoadToolTable => lcnc_load_tool_table(c),
                 Command::PlanSynch => lcnc_task_plan_synch(c),
+                Command::SimToolChanged => 0,
             }
         };
         if rc < 0 {

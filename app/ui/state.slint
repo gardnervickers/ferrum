@@ -105,6 +105,24 @@ export global Live {
     in property <float> gt-ox: 0.5;
     in property <float> gt-oy: 0.5;
 
+    // Tool change overlay (M6); Rust owns the state (toolchange.rs).
+    in property <bool> tc-open;
+    in property <string> tc-from: "T0";
+    in property <string> tc-from-desc;
+    in property <string> tc-tool;
+    in property <string> tc-tool-desc;
+    in property <string> tc-drawbar: "UNKNOWN";
+    in property <bool> tc-seated;
+    in property <string> tc-message;
+    in property <bool> tc-can-extend;
+    in property <bool> tc-can-retract;
+    in property <bool> tc-can-resume;
+    in property <bool> tc-can-touch-off;
+    in property <string> tc-touch-off-tip;
+    in property <string> tc-scratch;
+    in property <string> tc-nose;
+    in property <string> tc-nose-kind;
+
     // Keypad overlay; Rust owns the value and what it is for.
     in property <bool> keypad-open;
     in property <string> keypad-label;
@@ -165,4 +183,8 @@ export global Actions {
     callback mdi-key(key: string);
     callback mdi-edited();
     callback clear-messages();
+    callback tc-seated-toggle();
+    callback tc-drawbar(extend: bool);
+    callback tc-resume(touch-off: bool);
+    callback tc-abort();
 }

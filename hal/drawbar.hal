@@ -2,3 +2,16 @@
 # Both are commands from the guard, not sensors.
 net drawbar-extended => millgui.drawbar.extended
 net spindle-rearm-required spindle-rearm-required-pin => millgui.drawbar.spindle-rearm-required
+
+# Manual tool change (M6 through iocontrol), as probe_basic_postgui.hal did
+# for qtpyvcp_manualtoolchange.
+net tool-change-request => millgui.drawbar.tool-change
+net tool-change-confirmed <= millgui.drawbar.tool-changed
+net tool-number => millgui.drawbar.tool-number
+net spindle-request => millgui.drawbar.spindle-request
+# The dialog's controls: manual drawbar request and the touch-off latch.
+net millgui-drawbar-manual millgui.drawbar.manual-request => drawbar-manual-request-pin
+net millgui-touch-off-set millgui.drawbar.touch-off-set => tool-touch-off-request-latch.set
+net millgui-touch-off-reset millgui.drawbar.touch-off-reset => tool-touch-off-reset.in0
+net millgui-touch-off-requested tool-touch-off-request-latch.out => millgui.drawbar.touch-off-requested
+net millgui-nose-reference spindle-nose-reference-valid.out => millgui.drawbar.nose-reference-valid

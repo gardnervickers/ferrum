@@ -112,6 +112,9 @@ pub struct Status {
     pub on_soft_limit: bool,
     pub echo_serial: i32,
     pub command_status: i32,
+    /// Simulator only: the tool an M6 is waiting for. On LinuxCNC the request
+    /// arrives on HAL (iocontrol.0.tool-change) and the GUI answers there.
+    pub sim_tool_change: Option<i32>,
 }
 
 impl Status {
@@ -228,6 +231,8 @@ pub enum Command {
     SpindleOff,
     LoadToolTable,
     PlanSynch,
+    /// Simulator only: finish the pending M6 (LinuxCNC gets this over HAL).
+    SimToolChanged,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

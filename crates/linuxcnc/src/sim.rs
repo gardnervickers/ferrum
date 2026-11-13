@@ -12,6 +12,7 @@ pub struct Sim {
     jog: [f64; AXES],
     run_until: Option<i32>,
     messages: VecDeque<Message>,
+    selected_tool: i32,
 }
 
 impl Sim {
@@ -33,7 +34,7 @@ impl Sim {
         s.tool_in_spindle = 23;
         s.active_gcodes = [0, 10, 170, 210, 400, 490, 540, 640, 800, 900, 911, 940, 970, 980, -1, -1, -1];
         s.active_mcodes = [0, 5, 9, 48, -1, -1, -1, -1, -1, -1];
-        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, messages: VecDeque::new() }
+        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, messages: VecDeque::new(), selected_tool: 0 }
     }
 
     fn msg(&mut self, kind: MessageKind, text: impl Into<String>) {
@@ -63,6 +64,17 @@ impl Sim {
             .collect();
         let has = |l: char, v: f64| words.iter().any(|&(a, b)| a == l && b == v);
         let val = |l: char| words.iter().find(|&&(a, _)| a == l).map(|&(_, v)| v);
+        if let Some(t) = val('T') {
+            self.selected_tool = t as i32;
+        }
+        if has('M', 61.0) {
+            self.s.tool_in_spindle = val('Q').unwrap_or(0.0) as i32;
+        }
+        if has('M', 6.0) {
+            // Wait for the GUI, as iocontrol's manual tool change does.
+            self.s.sim_tool_change = Some(self.selected_tool);
+            self.s.interp = Interp::Reading;
+        }
         if has('M', 7.0) {
             self.s.mist = true;
         }
@@ -150,6 +162,7 @@ impl Machine for Sim {
                 }
             }
             Command::Abort => {
+                self.s.sim_tool_change = None;
                 self.s.interp = Interp::Idle;
                 self.run_until = None;
                 self.jog = [0.0; AXES];
@@ -235,6 +248,13 @@ impl Machine for Sim {
                 self.s.spindle_enabled = false;
             }
             Command::LoadToolTable | Command::PlanSynch => {}
+            Command::SimToolChanged => {
+                if let Some(t) = self.s.sim_tool_change.take() {
+                    self.s.tool_in_spindle = t;
+                    self.s.interp = Interp::Idle;
+                    self.msg(MessageKind::Display, format!("(sim) T{t} loaded"));
+                }
+            }
         }
         Ok(self.serial)
     }

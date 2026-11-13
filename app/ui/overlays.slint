@@ -2,7 +2,7 @@
 // and the cycle bar (feed hold, stop, cycle start) stay usable.
 import { Theme } from "theme.slint";
 import { Live, Actions, MsgRow } from "state.slint";
-import { Btn, Label, H3, Note } from "widgets.slint";
+import { Btn, Label, H3, Note, Pill } from "widgets.slint";
 
 component Scrim inherits Rectangle {
     background: #050708a0;
@@ -101,6 +101,97 @@ export component MessageDrawer inherits Scrim {
                 Rectangle { horizontal-stretch: 1; }
                 Btn { width: 240px; text: "CLOSE"; kind: "go"; clicked => { Live.drawer-open = false; } }
             }
+        }
+    }
+}
+
+component ToolCard inherits Rectangle {
+    in property <string> title;
+    in property <string> tool;
+    in property <string> desc;
+    in property <bool> highlight;
+    background: Theme.panel2;
+    border-radius: 8px;
+    border-width: highlight ? 2px : 0px;
+    border-color: #d99a1e;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 4px;
+        Label { text: title; }
+        Text { text: tool; font-family: Theme.body; font-weight: 600; font-size: 48px; color: Theme.ink; }
+        Note { text: desc == "" ? " " : desc; overflow: elide; }
+    }
+}
+
+// Manual tool change (mockup ovTc; behaviour of mymill_vcp/toolchange_dialog.py).
+export component ToolChange inherits Scrim {
+    Dialog {
+        width: 900px;
+        height: 780px;
+        VerticalLayout {
+            padding: 22px;
+            spacing: 14px;
+            HorizontalLayout {
+                spacing: 12px;
+                Text { vertical-alignment: center; text: "TOOL CHANGE"; font-family: Theme.display; font-size: 40px; letter-spacing: 2px; color: Theme.ink; }
+                Rectangle { horizontal-stretch: 1; }
+                Pill { text: Live.tc-nose; kind: Live.tc-nose-kind; }
+            }
+            HorizontalLayout {
+                spacing: 14px;
+                height: 140px;
+                ToolCard { title: "REMOVE"; tool: Live.tc-from; desc: Live.tc-from-desc; }
+                ToolCard { title: "INSERT"; tool: Live.tc-tool; desc: Live.tc-tool-desc; highlight: true; }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Label { vertical-alignment: center; text: "DRAWBAR"; }
+                Pill { text: Live.tc-drawbar == "EXTENDED" ? "EXTENDED · TOOL RELEASED" : Live.tc-drawbar == "RETRACTED" ? "RETRACTED · CLAMPED" : "UNKNOWN"; kind: Live.tc-drawbar == "EXTENDED" ? "bad" : Live.tc-drawbar == "RETRACTED" ? "good" : ""; }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            HorizontalLayout {
+                spacing: 30px;
+                Btn { height: 84px; text: "RELEASE TOOL"; hold: true; enabled: Live.tc-can-extend; clicked => { Actions.tc-drawbar(true); } }
+                Btn { height: 84px; text: "CLAMP TOOL"; enabled: Live.tc-can-retract; clicked => { Actions.tc-drawbar(false); } }
+            }
+            if Live.tc-scratch != "": Rectangle {
+                height: 48px;
+                border-radius: 6px;
+                background: #43361a;
+                Text { text: Live.tc-scratch; font-family: Theme.display; font-size: 22px; letter-spacing: 1px; color: #f3c463; }
+            }
+            Rectangle {
+                height: 72px;
+                border-radius: 8px;
+                background: Live.tc-seated ? #1f3a2a : Theme.well;
+                border-width: 1px;
+                border-color: Live.tc-seated ? #3fb86b : Theme.line;
+                HorizontalLayout {
+                    padding-left: 18px;
+                    spacing: 18px;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 6px;
+                        border-width: 2px;
+                        border-color: Live.tc-seated ? #3fb86b : Theme.muted;
+                        background: Live.tc-seated ? Theme.go : transparent;
+                        Text { text: Live.tc-seated ? "✓" : ""; font-size: 30px; color: Theme.ink; }
+                    }
+                    Text { vertical-alignment: center; text: "Tool is seated and the drawbar is clamped"; font-family: Theme.body; font-size: 26px; color: Theme.ink; }
+                }
+                TouchArea { clicked => { Actions.tc-seated-toggle(); } }
+            }
+            Text { text: Live.tc-message; wrap: word-wrap; font-family: Theme.display; font-size: 22px; letter-spacing: 1px; color: Theme.muted; }
+            Rectangle { vertical-stretch: 1; }
+            HorizontalLayout {
+                spacing: 30px;
+                Btn { height: 84px; text: "RESUME + TOUCH OFF"; enabled: Live.tc-can-touch-off; clicked => { Actions.tc-resume(true); } }
+                Btn { height: 84px; text: "ABORT"; kind: "stop"; clicked => { Actions.tc-abort(); } }
+                Btn { height: 84px; text: "RESUME"; kind: "go"; enabled: Live.tc-can-resume; clicked => { Actions.tc-resume(false); } }
+            }
+            Note { text: Live.tc-touch-off-tip + ". Touch off runs after the change, from the M6 remap. The spindle cannot start while the drawbar is extended."; wrap: word-wrap; }
         }
     }
 }

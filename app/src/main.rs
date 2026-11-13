@@ -14,6 +14,7 @@ mod powerfeed;
 mod program;
 mod remote;
 mod settings;
+mod toolchange;
 
 use config::Config;
 use linuxcnc::{Command, Event, Handle, Interp, MessageKind, Status, TaskState, AXIS_LETTERS};
@@ -267,6 +268,7 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     live.set_homed(axes.iter().all(|&i| s.homed.get(i).copied().unwrap_or(false)));
     live.set_wcs(s.wcs_name().into());
     live.set_tool(format!("T{}", s.tool_in_spindle).into());
+    live.set_tc_from(format!("T{}", s.tool_in_spindle).into());
     live.set_feed(format!("{:.0}", s.feed_per_min()).into());
     let rpm = s.spindle_speed * s.spindle_scale * s.spindle_direction.signum() as f64;
     live.set_rpm(format!("{:.0}", rpm.abs()).into());
@@ -482,6 +484,11 @@ fn main() -> Result<(), slint::PlatformError> {
                         apply_status(ui, &mut st, &s, &axes);
                         with_manual(|mm| manual::apply_status(ui, mm, &s));
                         program::sync(ui, &s.file);
+                        SIM_TC.with(|t| {
+                            if let Some(t) = t.borrow().as_ref() {
+                                t.status(&s);
+                            }
+                        });
                         plot::sync(ui, &s.file);
                         plot::with(|p| plot::tool_moved(p, tool_tip(&s)));
                     }
@@ -517,6 +524,16 @@ fn main() -> Result<(), slint::PlatformError> {
         live.set_message_error(true);
     }
     MANUAL.with(|m| *m.borrow_mut() = Some(manual));
+
+    // Manual tool change: HAL through the drawbar module, or the simulator.
+    let tc_io: Option<Rc<dyn toolchange::Io>> = if args.sim {
+        let io = Rc::new(toolchange::SimIo::new(handle.clone()));
+        SIM_TC.with(|t| *t.borrow_mut() = Some(io.clone()));
+        Some(io)
+    } else {
+        modules.iter().find_map(|m| m.toolchange())
+    };
+    let _tc_timer = tc_io.map(|io| toolchange::wire(&ui, &handle, &cfg, io));
 
     // Remote (web) screen: [MILLGUI]REMOTE_PORT serves the browser build.
     let _remote = match cfg.get("MILLGUI", "REMOTE_PORT").map(|p| p.trim().parse::<u16>()) {
@@ -623,6 +640,13 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     plot::load_now(&ui, &plot, &s.file);
     plot::tool_moved(&plot, tool_tip(&s));
     manual::apply_status(&ui, &manual, &s);
+    let tc_io = Rc::new(toolchange::SimIo::new(handle.clone()));
+    if args.show.iter().any(|w| w == "tc") {
+        let mut pending = s.clone();
+        pending.sim_tool_change = Some(214);
+        tc_io.status(&pending);
+    }
+    let _tc_timer = toolchange::wire(&ui, &handle, cfg, tc_io);
     let actions = ui.global::<Actions>();
     for what in &args.show {
         match what.as_str() {
@@ -696,6 +720,7 @@ fn sample_dir() -> PathBuf {
 type UiEventFn = Box<dyn FnMut(&MainWindow, Event)>;
 
 thread_local! {
+    static SIM_TC: RefCell<Option<Rc<toolchange::SimIo>>> = const { RefCell::new(None) };
     /// The status handler lives on the UI thread; the machine thread only
     /// posts events to it.
     static UI_EVENT: RefCell<Option<UiEventFn>> = RefCell::new(None);

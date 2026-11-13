@@ -6,6 +6,7 @@
 use crate::config::Config;
 use hal::{BitPin, Component, Dir};
 use linuxcnc::Status;
+use std::rc::Rc;
 
 pub struct Pill {
     pub text: String,
@@ -53,6 +54,11 @@ pub trait Module {
     #[allow(dead_code)] // read by the screens from milestone 2 on
     fn capabilities(&self) -> &'static [&'static str] {
         &[]
+    }
+
+    /// The manual tool change I/O, from the module that owns the drawbar.
+    fn toolchange(&self) -> Option<Rc<dyn crate::toolchange::Io>> {
+        None
     }
 }
 
@@ -162,13 +168,12 @@ impl Module for Drives {
     }
 }
 
-/// Power drawbar (spindle_drawbar_guard). The pins are commands, not
-/// sensors, so the pill says CMD. The tool change overlay joins this module
-/// in milestone 4.
+/// Power drawbar (spindle_drawbar_guard) and the manual tool change that
+/// uses it (crate::toolchange). The drawbar pins are commands, not sensors,
+/// so the pill says CMD.
 #[derive(Default)]
 struct Drawbar {
-    extended: Option<BitPin>,
-    rearm_required: Option<BitPin>,
+    io: Option<Rc<crate::toolchange::HalIo>>,
 }
 
 impl Module for Drawbar {
@@ -176,19 +181,23 @@ impl Module for Drawbar {
         "drawbar"
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
-        self.extended = Some(comp.bit("drawbar.extended", Dir::In)?);
-        self.rearm_required = Some(comp.bit("drawbar.spindle-rearm-required", Dir::In)?);
+        let extended = comp.bit("drawbar.extended", Dir::In)?;
+        let rearm = comp.bit("drawbar.spindle-rearm-required", Dir::In)?;
+        self.io = Some(Rc::new(crate::toolchange::HalIo::create(comp, extended, rearm)?));
         Ok(())
     }
     fn pills(&self, _s: Option<&Status>, out: &mut Vec<Pill>) {
-        let Some(ext) = &self.extended else { return };
-        out.push(if ext.get() { Pill::new("DRAWBAR CMD RELEASE", "bad") } else { Pill::new("DRAWBAR CMD CLAMP", "") });
-        if self.rearm_required.as_ref().is_some_and(|p| p.get()) {
+        let Some(io) = &self.io else { return };
+        out.push(if io.extended() { Pill::new("DRAWBAR CMD RELEASE", "bad") } else { Pill::new("DRAWBAR CMD CLAMP", "") });
+        if io.rearm_required() {
             out.push(Pill::new("SPINDLE: M5, THEN START AGAIN", "bad"));
         }
     }
     fn capabilities(&self) -> &'static [&'static str] {
         &["drawbar"]
+    }
+    fn toolchange(&self) -> Option<Rc<dyn crate::toolchange::Io>> {
+        self.io.clone().map(|io| io as Rc<dyn crate::toolchange::Io>)
     }
 }
 
