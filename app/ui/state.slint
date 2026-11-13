@@ -56,6 +56,9 @@ export global Live {
     in property <bool> mist;
 
     in-out property <string> run-tab: "program";
+    in property <image> plot;
+    in property <string> plot-summary;
+    in property <string> plot-view: "iso";
     in property <[FileRow]> files;
     in property <string> files-path;
     in property <int> files-selected: -1;
@@ -80,7 +83,7 @@ export global Live {
     in property <string> motion-block;
 
     // Power feed and GO TO (Jog screen tabs).
-    in-out property <string> jog-tab: "jog";
+    in-out property <string> jog-tab: "feed";
     in property <string> pf-mode: "dist";
     in property <string> pf-feed: "250";
     in property <string> pf-dist: "25";
@@ -152,6 +155,9 @@ export global Actions {
     callback files-refresh();
     callback files-load();
     callback gcode-next-m6();
+    callback plot-resize(width: float, height: float);
+    callback plot-view(view: string);
+    callback plot-clear-trail();
     callback mdi-category-set(category: string);
     callback mdi-pick(fill: string);
     callback mdi-key(key: string);

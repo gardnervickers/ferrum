@@ -122,4 +122,4 @@ Classification:
 | M5 | Probing | Probe screen with per-run settings, tool setter, Util and machine status. |
 | M6 | Job and Conv | Job builder and conversational screens over the existing Python CLIs. |
 | M7 | GPU preview and polish | GL renderer behind the same trait, Pi performance pass, findings from the UI/UX review. |
-| M8 | Remote web | `remote` module: websocket server and wasm bundle, read-only by default with an override, incremental-only remote jogs. A read-only view needs only M1 to M3, so it can move up. |
+| M8 | Remote web | `remote` module: websocket server and wasm bundle, read-only by default with an override, incremental-only remote jogs. Gardner (2026-11-13): do it right after the M3 backplot, before M4. |

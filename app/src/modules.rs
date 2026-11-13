@@ -57,7 +57,7 @@ pub trait Module {
 }
 
 /// Modules enabled when millgui.ini does not list any.
-pub const DEFAULT_MODULES: &str = "run job jog probe tools offsets conv files util drives drawbar interlock";
+pub const DEFAULT_MODULES: &str = "run job manual probe tools offsets conv files util drives drawbar interlock";
 
 const ICON_RUN: &str = "M7 4l12 8-12 8z";
 const ICON_JOB: &str = "M4 6h16M4 12h16M4 18h10";
@@ -237,7 +237,8 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
     match id {
         "run" => screen("run", "RUN", ICON_RUN),
         "job" => screen("job", "JOB", ICON_JOB),
-        "jog" => screen("jog", "JOG", ICON_JOG),
+        // "jog" is the old name of MANUAL; keep old INIs working.
+        "manual" | "jog" => screen("manual", "MANUAL", ICON_JOG),
         "tools" => screen("tools", "TOOLS", ICON_TOOLS),
         "offsets" => screen("offsets", "OFFSETS", ICON_OFFSETS),
         "conv" => screen("conv", "CONV", ICON_CONV),
@@ -281,7 +282,7 @@ mod tests {
         let cfg = Config::load(&d.join("m.ini")).unwrap();
         let (mods, problems) = build(&cfg);
         let ids: Vec<_> = mods.iter().map(|m| m.id()).collect();
-        assert_eq!(ids, ["run", "jog"]);
+        assert_eq!(ids, ["run", "manual"]);
         assert_eq!(problems.len(), 1);
         std::fs::remove_dir_all(d).ok();
     }

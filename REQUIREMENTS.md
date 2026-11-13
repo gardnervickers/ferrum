@@ -38,7 +38,11 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 ## M3 Run and files
 
-- [ ] Backplot from the interpreter shim; GPU or software renderer chosen at startup; flat visuals.
+- [x] Backplot from stand-alone rs274 (private HOME, copied var/tool files, REMAPs stripped) on a
+      background thread; tiny-skia software renderer; ISO/TOP/FRONT, colours per op, tool marker and trail.
+- [ ] Backplot: GPU renderer choice at startup if software rendering is too slow on big programs.
+- [x] Run: G-CODE | MDI | JOG tabs; JOG keeps the backplot visible (mockup v18). JOG nav renamed MANUAL
+      (POWER FEED, GO TO, spindle card); MODULES accepts the old "jog" id.
 - [x] Files: no USB; browse PROGRAM_PREFIX (G-code and folders, newest first), preview, LOAD.
 - [ ] Files: ops and estimated time per file; top-view preview plus op list (needs the interpreter).
 - [x] Run: G-code view follows the executing line; NEXT M6 finds the next tool change.

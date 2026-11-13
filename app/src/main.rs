@@ -9,6 +9,7 @@ mod headless;
 mod manual;
 mod mdi;
 mod modules;
+mod plot;
 mod powerfeed;
 mod program;
 mod settings;
@@ -236,6 +237,12 @@ fn refresh_pills(ui: &MainWindow, st: &UiState, modules: &[Box<dyn Module>], axe
     ui.global::<Live>().set_pills(ModelRc::new(VecModel::from(model)));
 }
 
+/// The tool tip in work coordinates, the frame the interpreter preview uses.
+fn tool_tip(s: &Status) -> [f64; 4] {
+    let w = s.work_position();
+    [w[0], w[1], w[2], w[3]]
+}
+
 fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     let live = ui.global::<Live>();
     let work = s.work_position();
@@ -457,6 +464,8 @@ fn main() -> Result<(), slint::PlatformError> {
                         apply_status(ui, &mut st, &s, &axes);
                         with_manual(|mm| manual::apply_status(ui, mm, &s));
                         program::sync(ui, &s.file);
+                        plot::sync(ui, &s.file);
+                        plot::with(|p| plot::tool_moved(p, tool_tip(&s)));
                     }
                     Event::Message(m) => {
                         with_manual(|mm| manual::log_message(ui, mm, &m));
@@ -481,6 +490,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let manual = manual::wire(&ui, &handle, &cfg, settings::Settings::load(), axes.contains(&3));
     files::wire(&ui, &handle, files::root(&cfg));
     program::wire(&ui);
+    let plot = plot::wire(&ui, &cfg);
+    let _plot_timer = plot::start_timer(&ui, &plot);
     let mut mdi_notes = Vec::new();
     mdi::wire(&ui, &handle, &cfg, &mut mdi_notes);
     if !mdi_notes.is_empty() {
@@ -565,6 +576,9 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     files::wire(&ui, &handle, sample_dir());
     program::wire(&ui);
     program::sync(&ui, &s.file);
+    let plot = plot::wire(&ui, cfg);
+    plot::load_now(&ui, &plot, &s.file);
+    plot::tool_moved(&plot, tool_tip(&s));
     manual::apply_status(&ui, &manual, &s);
     let actions = ui.global::<Actions>();
     for what in &args.show {
@@ -592,6 +606,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                 live.set_running(true);
             }
             "file" => actions.invoke_files_tap(1),
+            "jog" => live.set_run_tab("jog".into()),
             "feed" | "goto" => live.set_jog_tab(what.as_str().into()),
             "gotos" => {
                 for (x, y) in [(0.0, 0.0), (-12.0, 0.0), (50.0, -30.0), (150.0, -150.0)] {

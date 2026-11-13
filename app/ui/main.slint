@@ -3,7 +3,7 @@ import { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, Fil
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
 import { Placeholder, RunScreen } from "screens.slint";
 
-import { JogScreen } from "jog.slint";
+import { ManualScreen } from "jog.slint";
 import { FilesScreen } from "files.slint";
 import { Keypad, MessageDrawer } from "overlays.slint";
 
@@ -27,7 +27,7 @@ export component MainWindow inherits Window {
         height: parent.height - 64px - 128px;
         if Live.screen == "run": RunScreen {}
         if Live.screen == "job": Placeholder { title: "JOB"; note: "Milestone 6"; }
-        if Live.screen == "jog": JogScreen {}
+        if Live.screen == "manual": ManualScreen {}
         if Live.screen == "probe": Placeholder { title: "PROBE"; note: "Milestone 5"; }
         if Live.screen == "tools": Placeholder { title: "TOOLS"; note: "Milestone 4"; }
         if Live.screen == "offsets": Placeholder { title: "OFFSETS"; note: "Milestone 4"; }

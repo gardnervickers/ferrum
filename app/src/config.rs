@@ -85,6 +85,15 @@ impl Config {
         self.get("TRAJ", "COORDINATES").unwrap_or("XYZ").chars().filter(|c| !c.is_whitespace()).collect()
     }
 
+    /// The INI text with #INCLUDE expanded, as LinuxCNC's .expanded file.
+    pub fn expanded_lines(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(p) = &self.path {
+            let _ = expand(p, &mut out, 0);
+        }
+        out
+    }
+
     pub fn dir(&self) -> PathBuf {
         self.path.as_ref().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."))
     }

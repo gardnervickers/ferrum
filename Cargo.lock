@@ -2302,6 +2302,7 @@ dependencies = [
  "hal",
  "linuxcnc",
  "png 0.17.16",
+ "preview",
  "serde",
  "slint",
  "slint-build",
@@ -3080,6 +3081,13 @@ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "preview"
+version = "0.1.0"
+dependencies = [
+ "tiny-skia",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@ import { Theme } from "theme.slint";
 import { Live, Actions, MdiCard } from "state.slint";
 import { Card, Label, Btn, Seg, Note, H3 } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
+import { JogPanel } from "jog.slint";
 
 // Placeholder for screens that later milestones fill in.
 export component Placeholder inherits Rectangle {
@@ -194,16 +195,29 @@ component ProgramCard inherits Card {
                 background: Theme.sel;
             }
         }
-        Rectangle {
+        plot-area := Rectangle {
             vertical-stretch: 1;
             background: Theme.well;
             border-radius: 6px;
-            VerticalLayout {
-                alignment: center;
-                spacing: 8px;
-                Text { horizontal-alignment: center; text: "BACKPLOT"; font-family: Theme.display; font-size: 34px; letter-spacing: 2px; color: Theme.dim; }
-                Note { horizontal-alignment: center; text: "Interpreter preview arrives next in milestone 3."; }
+            clip: true;
+            changed width => { Actions.plot-resize(self.width / 1px, self.height / 1px); }
+            changed height => { Actions.plot-resize(self.width / 1px, self.height / 1px); }
+            init => { Actions.plot-resize(self.width / 1px, self.height / 1px); }
+            Image { width: parent.width; height: parent.height; source: Live.plot; image-fit: fill; }
+            if Live.program == "": Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
+            Text {
+                x: 14px; y: parent.height - self.height - 10px;
+                text: (Live.plot-view == "top" ? "TOP VIEW" : Live.plot-view == "front" ? "FRONT VIEW" : "ISO VIEW") + (Live.plot-summary == "" ? "" : " · " + Live.plot-summary);
+                font-family: Theme.body; font-size: 16px; color: Theme.dim;
             }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            Seg { width: 90px; text: "ISO"; on: Live.plot-view == "iso"; clicked => { Actions.plot-view("iso"); } }
+            Seg { width: 90px; text: "TOP"; on: Live.plot-view == "top"; clicked => { Actions.plot-view("top"); } }
+            Seg { width: 110px; text: "FRONT"; on: Live.plot-view == "front"; clicked => { Actions.plot-view("front"); } }
+            Rectangle { horizontal-stretch: 1; }
+            Btn { width: 170px; text: "CLEAR TRAIL"; clicked => { Actions.plot-clear-trail(); } }
         }
     }
 }
@@ -238,16 +252,20 @@ component GcodeView inherits VerticalLayout {
     }
 }
 
+component RunTabs inherits HorizontalLayout {
+    spacing: 0px;
+    Seg { text: "G-CODE"; on: Live.run-tab == "program"; clicked => { Live.run-tab = "program"; } }
+    Seg { text: "MDI"; on: Live.run-tab == "mdi"; clicked => { Live.run-tab = "mdi"; } }
+    Seg { text: "JOG"; on: Live.run-tab == "jog"; clicked => { Live.run-tab = "jog"; } }
+}
+
 export component RunScreen inherits Rectangle {
     VerticalLayout {
         padding: 14px;
         spacing: 14px;
         if Live.run-tab == "mdi": VerticalLayout {
             spacing: 14px;
-            HorizontalLayout {
-                Seg { text: "G-CODE"; on: false; clicked => { Live.run-tab = "program"; } }
-                Seg { text: "MDI"; on: true; }
-            }
+            RunTabs { }
             MdiPanel { vertical-stretch: 1; }
         }
         if Live.run-tab != "mdi": HorizontalLayout {
@@ -258,11 +276,9 @@ export component RunScreen inherits Rectangle {
                 VerticalLayout {
                     padding: 14px;
                     spacing: 12px;
-                    HorizontalLayout {
-                        Seg { text: "G-CODE"; on: true; }
-                        Seg { text: "MDI"; on: false; clicked => { Live.run-tab = "mdi"; } }
-                    }
-                    GcodeView { vertical-stretch: 1; }
+                    RunTabs { }
+                    if Live.run-tab == "program": GcodeView { vertical-stretch: 1; }
+                    if Live.run-tab == "jog": JogPanel { vertical-stretch: 1; }
                 }
             }
         }

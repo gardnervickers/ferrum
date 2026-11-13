@@ -1,0 +1,8 @@
+[package]
+name = "preview"
+version = "0.1.0"
+edition = "2021"
+description = "Toolpath preview: LinuxCNC's interpreter (rs274) to segments, and renderers"
+
+[dependencies]
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
