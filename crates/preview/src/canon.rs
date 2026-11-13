@@ -10,7 +10,7 @@
 use crate::{Builder, Kind, Toolpath, P4};
 
 #[derive(Clone, Copy)]
-enum Plane {
+pub(crate) enum Plane {
     Xy,
     Yz,
     Xz,
@@ -92,7 +92,7 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
 /// Map a plane's (first, second, axis) to X Y Z, run the arc in XY space,
 /// and map back. XZ in canon order is (Z, X), YZ is (Y, Z).
 #[allow(clippy::too_many_arguments)]
-fn arc(b: &mut Builder, plane: Plane, fe: f64, se: f64, fc: f64, sc: f64, rot: i32, ae: f64, a: f64) {
+pub(crate) fn arc(b: &mut Builder, plane: Plane, fe: f64, se: f64, fc: f64, sc: f64, rot: i32, ae: f64, a: f64) {
     let to_plane = |p: P4| -> P4 {
         match plane {
             Plane::Xy => p,

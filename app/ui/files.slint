@@ -58,8 +58,9 @@ export component FilesScreen inherits Rectangle {
                 }
             }
         }
+        // Fixed width: a long file name elides instead of resizing the screen.
         Card {
-            horizontal-stretch: 1.6;
+            width: 540px;
             VerticalLayout {
                 padding: 14px;
                 spacing: 12px;

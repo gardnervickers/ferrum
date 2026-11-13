@@ -3,7 +3,7 @@
 
 use crate::config::Config;
 use crate::{Actions, Live, MainWindow};
-use preview::software::{Base, View};
+use preview::software::{Base, View, Zoom};
 use preview::{rs274, Toolpath, P4};
 use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer};
 use std::cell::RefCell;
@@ -15,12 +15,13 @@ use std::time::Duration;
 const TRAIL_MAX: usize = 50_000;
 
 /// What a base image was drawn for: toolpath id, view, size.
-type Key = (usize, View, u32, u32);
+type Key = (usize, View, u32, u32, Zoom);
 
 pub struct Plot {
     tp: Arc<Toolpath>,
     id: usize,
     view: View,
+    zoom: Zoom,
     size: (u32, u32),
     trail: Vec<P4>,
     tool: Option<P4>,
@@ -77,15 +78,15 @@ impl Plot {
         if w < 16 || h < 16 {
             return;
         }
-        let key = (self.id, self.view, w, h);
+        let key = (self.id, self.view, w, h, self.zoom);
         if self.base.as_ref().map(|b| b.0) != Some(key) {
             if self.inline {
-                self.base = Some((key, Base::draw(&self.tp, self.view, w, h, None)));
+                self.base = Some((key, Base::draw(&self.tp, self.view, w, h, None, self.zoom)));
             } else if self.pending != Some(key) {
                 self.pending = Some(key);
                 let tp = self.tp.clone();
                 std::thread::spawn(move || {
-                    let b = Base::draw(&tp, key.1, key.2, key.3, None);
+                    let b = Base::draw(&tp, key.1, key.2, key.3, None, key.4);
                     let _ = slint::invoke_from_event_loop(move || {
                         with(|p| {
                             let mut st = p.borrow_mut();
@@ -99,10 +100,16 @@ impl Plot {
                 });
             }
         }
-        let Some((_, base)) = &self.base else { return };
+        let Some((drawn, base)) = &self.base else { return };
         let pm = base.compose(&self.trail, self.tool);
         let buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(pm.data(), pm.width(), pm.height());
-        ui.global::<Live>().set_plot(Image::from_rgba8(buf));
+        let live = ui.global::<Live>();
+        live.set_plot(Image::from_rgba8(buf));
+        // The image now shows the latest pan: drop the drag preview offset.
+        if *drawn == key {
+            live.set_plot_dx(0.0);
+            live.set_plot_dy(0.0);
+        }
     }
 
     fn set_toolpath(&mut self, ui: &MainWindow, tp: Toolpath) {
@@ -112,7 +119,7 @@ impl Plot {
         live.set_plot_summary(if tp.segs.is_empty() {
             String::new()
         } else {
-            format!("{} OPS · ~{}", ops, fmt_time(secs))
+            format!("{} OP{} · ~{}", ops, if ops == 1 { "" } else { "S" }, fmt_time(secs))
         }
         .into());
         if let Some(e) = &tp.error {
@@ -121,6 +128,7 @@ impl Plot {
         }
         self.tp = Arc::new(tp);
         self.id += 1;
+        self.zoom = Zoom::default();
         self.redraw(ui);
     }
 }
@@ -185,11 +193,20 @@ pub fn op_summary(tp: &Toolpath) -> String {
     if tp.segs.is_empty() {
         return "No moves.".into();
     }
-    let mut out = format!("{} OPS · ~{}", tp.ops.len(), fmt_time(tp.seconds()));
+    let n = tp.ops.len();
+    let mut out = format!("{} OP{} · ~{}", n, if n == 1 { "" } else { "S" }, fmt_time(tp.seconds()));
     for (i, o) in tp.ops.iter().enumerate() {
-        let tool = if o.tool > 0 { format!("T{}", o.tool) } else { "—".into() };
         let name = if o.name.is_empty() { format!("OP {}", i + 1) } else { o.name.clone() };
-        out += &format!("\n{}  {}  ·  {}  ·  ~{}", i + 1, name, tool, fmt_time(o.seconds));
+        let tag = format!("T{}", o.tool);
+        // JOB names already end in their tool; manual steps have none.
+        let mut line = format!("\n{}  {}", i + 1, name);
+        if o.tool > 0 && !name.ends_with(&tag) {
+            line += &format!("  ·  {tag}");
+        }
+        if o.seconds > 0.0 {
+            line += &format!("  ·  ~{}", fmt_time(o.seconds));
+        }
+        out += &line;
     }
     if let Some(e) = &tp.error {
         out += &format!("\nStops early: {e}");
@@ -223,6 +240,7 @@ pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
         tp: Arc::new(Toolpath::default()),
         id: 0,
         view: View::Iso,
+        zoom: Zoom::default(),
         size: (0, 0),
         trail: Vec::new(),
         tool: None,
@@ -256,7 +274,34 @@ pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
             "front" => View::Front,
             _ => View::Iso,
         };
+        st.zoom = Zoom::default();
         ui.global::<Live>().set_plot_view(v);
+        st.redraw(&ui);
+    });
+    // Zoom and pan, in logical pixels from the UI. A drag moves the old
+    // image at once (plot-dx/dy) and the redraw replaces it.
+    let (p, weak) = (plot.clone(), ui.as_weak());
+    actions.on_plot_pan(move |dx, dy| {
+        let Some(ui) = weak.upgrade() else { return };
+        let sf = ui.window().scale_factor() as f64;
+        let mut st = p.borrow_mut();
+        st.zoom = st.zoom.panned(dx as f64 * sf, dy as f64 * sf);
+        st.redraw(&ui);
+    });
+    let (p, weak) = (plot.clone(), ui.as_weak());
+    actions.on_plot_zoom(move |factor, x, y| {
+        let Some(ui) = weak.upgrade() else { return };
+        let sf = ui.window().scale_factor() as f64;
+        let mut st = p.borrow_mut();
+        let size = st.size;
+        st.zoom = st.zoom.zoom_at(factor as f64, (x as f64 * sf, y as f64 * sf), size);
+        st.redraw(&ui);
+    });
+    let (p, weak) = (plot.clone(), ui.as_weak());
+    actions.on_plot_fit(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let mut st = p.borrow_mut();
+        st.zoom = Zoom::default();
         st.redraw(&ui);
     });
     let (p, weak) = (plot.clone(), ui.as_weak());

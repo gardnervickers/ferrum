@@ -114,6 +114,9 @@ pub fn start() -> Result<(), JsValue> {
             if live.get_pick_open() {
                 send(json!({ "a": "pick", "args": [-1] }));
             }
+            if id == "files" {
+                send(json!({ "a": "files-refresh", "args": [] }));
+            }
             live.set_screen(id);
         }
     });

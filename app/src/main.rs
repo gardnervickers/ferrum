@@ -426,6 +426,10 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             if live.get_pick_open() {
                 ui.global::<Actions>().invoke_pick(-1);
             }
+            // CONV and JOB write programs; show them without a REFRESH.
+            if id == "files" {
+                ui.global::<Actions>().invoke_files_refresh();
+            }
             live.set_screen(id);
         }
     });

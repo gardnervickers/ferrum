@@ -71,6 +71,9 @@ export global Live {
     in property <image> plot;
     in property <string> plot-summary;
     in property <string> plot-view: "iso";
+    // Drag preview offset of the backplot image (per screen, not mirrored).
+    in-out property <float> plot-dx;
+    in-out property <float> plot-dy;
     in property <[FileRow]> files;
     in property <string> files-path;
     in property <int> files-selected: -1;
@@ -283,6 +286,9 @@ export global Actions {
     callback plot-resize(width: float, height: float);
     callback plot-view(view: string);
     callback plot-clear-trail();
+    callback plot-pan(dx: float, dy: float);
+    callback plot-zoom(factor: float, x: float, y: float);
+    callback plot-fit();
     callback mdi-category-set(category: string);
     callback mdi-pick(fill: string);
     callback mdi-key(key: string);

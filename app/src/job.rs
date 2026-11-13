@@ -314,7 +314,8 @@ pub fn apply_status(j: &Rc<RefCell<Job>>, s: &Status) {
 /// Is `path` the folder job builds go in (or a program in it)?
 pub fn folder(cfg: &Config, sim: bool) -> PathBuf {
     if sim {
-        cache_dir().join("sim-jobs")
+        // Under the sim's FILES folder, as jobs/ is under PROGRAM_PREFIX.
+        cache_dir().join("sim-nc").join("jobs")
     } else {
         crate::files::root(cfg).join("jobs")
     }

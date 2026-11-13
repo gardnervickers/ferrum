@@ -78,6 +78,10 @@ pub struct Builder {
     /// Comment waiting to name the next op that moves.
     pending: Option<String>,
     op_has_motion: bool,
+    /// The JOB page's `(MYMILL-OP n/N ID=... name)` markers were seen: ops
+    /// follow them exactly (manual steps included) and other comments,
+    /// such as `(MSG, ...)`, don't name or split ops.
+    marked: bool,
 }
 
 impl Builder {
@@ -91,12 +95,25 @@ impl Builder {
             rapid: rapid_mm_s.max(1.0) * 60.0,
             pending: None,
             op_has_motion: false,
+            marked: false,
         }
     }
 
     pub fn comment(&mut self, text: &str) {
         let t = text.trim();
         if t.is_empty() || t.starts_with("interpreter:") {
+            return;
+        }
+        if let Some(rest) = t.strip_prefix("MYMILL-OP") {
+            // "1/22 ID=A62CA28A FACE 100 X 60 T14" -> "FACE 100 X 60 T14"
+            let name = rest.split_whitespace().skip(2).collect::<Vec<_>>().join(" ");
+            self.tp.ops.push(Op { name, tool: 0, seconds: 0.0 });
+            self.op_has_motion = true;
+            self.marked = true;
+            self.pending = None;
+            return;
+        }
+        if self.marked || t.starts_with("MYMILL-") || t.starts_with("MSG") {
             return;
         }
         self.pending = Some(t.to_string());
@@ -106,6 +123,16 @@ impl Builder {
     }
 
     pub fn tool(&mut self, t: i32) {
+        if self.marked {
+            // The marked op's own tool change comes right after its marker.
+            if let Some(op) = self.tp.ops.last_mut() {
+                if op.tool == 0 {
+                    op.tool = t;
+                }
+            }
+            self.tool = t;
+            return;
+        }
         if t != self.tool && self.op_has_motion {
             self.op_has_motion = false;
         }

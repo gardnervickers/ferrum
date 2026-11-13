@@ -28,7 +28,7 @@ mod mirror {
 }
 
 /// Per-screen state, never mirrored.
-const LOCAL: &[&str] = &["remote", "screen", "run-tab", "jog-tab", "drawer-open"];
+const LOCAL: &[&str] = &["remote", "screen", "run-tab", "jog-tab", "drawer-open", "plot-dx", "plot-dy"];
 /// Browser-side edits the Pi accepts (two-way properties the actions read).
 const FROM_REMOTE: &[&str] = &["mdi-text", "gcode-selected"];
 /// Actions each screen handles for itself.

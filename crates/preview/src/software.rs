@@ -26,6 +26,39 @@ fn project(v: View, p: P4) -> (f64, f64) {
     }
 }
 
+/// The user's zoom and pan on top of the fitted view: `zoom` scales about
+/// the image center, then the image moves by `pan` pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Zoom {
+    pub zoom: f64,
+    pub pan: (f64, f64),
+}
+
+impl Default for Zoom {
+    fn default() -> Self {
+        Self { zoom: 1.0, pan: (0.0, 0.0) }
+    }
+}
+
+impl Zoom {
+    pub const MIN: f64 = 0.5;
+    pub const MAX: f64 = 200.0;
+
+    /// Zoom by `factor` keeping the image point `at` (pixels) fixed.
+    pub fn zoom_at(self, factor: f64, at: (f64, f64), size: (u32, u32)) -> Zoom {
+        let z1 = (self.zoom * factor).clamp(Self::MIN, Self::MAX);
+        let (cx, cy) = (size.0 as f64 / 2.0, size.1 as f64 / 2.0);
+        // Fitted-image point under `at`, then where it lands at the new zoom.
+        let ax = cx + (at.0 - self.pan.0 - cx) / self.zoom;
+        let ay = cy + (at.1 - self.pan.1 - cy) / self.zoom;
+        Zoom { zoom: z1, pan: (at.0 - cx - (ax - cx) * z1, at.1 - cy - (ay - cy) * z1) }
+    }
+
+    pub fn panned(self, dx: f64, dy: f64) -> Zoom {
+        Zoom { zoom: self.zoom, pan: (self.pan.0 + dx, self.pan.1 + dy) }
+    }
+}
+
 /// Screen mapping that fits the toolpath (and the work origin) in the image.
 #[derive(Clone, Copy)]
 struct Fit {
@@ -37,7 +70,7 @@ struct Fit {
 }
 
 impl Fit {
-    fn new(tp: &Toolpath, view: View, w: u32, h: u32) -> Self {
+    fn new(tp: &Toolpath, view: View, w: u32, h: u32, z: Zoom) -> Self {
         let mut pts: Vec<(f64, f64)> = vec![project(view, [0.0; 4])];
         if let Some((lo, hi)) = tp.bounds() {
             for x in [lo[0], hi[0]] {
@@ -61,7 +94,12 @@ impl Fit {
         let scale = ((w as f64 - 2.0 * margin) / sw).min((h as f64 - 2.0 * margin) / sh);
         let ox = (w as f64 - sw * scale) / 2.0 - x0 * scale;
         let oy = (h as f64 - sh * scale) / 2.0 - y0 * scale;
-        Self { view, scale, ox, oy, h: h as f64 }
+        // Apply the zoom about the center and the pan (y points down on screen).
+        let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+        let scale_z = scale * z.zoom;
+        let ox = cx + (ox - cx) * z.zoom + z.pan.0;
+        let oy = cy + (oy - cy) * z.zoom - z.pan.1;
+        Self { view, scale: scale_z, ox, oy, h: h as f64 }
     }
 
     fn map(&self, p: P4) -> (f32, f32) {
@@ -175,7 +213,7 @@ impl Software {
     ) -> Pixmap {
         let key = (tp_id, view, w, h, highlight);
         if self.key != Some(key) {
-            self.base = Some(Base::draw(tp, view, w, h, highlight));
+            self.base = Some(Base::draw(tp, view, w, h, highlight, Zoom::default()));
             self.key = Some(key);
         }
         self.base.as_ref().expect("base").compose(trail, tool)
@@ -183,12 +221,12 @@ impl Software {
 }
 
 impl Base {
-    pub fn draw(tp: &Toolpath, view: View, w: u32, h: u32, highlight: Option<usize>) -> Base {
+    pub fn draw(tp: &Toolpath, view: View, w: u32, h: u32, highlight: Option<usize>, zoom: Zoom) -> Base {
         let w = w.max(16);
         let h = h.max(16);
         let mut pm = Pixmap::new(w, h).expect("pixmap size");
         pm.fill(Color::from_rgba8(BG[0], BG[1], BG[2], 255));
-        let fit = Fit::new(tp, view, w, h);
+        let fit = Fit::new(tp, view, w, h, zoom);
 
         // Work origin axes.
         let o = fit.map([0.0; 4]);

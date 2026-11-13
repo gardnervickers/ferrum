@@ -168,23 +168,41 @@ export component ProbeScreen inherits Rectangle {
                         TouchArea { clicked => { Actions.probe-target(sp.id); } }
                     }
                 }
-                if Live.pr-opts.length > 0: HorizontalLayout {
+                // Options, steppers and side buttons keep the same slots for
+                // every target, so picking an edge or a corner moves nothing.
+                HorizontalLayout {
+                    height: 54px;
                     spacing: 8px;
                     alignment: start;
                     for o in Live.pr-opts: Btn { min-width: 150px; height: 54px; font-size: 20px; text: o.label; on: o.on; clicked => { Actions.probe-opt(o.id); } }
                 }
                 // Fixed slots: the side buttons are always there (disabled
                 // when they don't apply) so taps never land somewhere else.
+                // One row of up to three steppers (every routine has three or
+                // fewer key values; the rest are under MORE).
                 HorizontalLayout {
+                    height: Live.pr-params.length > 3 ? 218px : 144px;
                     spacing: 10px;
-                    GridLayout {
+                    VerticalLayout {
                         horizontal-stretch: 1;
-                        spacing: 10px;
-                        for p[i] in Live.pr-params: Stepper {
-                            col: mod(i, Live.pr-params.length > 3 ? 2 : 3);
-                            row: floor(i / (Live.pr-params.length > 3 ? 2 : 3));
-                            p: p;
-                            enabled: !Live.pr-running;
+                        alignment: start;
+                        GridLayout {
+                            spacing: 10px;
+                            for p[i] in Live.pr-params: Stepper {
+                                col: mod(i, 3);
+                                row: floor(i / 3);
+                                p: p;
+                                enabled: !Live.pr-running;
+                            }
+                            // Empty cells keep three equal columns.
+                            for i in max(0, 3 - Live.pr-params.length): Rectangle {
+                                col: Live.pr-params.length + i;
+                                row: 0;
+                                min-width: 170px;
+                                preferred-width: 170px;
+                                horizontal-stretch: 1;
+                                height: 104px;
+                            }
                         }
                     }
                     VerticalLayout {
