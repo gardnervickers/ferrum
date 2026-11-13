@@ -192,6 +192,9 @@ pub struct Conv {
     presets: Vec<String>,
     summary: String,
     error: bool,
+    /// Facing: the generated feed moves at the final depth (XY), so the
+    /// sketch shows the real passes, tool clearance and lead-in arcs.
+    face_moves: Vec<((f64, f64), (f64, f64))>,
     job: Rc<RefCell<Job>>,
     ui: slint::Weak<MainWindow>,
 }
@@ -340,6 +343,15 @@ impl Conv {
         let r = self.job.borrow_mut().call(req);
         match r {
             Ok(r) => {
+                self.face_moves = r["gcode"].as_str().map_or_else(Vec::new, |g| {
+                    let tp = preview::mini::parse(g, 100.0);
+                    let zmin = tp.segs.iter().filter(|s| s.kind == preview::Kind::Feed).map(|s| s.to[2]).fold(f64::MAX, f64::min);
+                    tp.segs
+                        .iter()
+                        .filter(|s| s.kind == preview::Kind::Feed && (s.from[2] - zmin).abs() < 1e-6 && (s.to[2] - zmin).abs() < 1e-6)
+                        .map(|s| ((s.from[0], s.from[1]), (s.to[0], s.to[1])))
+                        .collect()
+                });
                 let errors: Vec<String> = r["errors"].as_array().map(|a| a.iter().filter_map(|e| e.as_str().map(str::to_string)).collect()).unwrap_or_default();
                 self.error = !errors.is_empty();
                 self.summary = if self.error {
@@ -392,20 +404,22 @@ impl Conv {
         match self.ty.as_str() {
             "face" => {
                 let (xs, xe, ys, ye) = (self.num("x_start"), self.num("x_end"), self.num("y_start"), self.num("y_end"));
-                let m = fit(&[(xs, ys), (xe, ye), (0.0, 0.0)]);
+                let mut pts = vec![(xs, ys), (xe, ye), (0.0, 0.0)];
+                pts.extend(self.face_moves.iter().flat_map(|(a, b)| [*a, *b]));
+                let m = fit(&pts);
                 let (a, b) = (m(xs, ys), m(xe, ye));
                 outline.push_str(&format!("M{:.1} {:.1}H{:.1}V{:.1}H{:.1}Z", a.0, a.1, b.0, b.1, a.0));
                 let o = m(0.0, 0.0);
                 outline.push_str(&format!("M{:.1} {:.1}h16M{:.1} {:.1}v16", o.0 - 8.0, o.1, o.0, o.1 - 8.0));
-                let so = self.num("step_over");
-                let width = (ys - ye).abs();
-                if so > 0.0 && width > 0.0 {
-                    let n = ((width / so) - 1e-9).ceil().clamp(1.0, 60.0) as usize;
-                    for i in 0..n {
-                        let y = ys - width * (i as f64 + 0.5) / n as f64;
-                        let (p, q) = (m(xs, y), m(xe, y));
-                        path.push_str(&format!("M{:.1} {:.1}H{:.1}", p.0 - 12.0, p.1, q.0 + 12.0));
+                // The generator's own passes; consecutive moves join up.
+                let mut last: Option<(f64, f64)> = None;
+                for (p, q) in &self.face_moves {
+                    let (p, q) = (m(p.0, p.1), m(q.0, q.1));
+                    if last.is_none_or(|l| (l.0 - p.0).abs() > 0.05 || (l.1 - p.1).abs() > 0.05) {
+                        path.push_str(&format!("M{:.1} {:.1}", p.0, p.1));
                     }
+                    path.push_str(&format!("L{:.1} {:.1}", q.0, q.1));
+                    last = Some(q);
                 }
             }
             "xy" | "grid" | "circle" => {
@@ -526,7 +540,7 @@ pub fn wire(ui: &MainWindow, job: Rc<RefCell<Job>>, settings: Settings) -> Rc<Re
         .and_then(|r| r["presets"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()))
         .unwrap_or_default();
     let ty = settings.get("conv.type").unwrap_or("face").to_string();
-    let c = Rc::new(RefCell::new(Conv { ty, settings, hole_sel: None, picking: None, presets, summary: String::new(), error: false, job, ui: ui.as_weak() }));
+    let c = Rc::new(RefCell::new(Conv { ty, settings, hole_sel: None, picking: None, presets, summary: String::new(), error: false, face_moves: Vec::new(), job, ui: ui.as_weak() }));
     crate::manual::add_keypad_target(Rc::new(Keys(c.clone())));
     c.borrow_mut().update();
 

@@ -280,6 +280,9 @@ class Helper(object):
         summary = gen.summary(cycle) if req['type'] == 'drill' else gen.summary()
         action = req.get('action', 'check')
         out = {'errors': [], 'summary': summary}
+        if req['type'] == 'face':
+            # The screen sketches the real passes from this.
+            out['gcode'] = '\n'.join(str(l) for l in lines)
         if action == 'add':
             pos = self.session.add_from_generator(gen, cycle if req['type'] == 'drill' else None,
                                                   req.get('cycle_param') if req['type'] == 'drill' else None)
