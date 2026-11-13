@@ -28,6 +28,10 @@ pub struct Seg {
     pub to: P4,
     /// Index into `Toolpath::ops`.
     pub op: usize,
+    /// Source line (1-based; 0 when the reader doesn't know it).
+    pub line: u32,
+    /// Programmed rate in mm/min (the rapid rate for rapids).
+    pub rate: f32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -82,6 +86,7 @@ pub struct Builder {
     /// follow them exactly (manual steps included) and other comments,
     /// such as `(MSG, ...)`, don't name or split ops.
     marked: bool,
+    line: u32,
 }
 
 impl Builder {
@@ -96,7 +101,13 @@ impl Builder {
             pending: None,
             op_has_motion: false,
             marked: false,
+            line: 0,
         }
+    }
+
+    /// The source line the following moves come from.
+    pub fn set_line(&mut self, n: u32) {
+        self.line = n;
     }
 
     pub fn comment(&mut self, text: &str) {
@@ -160,7 +171,7 @@ impl Builder {
         let d = dist(self.pos, to);
         let rate = if kind == Kind::Rapid || self.feed <= 0.0 { self.rapid } else { self.feed };
         self.tp.ops[op].seconds += d / rate * 60.0;
-        self.tp.segs.push(Seg { kind, from: self.pos, to, op });
+        self.tp.segs.push(Seg { kind, from: self.pos, to, op, line: self.line, rate: rate as f32 });
         self.pos = to;
     }
 

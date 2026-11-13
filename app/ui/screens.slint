@@ -199,37 +199,72 @@ component ProgramCard inherits Card {
             Image { x: Live.plot-dx * 1px; y: Live.plot-dy * 1px; width: parent.width; height: parent.height; source: Live.plot; image-fit: fill; }
             // Drag to pan, wheel to zoom about the pointer, double tap to fit.
             pan := TouchArea {
-                property <length> base-x;
-                property <length> base-y;
+                // Pans sent to the mill and not yet in its image: the oldest
+                // (a, numbered a-seq) and the sum of any after it (b, up to
+                // b-seq). The image is shifted by these plus the live drag.
+                property <int> seq;
+                property <int> a-seq;
+                property <length> a-x;
+                property <length> a-y;
+                property <int> b-seq;
+                property <length> b-x;
+                property <length> b-y;
                 property <bool> dragging;
+                // Whether this and the previous press were drags: a quick
+                // second drag must not count as a double tap.
+                property <bool> was-drag;
+                property <bool> prev-drag;
+                property <int> landed: Live.plot-landed;
+                function show() {
+                    Live.plot-dx = (self.a-x + self.b-x + (self.dragging ? self.mouse-x - self.pressed-x : 0)) / 1px;
+                    Live.plot-dy = (self.a-y + self.b-y + (self.dragging ? self.mouse-y - self.pressed-y : 0)) / 1px;
+                }
+                changed landed => {
+                    if self.b-seq != 0 && Live.plot-pan-seq >= self.b-seq {
+                        self.a-seq = 0; self.a-x = 0; self.a-y = 0;
+                        self.b-seq = 0; self.b-x = 0; self.b-y = 0;
+                    } else if self.a-seq != 0 && Live.plot-pan-seq >= self.a-seq {
+                        self.a-seq = self.b-seq; self.a-x = self.b-x; self.a-y = self.b-y;
+                        self.b-seq = 0; self.b-x = 0; self.b-y = 0;
+                    }
+                    self.show();
+                }
                 enabled: Live.program != "";
                 pointer-event(e) => {
                     if e.kind == PointerEventKind.down {
-                        self.base-x = Live.plot-dx * 1px;
-                        self.base-y = Live.plot-dy * 1px;
                         self.dragging = false;
                     } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                        self.prev-drag = self.was-drag;
+                        self.was-drag = self.dragging;
                         if self.dragging {
-                            Actions.plot-pan((self.mouse-x - self.pressed-x) / 1px, (self.mouse-y - self.pressed-y) / 1px);
-                            // A browser gets the new image from the mill; drop its preview now.
-                            if Live.remote { Live.plot-dx = 0; Live.plot-dy = 0; }
+                            self.dragging = false;
+                            self.seq = max(self.seq, Live.plot-pan-seq) + 1;
+                            if self.a-seq == 0 {
+                                self.a-seq = self.seq;
+                                self.a-x = self.mouse-x - self.pressed-x;
+                                self.a-y = self.mouse-y - self.pressed-y;
+                            } else {
+                                self.b-seq = self.seq;
+                                self.b-x += self.mouse-x - self.pressed-x;
+                                self.b-y += self.mouse-y - self.pressed-y;
+                            }
+                            Actions.plot-pan((self.mouse-x - self.pressed-x) / self.width, (self.mouse-y - self.pressed-y) / self.height, self.seq);
+                            self.show();
                         }
-                        self.dragging = false;
                     }
                 }
                 moved => {
                     if self.pressed && (self.dragging || abs(self.mouse-x - self.pressed-x) + abs(self.mouse-y - self.pressed-y) > 8px) {
                         self.dragging = true;
-                        Live.plot-dx = (self.base-x + self.mouse-x - self.pressed-x) / 1px;
-                        Live.plot-dy = (self.base-y + self.mouse-y - self.pressed-y) / 1px;
+                        self.show();
                     }
                 }
                 scroll-event(e) => {
                     if e.delta-y == 0 { return reject; }
-                    Actions.plot-zoom(e.delta-y > 0 ? 1.2 : 1 / 1.2, self.mouse-x / 1px, self.mouse-y / 1px);
+                    Actions.plot-zoom(e.delta-y > 0 ? 1.2 : 1 / 1.2, self.mouse-x / self.width, self.mouse-y / self.height);
                     accept
                 }
-                double-clicked => { Actions.plot-fit(); }
+                double-clicked => { if !self.was-drag && !self.prev-drag { Actions.plot-fit(); } }
             }
             if Live.program == "": Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
             Text {
@@ -245,8 +280,8 @@ component ProgramCard inherits Card {
             Seg { width: 90px; text: "TOP"; on: Live.plot-view == "top"; clicked => { Actions.plot-view("top"); } }
             Seg { width: 110px; text: "FRONT"; on: Live.plot-view == "front"; clicked => { Actions.plot-view("front"); } }
             Rectangle { horizontal-stretch: 1; }
-            Seg { width: 64px; text: "−"; clicked => { Actions.plot-zoom(1 / 1.5, plot-area.width / 2px, plot-area.height / 2px); } }
-            Seg { width: 64px; text: "+"; clicked => { Actions.plot-zoom(1.5, plot-area.width / 2px, plot-area.height / 2px); } }
+            Seg { width: 64px; font-size: 34px; text: "−"; clicked => { Actions.plot-zoom(1 / 1.5, 0.5, 0.5); } }
+            Seg { width: 64px; font-size: 34px; text: "+"; clicked => { Actions.plot-zoom(1.5, 0.5, 0.5); } }
             Seg { width: 80px; text: "FIT"; clicked => { Actions.plot-fit(); } }
             Btn { width: 170px; text: "CLEAR TRAIL"; clicked => { Actions.plot-clear-trail(); } }
         }

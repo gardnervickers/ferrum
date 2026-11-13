@@ -64,6 +64,8 @@ struct App {
     /// After a resize the reused buffer holds nothing valid: repaint all of it.
     full: Cell<bool>,
     perf: RefCell<Perf>,
+    /// plot-pan-seq of the last backplot image shown.
+    plot_seq: Cell<i32>,
 }
 
 /// Frame timings, logged to the console every two seconds with `?perf`.
@@ -135,6 +137,7 @@ pub fn start() -> Result<(), JsValue> {
         size: Cell::new((0, 0)),
         full: Cell::new(true),
         perf: RefCell::new(Perf { on: web_sys::window().unwrap().location().search().unwrap_or_default().contains("perf"), ..Default::default() }),
+        plot_seq: Cell::new(0),
     });
     APP.with(|a| *a.borrow_mut() = Some(app.clone()));
     resize(&app);
@@ -194,7 +197,13 @@ fn connect() {
             receive(&app, &text);
         } else if let Ok(buf) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
             if let Some(img) = decode_png(&js_sys::Uint8Array::new(&buf).to_vec()) {
-                app.ui.global::<Live>().set_plot(img);
+                let live = app.ui.global::<Live>();
+                live.set_plot(img);
+                // This image includes the pans the mill had when it drew it.
+                let seq = live.get_plot_pan_seq();
+                if app.plot_seq.replace(seq) != seq {
+                    live.set_plot_landed(live.get_plot_landed() + 1);
+                }
             }
         }
     });

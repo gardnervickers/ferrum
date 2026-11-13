@@ -6,6 +6,7 @@ publish.workspace = true
 build = "build.rs"
 
 [dependencies]
+preview = { path = "../preview" }
 
 [build-dependencies]
 cc = "1"

@@ -1,5 +1,7 @@
 //! In-process stand-in for LinuxCNC, so screens run on the Mac and in tests.
-//! It models the state machine and motion roughly, not the interpreter.
+//! It models the state machine and motion roughly. Programs run along the
+//! toolpath of the small G-code reader, at the programmed feed (times the
+//! override) and the rapid rate.
 
 use crate::status::*;
 use std::collections::VecDeque;
@@ -19,7 +21,14 @@ pub struct Sim {
     wcs: [[f64; 5]; 9],
     /// A simulated subroutine call: busy until then, then these messages.
     call_until: Option<(Instant, Vec<String>)>,
+    /// The open program's moves (work coordinates) and how far along them
+    /// the run is: segment index and millimetres into it.
+    path: Vec<preview::Seg>,
+    at: (usize, f64),
 }
+
+/// [TRAJ]MAX_LINEAR_VELOCITY of the real machine, mm/s.
+const RAPID_MM_S: f64 = 100.0;
 
 impl Sim {
     /// A 4-axis mill (XYZA) with a few offsets set so the DRO shows something.
@@ -40,7 +49,7 @@ impl Sim {
         s.tool_in_spindle = 23;
         s.active_gcodes = [0, 10, 170, 210, 400, 490, 540, 640, 800, 900, 911, 940, 970, 980, -1, -1, -1];
         s.active_mcodes = [0, 5, 9, 48, -1, -1, -1, -1, -1, -1];
-        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, program_lines: 0, messages: VecDeque::new(), selected_tool: 0, wcs: [[120.0, -95.0, -212.4, 0.0, 0.0], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5]], call_until: None }
+        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, program_lines: 0, messages: VecDeque::new(), selected_tool: 0, wcs: [[120.0, -95.0, -212.4, 0.0, 0.0], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5]], call_until: None, path: Vec::new(), at: (0, 0.0) }
     }
 
     fn msg(&mut self, kind: MessageKind, text: impl Into<String>) {
@@ -192,6 +201,55 @@ impl Default for Sim {
     }
 }
 
+impl Sim {
+    /// Move `dt` seconds along the program; false once it has ended.
+    fn advance(&mut self, dt: f64) -> bool {
+        let rapid = self.s.rapid_scale.max(0.0);
+        let feed = self.s.feed_scale.max(0.0);
+        let mut budget = dt;
+        let mut speed = 0.0;
+        while budget > 0.0 {
+            let Some(g) = self.path.get(self.at.0) else { break };
+            let len = (0..4).map(|i| (g.to[i] - g.from[i]).powi(2)).sum::<f64>().sqrt();
+            let v = g.rate as f64 / 60.0 * if g.kind == preview::Kind::Rapid { rapid } else { feed };
+            if v <= 0.0 {
+                // Feed override at 0: hold here.
+                break;
+            }
+            speed = v;
+            let left = len - self.at.1;
+            if left <= v * budget {
+                budget -= left / v;
+                self.at = (self.at.0 + 1, 0.0);
+            } else {
+                self.at.1 += v * budget;
+                budget = 0.0;
+            }
+        }
+        let p = match self.path.get(self.at.0) {
+            Some(g) => {
+                let len = (0..4).map(|i| (g.to[i] - g.from[i]).powi(2)).sum::<f64>().sqrt();
+                let t = if len > 0.0 { self.at.1 / len } else { 1.0 };
+                self.s.current_line = g.line as i32;
+                std::array::from_fn::<f64, 4, _>(|i| g.from[i] + (g.to[i] - g.from[i]) * t)
+            }
+            None => self.path.last().map_or([0.0; 4], |g| g.to),
+        };
+        for i in 0..4 {
+            self.s.actual[i] = p[i] + self.s.g5x_offset[i] + self.s.tool_offset[i];
+        }
+        self.s.motion_line = self.s.current_line;
+        if self.at.0 >= self.path.len() {
+            self.s.current_line = self.program_lines;
+            self.s.interp = Interp::Idle;
+            self.run_until = None;
+            return false;
+        }
+        self.s.current_vel = speed;
+        true
+    }
+}
+
 impl Machine for Sim {
     fn poll(&mut self) -> Result<Status, String> {
         let now = Instant::now();
@@ -214,7 +272,11 @@ impl Machine for Sim {
                 self.s.interp = Interp::Idle;
             }
         }
-        if let Some(end) = self.run_until {
+        if self.run_until.is_some() && !self.path.is_empty() {
+            if self.s.interp == Interp::Reading {
+                self.advance(dt);
+            }
+        } else if let Some(end) = self.run_until {
             if self.s.interp == Interp::Reading {
                 self.s.current_line += 1;
                 self.s.motion_line = self.s.current_line;
@@ -270,13 +332,17 @@ impl Machine for Sim {
             }
             Command::ProgramOpen(path) => {
                 self.s.file = path.clone();
-                self.program_lines = std::fs::read_to_string(path).map_or(0, |t| t.lines().count() as i32);
+                let text = std::fs::read_to_string(path).unwrap_or_default();
+                self.program_lines = text.lines().count() as i32;
+                self.path = preview::mini::parse(&text, RAPID_MM_S).segs;
             }
             Command::ProgramRun(line) => {
                 if self.require_on("run") {
                     self.s.mode = Mode::Auto;
                     self.s.interp = Interp::Reading;
                     self.s.current_line = (*line).max(1);
+                    let from = self.s.current_line as u32;
+                    self.at = (self.path.iter().position(|g| g.line >= from).unwrap_or(self.path.len()), 0.0);
                     self.run_until = Some(if self.program_lines > 0 { self.program_lines } else { self.s.current_line + 200 });
                 }
             }

@@ -29,7 +29,8 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
     // Canned drilling (G81-G89): R plane and bottom Z, retract to R.
     let (mut cr, mut cz) = (0.0, 0.0);
     let mut started = false;
-    for raw in text.lines() {
+    for (n, raw) in text.lines().enumerate() {
+        b.set_line(n as u32 + 1);
         let mut code = String::new();
         let mut rest = raw;
         while let Some(i) = rest.find('(') {

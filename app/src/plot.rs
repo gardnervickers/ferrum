@@ -22,6 +22,8 @@ pub struct Plot {
     id: usize,
     view: View,
     zoom: Zoom,
+    /// The number of the latest pan asked for.
+    pan_seq: i32,
     size: (u32, u32),
     trail: Vec<P4>,
     tool: Option<P4>,
@@ -105,10 +107,11 @@ impl Plot {
         let buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(pm.data(), pm.width(), pm.height());
         let live = ui.global::<Live>();
         live.set_plot(Image::from_rgba8(buf));
-        // The image now shows the latest pan: drop the drag preview offset.
-        if *drawn == key {
-            live.set_plot_dx(0.0);
-            live.set_plot_dy(0.0);
+        // The image now includes the latest pan: the screens drop the part
+        // of their drag preview offset that it covers.
+        if *drawn == key && live.get_plot_pan_seq() != self.pan_seq {
+            live.set_plot_pan_seq(self.pan_seq);
+            live.set_plot_landed(live.get_plot_landed() + 1);
         }
     }
 
@@ -241,6 +244,7 @@ pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
         id: 0,
         view: View::Iso,
         zoom: Zoom::default(),
+        pan_seq: 0,
         size: (0, 0),
         trail: Vec::new(),
         tool: None,
@@ -281,20 +285,20 @@ pub fn wire(ui: &MainWindow, cfg: &Config) -> Rc<RefCell<Plot>> {
     // Zoom and pan, in logical pixels from the UI. A drag moves the old
     // image at once (plot-dx/dy) and the redraw replaces it.
     let (p, weak) = (plot.clone(), ui.as_weak());
-    actions.on_plot_pan(move |dx, dy| {
+    actions.on_plot_pan(move |dx, dy, seq| {
         let Some(ui) = weak.upgrade() else { return };
-        let sf = ui.window().scale_factor() as f64;
         let mut st = p.borrow_mut();
-        st.zoom = st.zoom.panned(dx as f64 * sf, dy as f64 * sf);
+        let (w, h) = st.size;
+        st.zoom = st.zoom.panned(dx as f64 * w as f64, dy as f64 * h as f64);
+        st.pan_seq = seq;
         st.redraw(&ui);
     });
     let (p, weak) = (plot.clone(), ui.as_weak());
     actions.on_plot_zoom(move |factor, x, y| {
         let Some(ui) = weak.upgrade() else { return };
-        let sf = ui.window().scale_factor() as f64;
         let mut st = p.borrow_mut();
         let size = st.size;
-        st.zoom = st.zoom.zoom_at(factor as f64, (x as f64 * sf, y as f64 * sf), size);
+        st.zoom = st.zoom.zoom_at(factor as f64, (x as f64 * size.0 as f64, y as f64 * size.1 as f64), size);
         st.redraw(&ui);
     });
     let (p, weak) = (plot.clone(), ui.as_weak());

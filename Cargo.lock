@@ -2436,6 +2436,7 @@ name = "linuxcnc"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "preview",
 ]
 
 [[package]]

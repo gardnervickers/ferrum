@@ -74,6 +74,11 @@ export global Live {
     // Drag preview offset of the backplot image (per screen, not mirrored).
     in-out property <float> plot-dx;
     in-out property <float> plot-dy;
+    // The last pan (by its sender's number) the mill's image includes
+    // (mirrored); plot-landed counts images arriving on this screen with a
+    // new one.
+    in property <int> plot-pan-seq;
+    in-out property <int> plot-landed;
     in property <[FileRow]> files;
     in property <string> files-path;
     in property <int> files-selected: -1;
@@ -286,7 +291,9 @@ export global Actions {
     callback plot-resize(width: float, height: float);
     callback plot-view(view: string);
     callback plot-clear-trail();
-    callback plot-pan(dx: float, dy: float);
+    // Pan and zoom points as fractions of the plot's width and height, so a
+    // browser of any size moves the mill's image by what the finger did.
+    callback plot-pan(dx: float, dy: float, seq: int);
     callback plot-zoom(factor: float, x: float, y: float);
     callback plot-fit();
     callback mdi-category-set(category: string);

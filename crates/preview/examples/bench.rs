@@ -12,7 +12,7 @@ fn main() {
         let r = 5.0 + 45.0 * ((i % 4000) as f64 / 4000.0);
         let z = -((i / 4000) as f64) * 0.5;
         let q = [r * t.cos() + 60.0, r * t.sin() + 40.0, z, 0.0];
-        segs.push(Seg { kind: if i % 4000 == 0 { Kind::Rapid } else { Kind::Feed }, from: p, to: q, op: (i * 4) / n });
+        segs.push(Seg { kind: if i % 4000 == 0 { Kind::Rapid } else { Kind::Feed }, from: p, to: q, op: (i * 4) / n, line: 0, rate: 1000.0 });
         p = q;
     }
     let ops = (0..4).map(|i| Op { name: format!("op{i}"), tool: i, seconds: 0.0 }).collect();
