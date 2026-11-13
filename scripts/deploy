@@ -9,7 +9,7 @@ scripts/build
 scripts/build-web >/dev/null
 ssh "$PI" "mkdir -p $DEST/millgui/bin"
 scp -q target/aarch64-unknown-linux-gnu/release/millgui "$PI:$DEST/millgui/bin/millgui.new"
-scp -q run mdi.toml "$PI:$DEST/millgui/"
+scp -q run mdi.toml job_helper.py "$PI:$DEST/millgui/"
 scp -q ../millgui.ini "$PI:$DEST/"
 ssh "$PI" "mkdir -p $DEST/millgui/hal"
 scp -q hal/*.hal "$PI:$DEST/millgui/hal/"

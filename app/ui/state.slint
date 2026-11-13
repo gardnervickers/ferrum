@@ -14,6 +14,8 @@ export struct ProbeSpot { id: string, x: float, y: float, w: float, h: float, r:
 export struct ProbeParam { id: string, label: string, value: string, unit: string, changed: bool, def: string }
 export struct WarmStage { rpm: string, minutes: string, state: string }
 export struct StatusRow { key: string, value: string, kind: string }
+export struct JobOp { pos: string, badge: string, kind: string, name: string, detail: string, enabled: bool, state: string, can-toggle: bool, selected: bool, progress: float, progress-text: string, stop-after: bool }
+export struct ConvField { key: string, label: string, value: string, unit: string, choice: bool }
 export struct GotoRow { name: string, x: string, y: string, px: float, py: float }
 
 export global Live {
@@ -192,6 +194,37 @@ export global Live {
     in property <string> ut-g30;
     in property <[StatusRow]> ut-status;
 
+    // JOB screen (job.rs).
+    in property <string> job-title: "JOB";
+    in property <string> job-state: "NOT BUILT";
+    in property <string> job-tone;
+    in property <[JobOp]> job-ops;
+    in property <int> job-selected: -1;
+    in property <string> job-note;
+    in property <string> job-note-tone;
+    in property <bool> job-running;
+    in property <float> job-fraction;
+    in property <bool> job-stop-requested;
+
+    // CONV screen (conv.rs). Picture paths are SVG data in a 400x300 box.
+    in property <[ProbeItem]> conv-types;
+    in property <string> conv-title;
+    in property <string> conv-tool;
+    in property <[ConvField]> conv-setup;
+    in property <[ConvField]> conv-op;
+    in property <bool> conv-show-holes;
+    in property <[string]> conv-holes;
+    in property <int> conv-hole-sel: -1;
+    in property <string> conv-outline;
+    in property <string> conv-path;
+    in property <string> conv-summary;
+    in property <bool> conv-error;
+
+    // List picker overlay (picker.rs).
+    in property <bool> pick-open;
+    in property <string> pick-title;
+    in property <[string]> pick-items;
+
     // Keypad overlay; Rust owns the value and what it is for.
     in property <bool> keypad-open;
     in property <string> keypad-label;
@@ -281,6 +314,25 @@ export global Actions {
     callback probe-load();
     callback probe-run();
     callback probe-stop();
+    callback job-select(index: int);
+    callback job-toggle(index: int);
+    callback job-new();
+    callback job-open();
+    callback job-add-step();
+    callback job-move(dir: int);
+    callback job-delete();
+    callback job-start-at();
+    callback job-stop-after();
+    callback job-build();
+    callback conv-type(id: string);
+    callback conv-field(key: string);
+    callback conv-hole-add();
+    callback conv-hole-del();
+    callback conv-hole-select(index: int);
+    callback conv-add();
+    callback conv-load();
+    // -1 cancels.
+    callback pick(index: int);
     callback wu-secure();
     callback wu-start();
     callback wu-stop();

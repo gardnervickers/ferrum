@@ -280,7 +280,7 @@ impl KeypadTarget for Keys {
     }
 }
 
-fn table_path(cfg: &Config, sim: bool) -> PathBuf {
+pub fn table_path(cfg: &Config, sim: bool) -> PathBuf {
     let rel = cfg.get("EMCIO", "TOOL_TABLE").unwrap_or("tool.tbl");
     let real = cfg.dir().join(rel);
     if !sim {

@@ -4,11 +4,14 @@
 //! simulated machine instead (the default on builds without NML, e.g. the Mac).
 
 mod config;
+mod conv;
 mod files;
 mod headless;
+mod job;
 mod manual;
 mod mdi;
 mod modules;
+mod picker;
 mod plot;
 mod powerfeed;
 mod program;
@@ -355,9 +358,29 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         });
     });
     let (m, st, weak) = (machine.clone(), state.clone(), ui.as_weak());
+    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(99);
     actions.on_cycle_start(move || {
         let Some(s) = st.borrow().status.clone() else { return };
-        let single = weak.upgrade().is_some_and(|ui| ui.global::<Live>().get_single_block());
+        let Some(ui) = weak.upgrade() else { return };
+        let single = ui.global::<Live>().get_single_block();
+        if s.interp == Interp::Idle {
+            // Probe Basic's checks before a program starts, then the JOB
+            // page's rules for job programs (job_session.cycle_start_problem).
+            let block = ui.global::<Live>().get_motion_block();
+            let problem = if s.tool_in_spindle == probe_tool {
+                Some("Unload the probe before cycle start".to_string())
+            } else if !block.is_empty() {
+                Some(block.to_string())
+            } else {
+                JOB.with(|j| j.borrow().clone()).and_then(|j| j.borrow_mut().cycle_start_problem(0))
+            };
+            if let Some(p) = problem {
+                let live = ui.global::<Live>();
+                live.set_message(p.into());
+                live.set_message_error(true);
+                return;
+            }
+        }
         match (s.interp, single) {
             (Interp::Paused, true) => m.send(Command::Step),
             (Interp::Paused, false) => m.send(Command::Resume),
@@ -515,6 +538,11 @@ fn main() -> Result<(), slint::PlatformError> {
                                 util::apply_status(u, &s);
                             }
                         });
+                        JOB.with(|j| {
+                            if let Some(j) = j.borrow().as_ref() {
+                                job::apply_status(j, &s);
+                            }
+                        });
                     }
                     Event::Message(m) => {
                         // Macros report results as DEBUG lines.
@@ -578,6 +606,17 @@ fn main() -> Result<(), slint::PlatformError> {
     let (util, _util_timer) = util::wire(&ui, &handle, &cfg, tc_io.clone(), setter, util_state);
     UTIL.with(|u| *u.borrow_mut() = Some(util));
     let _tc_timer = tc_io.map(|io| toolchange::wire(&ui, &handle, &cfg, io));
+    picker::wire(&ui);
+    let ids: Vec<&str> = modules.iter().map(|m| m.id()).collect();
+    let _job_timer = if ids.contains(&"job") || ids.contains(&"conv") {
+        let (j, timer) = job::wire(&ui, &handle, &cfg, args.sim);
+        let conv_state = if args.sim { settings::Settings::memory() } else { settings::Settings::at("conv") };
+        let _ = conv::wire(&ui, j.clone(), conv_state);
+        JOB.with(|t| *t.borrow_mut() = Some(j));
+        Some(timer)
+    } else {
+        None
+    };
 
     // Remote (web) screen: [MILLGUI]REMOTE_PORT serves the browser build.
     let _remote = match cfg.get("MILLGUI", "REMOTE_PORT").map(|p| p.trim().parse::<u16>()) {
@@ -700,6 +739,10 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     let (util, _util_timer) = util::wire(&ui, &handle, cfg, Some(tc_io.clone() as Rc<dyn toolchange::Io>), None, settings::Settings::memory());
     util::apply_status(&util, &s);
     let _tc_timer = toolchange::wire(&ui, &handle, cfg, tc_io);
+    picker::wire(&ui);
+    let (j, _job_timer) = job::wire(&ui, &handle, cfg, true);
+    job::apply_status(&j, &s);
+    let conv = conv::wire(&ui, j.clone(), settings::Settings::memory());
     let actions = ui.global::<Actions>();
     for what in &args.show {
         match what.as_str() {
@@ -756,9 +799,12 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                     manual::log_message(&ui, &manual, &linuxcnc::Message { kind, text: text.into() });
                 }
             }
+            "pick" => actions.invoke_job_add_step(),
+            t if t.starts_with("conv-") => actions.invoke_conv_type(t[5..].into()),
             other => eprintln!("millgui: unknown --show {other}"),
         }
     }
+    let _ = &conv;
     ui.show()?;
     headless::save(&window, out).map_err(slint::PlatformError::Other)?;
     eprintln!("millgui: wrote {}", out.display());
@@ -778,6 +824,7 @@ thread_local! {
     static OFFSETS: RefCell<Option<Rc<RefCell<offsets::Offsets>>>> = const { RefCell::new(None) };
     static PROBE: RefCell<Option<Rc<RefCell<probe::Probe>>>> = const { RefCell::new(None) };
     static UTIL: RefCell<Option<Rc<RefCell<util::Util>>>> = const { RefCell::new(None) };
+    static JOB: RefCell<Option<Rc<RefCell<job::Job>>>> = const { RefCell::new(None) };
     /// The status handler lives on the UI thread; the machine thread only
     /// posts events to it.
     static UI_EVENT: RefCell<Option<UiEventFn>> = RefCell::new(None);

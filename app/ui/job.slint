@@ -1,0 +1,135 @@
+import { Theme } from "theme.slint";
+import { Live, Actions, JobOp } from "state.slint";
+import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
+import { ListView } from "std-widgets.slint";
+
+component Bar inherits Rectangle {
+    in property <float> value;
+    in property <string> text;
+    height: 30px;
+    background: Theme.well;
+    border-radius: 4px;
+    clip: true;
+    Rectangle { x: 0; width: parent.width * clamp(root.value, 0, 1); background: Theme.go; }
+    Text { text: root.text; font-family: Theme.display; font-size: 20px; letter-spacing: 1px; color: Theme.ink; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+component OpRow inherits Rectangle {
+    in property <JobOp> op;
+    in property <int> index;
+    height: 84px;
+    border-radius: 6px;
+    background: op.selected ? #2c3366 : op.state == "current" ? #1d3a28 : Theme.panel2;
+    border-width: op.selected ? 2px : 0px;
+    border-color: Theme.sel;
+    opacity: op.state == "skipped" || op.state == "done" ? 0.55 : 1;
+    TouchArea { clicked => { Actions.job-select(root.index); } }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 14px;
+        spacing: 14px;
+        VerticalLayout {
+            alignment: center;
+            width: 120px;
+            if op.state != "done" && op.state != "current": Btn {
+                height: 64px;
+                text: op.enabled ? "RUN" : "SKIP";
+                kind: op.enabled ? "go" : "";
+                enabled: op.can-toggle;
+                clicked => { Actions.job-toggle(root.index); }
+            }
+            if op.state == "done" || op.state == "current": Text {
+                text: op.state == "done" ? "DONE" : "NOW";
+                horizontal-alignment: center;
+                font-family: Theme.display;
+                font-size: 30px;
+                color: op.state == "done" ? Theme.muted : #7fd6a0;
+            }
+        }
+        Text { width: 44px; vertical-alignment: center; horizontal-alignment: center; text: op.pos; font-family: Theme.display; font-size: 34px; color: Theme.muted; }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle {
+                    width: 76px;
+                    height: 30px;
+                    border-radius: 4px;
+                    background: op.kind == "step" ? #43361a : op.kind == "cam" ? #1e3346 : #2a2f5a;
+                    Text {
+                        text: op.badge;
+                        font-family: Theme.display;
+                        font-size: 20px;
+                        letter-spacing: 1px;
+                        color: op.kind == "step" ? #f3c463 : op.kind == "cam" ? #8cc4ef : #b9c0ff;
+                    }
+                }
+                Text { horizontal-stretch: 1; vertical-alignment: center; text: op.name; font-family: Theme.display; font-size: 28px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
+                if op.stop-after: Pill { text: "STOP AFTER"; kind: "warn"; height: 32px; }
+                if op.state == "skipped": Text { vertical-alignment: center; text: "SKIPPED"; font-family: Theme.display; font-size: 22px; color: Theme.muted; }
+            }
+            if op.state != "current": Text { text: op.detail; font-family: Theme.body; font-size: 20px; color: Theme.muted; overflow: elide; }
+            if op.state == "current": Bar { value: op.progress; text: op.progress-text; }
+        }
+    }
+}
+
+export component JobScreen inherits Rectangle {
+    property <bool> has-sel: Live.job-selected >= 0;
+    property <bool> locked: Live.job-running;
+    Card {
+        x: 14px;
+        y: 14px;
+        width: parent.width - 28px;
+        height: parent.height - 28px;
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 14px;
+                H3 { horizontal-stretch: 1; vertical-alignment: center; text: Live.job-title; overflow: elide; }
+                if Live.job-running: Bar { width: 360px; value: Live.job-fraction; text: "JOB " + round(Live.job-fraction * 100) + "%"; }
+                Pill { text: Live.job-state; kind: Live.job-tone; }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                background: Theme.well;
+                border-radius: 6px;
+                ListView {
+                    for op[i] in Live.job-ops: Rectangle {
+                        height: 92px;
+                        OpRow { x: 8px; y: 4px; width: parent.width - 16px; op: op; index: i; }
+                    }
+                }
+            }
+            Text {
+                height: 30px;
+                vertical-alignment: center;
+                text: Live.job-note;
+                font-family: Theme.body;
+                font-size: 22px;
+                overflow: elide;
+                color: Live.job-note-tone == "error" ? #ff8f8a : Live.job-note-tone == "warn" ? #f3c463 : Live.job-note-tone == "ready" ? #7fd6a0 : Theme.muted;
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Btn { width: 150px; text: "NEW"; enabled: !locked; clicked => { Actions.job-new(); } }
+                Btn { width: 150px; text: "OPEN"; enabled: !locked; clicked => { Actions.job-open(); } }
+                Btn { width: 190px; text: "ADD STEP"; enabled: !locked; clicked => { Actions.job-add-step(); } }
+                Btn { width: 96px; text: "▲"; enabled: !locked && has-sel; clicked => { Actions.job-move(-1); } }
+                Btn { width: 96px; text: "▼"; enabled: !locked && has-sel; clicked => { Actions.job-move(1); } }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { width: 190px; text: "DELETE OP"; hold: true; enabled: !locked && has-sel; clicked => { Actions.job-delete(); } }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Btn { width: 260px; text: "START AT OP"; enabled: !locked && has-sel; clicked => { Actions.job-start-at(); } }
+                Btn { width: 320px; text: "STOP AFTER THIS OP"; on: Live.job-stop-requested; enabled: Live.job-running; clicked => { Actions.job-stop-after(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { width: 460px; kind: "hold"; hold: true; text: "BUILD AND LOAD"; enabled: !locked && Live.job-ops.length > 0; clicked => { Actions.job-build(); } }
+            }
+        }
+    }
+}

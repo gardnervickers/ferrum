@@ -83,8 +83,18 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 ## M6 Job and conversational
 
-- [ ] Job rules from job_session.py: START AT OP disables earlier ops and needs a rebuild;
-      refuse a stale or unbuilt job.
+- [x] JOB page on job_session.py through millgui/job_helper.py (python3, JSON lines): op list with
+      RUN/SKIP, NEW, OPEN, ADD STEP presets, move, HOLD DELETE, START AT OP (disables earlier ops,
+      needs a rebuild), STOP AFTER THIS OP, HOLD BUILD AND LOAD; run progress per op and for the job.
+- [x] `mymill-job` HAL component (stamp, skip-1..64, stop-after) mirrored from the session.
+- [x] CYCLE START refuses a stale, unbuilt or edited job program (cycle_start_problem), the probe in
+      the spindle, and a motion block (Probe Basic's on_cycle_start_clicked checks).
+- [x] CONV: facing, XY coord, pattern (grid), hole circle, helical bore, thread mill (presets) from
+      the mill_ops generators; live summary or errors; ADD TO JOB; LOAD AS PROGRAM to PROGRAM_PREFIX.
+- [ ] Check on the Pi: python3 can import mymill_job/mymill_vcp from the config folder, and the
+      built program reads mymill-job.stamp from millgui's component.
+- [ ] Simulator ignores the skip and stop-after pins (it steps lines without interpreting).
+- [ ] CAM ops (Fusion imports) into a job: no millgui page yet.
 
 ## M8 Remote web (see ARCHITECTURE.md, Remote access)
 

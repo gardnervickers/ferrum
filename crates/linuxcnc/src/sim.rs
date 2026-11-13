@@ -11,6 +11,8 @@ pub struct Sim {
     last: Instant,
     jog: [f64; AXES],
     run_until: Option<i32>,
+    /// Lines in the open program (the run stops after the last one).
+    program_lines: i32,
     messages: VecDeque<Message>,
     selected_tool: i32,
     /// G54..G59.3: X Y Z A offsets and XY rotation.
@@ -38,7 +40,7 @@ impl Sim {
         s.tool_in_spindle = 23;
         s.active_gcodes = [0, 10, 170, 210, 400, 490, 540, 640, 800, 900, 911, 940, 970, 980, -1, -1, -1];
         s.active_mcodes = [0, 5, 9, 48, -1, -1, -1, -1, -1, -1];
-        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, messages: VecDeque::new(), selected_tool: 0, wcs: [[120.0, -95.0, -212.4, 0.0, 0.0], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5]], call_until: None }
+        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, program_lines: 0, messages: VecDeque::new(), selected_tool: 0, wcs: [[120.0, -95.0, -212.4, 0.0, 0.0], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5]], call_until: None }
     }
 
     fn msg(&mut self, kind: MessageKind, text: impl Into<String>) {
@@ -266,13 +268,16 @@ impl Machine for Sim {
                     self.mdi(line);
                 }
             }
-            Command::ProgramOpen(path) => self.s.file = path.clone(),
+            Command::ProgramOpen(path) => {
+                self.s.file = path.clone();
+                self.program_lines = std::fs::read_to_string(path).map_or(0, |t| t.lines().count() as i32);
+            }
             Command::ProgramRun(line) => {
                 if self.require_on("run") {
                     self.s.mode = Mode::Auto;
                     self.s.interp = Interp::Reading;
                     self.s.current_line = (*line).max(1);
-                    self.run_until = Some(self.s.current_line + 200);
+                    self.run_until = Some(if self.program_lines > 0 { self.program_lines } else { self.s.current_line + 200 });
                 }
             }
             Command::Pause => {

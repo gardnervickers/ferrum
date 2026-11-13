@@ -195,3 +195,28 @@ export component ToolChange inherits Scrim {
         }
     }
 }
+
+// Pick one item from a list (picker.rs).
+export component Picker inherits Scrim {
+    Dialog {
+        width: 760px;
+        height: min(820px, 176px + Live.pick-items.length * 76px);
+        VerticalLayout {
+            padding: 20px;
+            spacing: 14px;
+            Text { text: Live.pick-title; font-family: Theme.display; font-size: 38px; letter-spacing: 2px; color: Theme.ink; }
+            Rectangle {
+                vertical-stretch: 1;
+                clip: true;
+                Flickable {
+                    content-height: items.preferred-height;
+                    items := VerticalLayout {
+                        spacing: 8px;
+                        for it[i] in Live.pick-items: Btn { height: 68px; text: it; font-size: 26px; clicked => { Actions.pick(i); } }
+                    }
+                }
+            }
+            Btn { height: 64px; text: "CANCEL"; clicked => { Actions.pick(-1); } }
+        }
+    }
+}
