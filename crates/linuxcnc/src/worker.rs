@@ -88,7 +88,7 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
 fn required_mode(cmd: &Command) -> Option<Mode> {
     match cmd {
         Command::Mdi(_) => Some(Mode::Mdi),
-        Command::ProgramRun(_) => Some(Mode::Auto),
+        Command::ProgramRun(_) | Command::ProgramOpen(_) => Some(Mode::Auto),
         Command::JogCont { .. }
         | Command::JogIncr { .. }
         | Command::Home(_)

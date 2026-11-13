@@ -4,11 +4,13 @@
 //! simulated machine instead (the default on builds without NML, e.g. the Mac).
 
 mod config;
+mod files;
 mod headless;
 mod manual;
 mod mdi;
 mod modules;
 mod powerfeed;
+mod program;
 mod settings;
 
 use config::Config;
@@ -454,6 +456,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         live.set_connected(true);
                         apply_status(ui, &mut st, &s, &axes);
                         with_manual(|mm| manual::apply_status(ui, mm, &s));
+                        program::sync(ui, &s.file);
                     }
                     Event::Message(m) => {
                         with_manual(|mm| manual::log_message(ui, mm, &m));
@@ -476,6 +479,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     wire_actions(&ui, &handle, &state, &cfg);
     let manual = manual::wire(&ui, &handle, &cfg, settings::Settings::load(), axes.contains(&3));
+    files::wire(&ui, &handle, files::root(&cfg));
+    program::wire(&ui);
     let mut mdi_notes = Vec::new();
     mdi::wire(&ui, &handle, &cfg, &mut mdi_notes);
     if !mdi_notes.is_empty() {
@@ -541,7 +546,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
         Command::SetState(TaskState::EstopReset),
         Command::SetState(TaskState::On),
         Command::Home(-1),
-        Command::ProgramOpen("/home/cnc/linuxcnc/nc_files/bracket-3f21a0.ngc".into()),
+        Command::ProgramOpen(sample_dir().join("bracket-sample.ngc").to_string_lossy().into_owned()),
     ] {
         let _ = sim.send(&c);
     }
@@ -557,6 +562,9 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     let handle = linuxcnc::spawn(Box::new(linuxcnc::Sim::new()), Duration::from_secs(3600), |_| {});
     let manual = manual::wire(&ui, &handle, cfg, settings::Settings::memory(), axis_indices(cfg).contains(&3));
     mdi::wire(&ui, &handle, cfg, &mut Vec::new());
+    files::wire(&ui, &handle, sample_dir());
+    program::wire(&ui);
+    program::sync(&ui, &s.file);
     manual::apply_status(&ui, &manual, &s);
     let actions = ui.global::<Actions>();
     for what in &args.show {
@@ -579,6 +587,11 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                     actions.invoke_mdi_key(k.into());
                 }
             }
+            "line" => {
+                live.set_line(18);
+                live.set_running(true);
+            }
+            "file" => actions.invoke_files_tap(1),
             "feed" | "goto" => live.set_jog_tab(what.as_str().into()),
             "gotos" => {
                 for (x, y) in [(0.0, 0.0), (-12.0, 0.0), (50.0, -30.0), (150.0, -150.0)] {
@@ -615,6 +628,11 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     headless::save(&window, out).map_err(slint::PlatformError::Other)?;
     eprintln!("millgui: wrote {}", out.display());
     Ok(())
+}
+
+/// Sample programs for headless screenshots (millgui/testdata/nc_files).
+fn sample_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/nc_files")
 }
 
 type UiEventFn = Box<dyn FnMut(&MainWindow, Event)>;

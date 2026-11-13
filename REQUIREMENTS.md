@@ -14,6 +14,7 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] Prompt for M5 and a fresh start when spindle_drawbar_guard.rearm_required is set
       (needs the current mymill.hal on the Pi; the Pi's copy predates the pin).
 - [x] Tapping an override % resets that row; rapid steps 25%.
+- [x] EXIT (hold) in the status bar ends the session; disabled while running.
 - [x] Popups cover only the middle, so E-STOP, power, feed hold, stop, cycle start stay usable.
 - [ ] Follow mode changes made by the WHB04B pendant (halui); pendant pill.
 - [x] Message drawer for (abort), (MSG), (PRINT), (DEBUG) (tap the message line).
@@ -38,7 +39,9 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 ## M3 Run and files
 
 - [ ] Backplot from the interpreter shim; GPU or software renderer chosen at startup; flat visuals.
-- [ ] Files: no USB; list shows ops, time and date; backplot plus op list.
+- [x] Files: no USB; browse PROGRAM_PREFIX (G-code and folders, newest first), preview, LOAD.
+- [ ] Files: ops and estimated time per file; top-view preview plus op list (needs the interpreter).
+- [x] Run: G-code view follows the executing line; NEXT M6 finds the next tool change.
 - [ ] CYCLE START has a static outline when it can resume.
 - [ ] Run from line: refused inside a job (job_session.cycle_start_problem); design restoring
       tool/spindle/offsets properly or drop it (it is not LinuxCNC behavior).

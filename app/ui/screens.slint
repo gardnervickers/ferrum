@@ -1,6 +1,7 @@
 import { Theme } from "theme.slint";
 import { Live, Actions, MdiCard } from "state.slint";
-import { Card, Label, Btn, Seg, Note } from "widgets.slint";
+import { Card, Label, Btn, Seg, Note, H3 } from "widgets.slint";
+import { ListView } from "std-widgets.slint";
 
 // Placeholder for screens that later milestones fill in.
 export component Placeholder inherits Rectangle {
@@ -156,24 +157,114 @@ component MdiPanel inherits VerticalLayout {
     }
 }
 
+// One G-code line; fixed height so the ListView only creates visible rows.
+component GLine inherits Rectangle {
+    in property <int> n;
+    in property <string> code;
+    in property <bool> current;
+    in property <bool> picked;
+    callback tapped();
+    height: 32px;
+    background: current ? #2b3a6b : picked ? Theme.raised : transparent;
+    HorizontalLayout {
+        padding-left: 8px;
+        spacing: 12px;
+        Text { width: 70px; horizontal-alignment: right; vertical-alignment: center; text: n; font-family: Theme.body; font-size: 18px; color: Theme.dim; }
+        Text { vertical-alignment: center; text: code; font-family: Theme.body; font-size: 21px; color: current ? Theme.ink : Theme.muted; overflow: elide; }
+    }
+    TouchArea { clicked => { root.tapped(); } }
+}
+
+component ProgramCard inherits Card {
+    VerticalLayout {
+        padding: 14px;
+        spacing: 12px;
+        HorizontalLayout {
+            H3 { horizontal-stretch: 1; text: Live.program == "" ? "NO PROGRAM LOADED" : Live.program; overflow: elide; }
+            Label { vertical-alignment: center; text: "LINE " + Live.line + " / " + Live.gcode-count; }
+        }
+        Rectangle {
+            height: 8px;
+            border-radius: 4px;
+            background: Theme.well;
+            Rectangle {
+                x: 0;
+                width: Live.gcode-count == 0 ? 0 : parent.width * min(1, Live.line / Live.gcode-count);
+                border-radius: 4px;
+                background: Theme.sel;
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.well;
+            border-radius: 6px;
+            VerticalLayout {
+                alignment: center;
+                spacing: 8px;
+                Text { horizontal-alignment: center; text: "BACKPLOT"; font-family: Theme.display; font-size: 34px; letter-spacing: 2px; color: Theme.dim; }
+                Note { horizontal-alignment: center; text: "Interpreter preview arrives next in milestone 3."; }
+            }
+        }
+    }
+}
+
+component GcodeView inherits VerticalLayout {
+    spacing: 10px;
+    property <length> line-h: 32px;
+    property <int> cur: Live.line - 1;
+    property <int> picked: Live.gcode-selected;
+    // Keep the executing (or found) line in view, a third of the way down.
+    changed cur => { if Live.running { list.content-y = -max(0px, (cur - 6) * line-h); } }
+    changed picked => { if picked >= 0 { list.content-y = -max(0px, (picked - 6) * line-h); } }
+    Rectangle {
+        vertical-stretch: 1;
+        background: Theme.well;
+        border-radius: 6px;
+        list := ListView {
+            for code[i] in Live.gcode-lines: GLine {
+                n: i + 1;
+                code: code;
+                current: i == cur;
+                picked: i == Live.gcode-selected;
+                tapped => { Live.gcode-selected = i; }
+            }
+        }
+        if Live.gcode-count == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        Btn { text: "RUN FROM SELECTED"; enabled: false; sub: "NOT YET"; }
+        Btn { text: "NEXT M6"; enabled: Live.gcode-count > 0; clicked => { Actions.gcode-next-m6(); } }
+    }
+}
+
 export component RunScreen inherits Rectangle {
     VerticalLayout {
         padding: 14px;
         spacing: 14px;
-        HorizontalLayout {
-            Seg { text: "G-CODE"; on: Live.run-tab == "program"; clicked => { Live.run-tab = "program"; } }
-            Seg { text: "MDI"; on: Live.run-tab == "mdi"; clicked => { Live.run-tab = "mdi"; } }
-        }
-        Rectangle {
-            vertical-stretch: 1;
-            if Live.run-tab == "program": Placeholder {
-                width: parent.width + 28px;
-                x: -14px; y: -14px;
-                height: parent.height + 28px;
-                title: Live.program == "" ? "NO PROGRAM LOADED" : Live.program;
-                note: (Live.program == "" ? "" : "LINE " + Live.line + " · ") + "G-code view and preview arrive in milestone 3";
+        if Live.run-tab == "mdi": VerticalLayout {
+            spacing: 14px;
+            HorizontalLayout {
+                Seg { text: "G-CODE"; on: false; clicked => { Live.run-tab = "program"; } }
+                Seg { text: "MDI"; on: true; }
             }
-            if Live.run-tab == "mdi": MdiPanel { }
+            MdiPanel { vertical-stretch: 1; }
+        }
+        if Live.run-tab != "mdi": HorizontalLayout {
+            spacing: 14px;
+            ProgramCard { horizontal-stretch: 1.3; }
+            Card {
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    HorizontalLayout {
+                        Seg { text: "G-CODE"; on: true; }
+                        Seg { text: "MDI"; on: false; clicked => { Live.run-tab = "mdi"; } }
+                    }
+                    GcodeView { vertical-stretch: 1; }
+                }
+            }
         }
     }
 }

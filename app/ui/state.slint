@@ -5,6 +5,7 @@ export struct DroRow { axis: string, work: string, mach: string, dtg: string, ho
 export struct NavItem { id: string, label: string, icon: string }
 export struct MsgRow { time: string, text: string, kind: string }
 export struct MdiCard { label: string, desc: string, fill: string, moves: bool }
+export struct FileRow { name: string, dir: bool, modified: string, size: string }
 export struct GotoRow { name: string, x: string, y: string, px: float, py: float }
 
 export global Live {
@@ -55,6 +56,17 @@ export global Live {
     in property <bool> mist;
 
     in-out property <string> run-tab: "program";
+    in property <[FileRow]> files;
+    in property <string> files-path;
+    in property <int> files-selected: -1;
+    in property <bool> files-can-up;
+    in property <string> files-name;
+    in property <string> files-preview;
+
+    in property <[string]> gcode-lines;
+    in property <int> gcode-count;
+    in-out property <int> gcode-selected: -1;
+
     in property <[string]> mdi-categories;
     in property <string> mdi-category;
     in property <[MdiCard]> mdi-cards;
@@ -135,6 +147,11 @@ export global Actions {
     callback goto-go();
 
     callback mdi-send(text: string);
+    callback files-tap(index: int);
+    callback files-up();
+    callback files-refresh();
+    callback files-load();
+    callback gcode-next-m6();
     callback mdi-category-set(category: string);
     callback mdi-pick(fill: string);
     callback mdi-key(key: string);

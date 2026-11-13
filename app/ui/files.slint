@@ -1,0 +1,88 @@
+import { Theme } from "theme.slint";
+import { Live, Actions, FileRow } from "state.slint";
+import { Btn, Card, Label, H3, Note } from "widgets.slint";
+import { ListView } from "std-widgets.slint";
+
+export component FilesScreen inherits Rectangle {
+    HorizontalLayout {
+        padding: 14px;
+        spacing: 14px;
+        Card {
+            horizontal-stretch: 1.4;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                HorizontalLayout {
+                    H3 { horizontal-stretch: 1; text: "PROGRAMS"; }
+                    Label { vertical-alignment: center; text: Live.files-path; }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    Label { horizontal-stretch: 1; text: "NAME"; }
+                    Label { width: 120px; horizontal-alignment: right; text: "SIZE"; }
+                    Label { width: 200px; horizontal-alignment: right; text: "MODIFIED"; }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.well;
+                    border-radius: 6px;
+                    ListView {
+                        for f[i] in Live.files: Rectangle {
+                            height: 58px;
+                            background: i == Live.files-selected ? Theme.sel : ft.pressed ? Theme.raised : transparent;
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                Text { horizontal-stretch: 1; vertical-alignment: center; text: (f.dir ? "▸ " : "") + f.name; font-family: Theme.body; font-size: 24px; color: Theme.ink; overflow: elide; }
+                                Text { width: 120px; horizontal-alignment: right; vertical-alignment: center; text: f.size; font-family: Theme.body; font-size: 20px; color: Theme.muted; }
+                                Text { width: 200px; horizontal-alignment: right; vertical-alignment: center; text: f.modified; font-family: Theme.body; font-size: 20px; color: Theme.muted; }
+                            }
+                            ft := TouchArea { clicked => { Actions.files-tap(i); } }
+                        }
+                    }
+                    if Live.files.length == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: "No G-code files here."; }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Btn { width: 220px; text: "FOLDER UP"; enabled: Live.files-can-up; clicked => { Actions.files-up(); } }
+                    Btn { width: 180px; text: "REFRESH"; clicked => { Actions.files-refresh(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Btn {
+                        width: 240px;
+                        text: "LOAD";
+                        kind: "go";
+                        enabled: Live.files-name != "" && !Live.running;
+                        clicked => { Actions.files-load(); }
+                    }
+                }
+            }
+        }
+        Card {
+            horizontal-stretch: 1.6;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                H3 { text: Live.files-name == "" ? "SELECT A FILE" : Live.files-name; overflow: elide; }
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.well;
+                    border-radius: 6px;
+                    clip: true;
+                    Flickable {
+                        content-height: pv.preferred-height;
+                        pv := Text {
+                            x: 12px;
+                            y: 8px;
+                            text: Live.files-preview;
+                            font-family: Theme.body;
+                            font-size: 19px;
+                            color: Theme.muted;
+                        }
+                    }
+                }
+                Note { text: "First lines of the file. The op list, times and top-view preview come from the interpreter later in milestone 3."; }
+            }
+        }
+    }
+}

@@ -1,12 +1,13 @@
 import { Theme } from "theme.slint";
-import { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow } from "state.slint";
+import { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, FileRow } from "state.slint";
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
 import { Placeholder, RunScreen } from "screens.slint";
 
 import { JogScreen } from "jog.slint";
+import { FilesScreen } from "files.slint";
 import { Keypad, MessageDrawer } from "overlays.slint";
 
-export { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow }
+export { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, FileRow }
 
 // Drawn at the mill's 1920x1080. Each screen is only instantiated while it
 // is shown, so a disabled module's screen never exists.
@@ -31,7 +32,7 @@ export component MainWindow inherits Window {
         if Live.screen == "tools": Placeholder { title: "TOOLS"; note: "Milestone 4"; }
         if Live.screen == "offsets": Placeholder { title: "OFFSETS"; note: "Milestone 4"; }
         if Live.screen == "conv": Placeholder { title: "CONVERSATIONAL"; note: "Milestone 6"; }
-        if Live.screen == "files": Placeholder { title: "FILES"; note: "Milestone 3"; }
+        if Live.screen == "files": FilesScreen {}
         if Live.screen == "util": Placeholder { title: "UTIL"; note: "Milestone 5"; }
         if Live.drawer-open: MessageDrawer {}
         if Live.keypad-open: Keypad {}
