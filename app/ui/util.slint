@@ -42,11 +42,11 @@ export component UtilScreen inherits Rectangle {
                     enabled: !Live.wu-running;
                     clicked => { Actions.wu-secure(); }
                 }
+                // Fixed widths (the card is 680 px): every row splits at the same x.
                 HorizontalLayout {
-                    spacing: 10px;
+                    spacing: 12px;
                     for st[i] in Live.wu-stages: Rectangle {
-                        preferred-width: 0;
-                        horizontal-stretch: 1;
+                        width: 154px;
                         height: 124px;
                         border-radius: 6px;
                         background: st.state == "run" ? #1f3a2a : Theme.panel2;
@@ -83,17 +83,16 @@ export component UtilScreen inherits Rectangle {
                 // Fixed slot so START/STOP never move.
                 Text { height: 26px; overflow: elide; font-family: Theme.body; font-size: 19px; color: #f3c463; text: !Live.wu-running ? Live.wu-ready : ""; }
                 HorizontalLayout {
-                    spacing: 40px;
-                    Btn { preferred-width: 0; horizontal-stretch: 1; kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
-                    Btn { preferred-width: 0; horizontal-stretch: 1; kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
+                    spacing: 12px;
+                    Btn { width: 320px; kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
+                    Btn { width: 320px; kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
                 }
                 H3 { text: "SPINDLE AND TOOL SETTER"; }
                 HorizontalLayout {
                     spacing: 12px;
-                    Btn { preferred-width: 0; horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
+                    Btn { width: 320px; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
                     Btn {
-                        preferred-width: 0;
-                        horizontal-stretch: 1;
+                        width: 320px;
                         text: "PROBE SPINDLE NOSE";
                         clicked => {
                             Actions.probe-mode("cal");
@@ -104,14 +103,14 @@ export component UtilScreen inherits Rectangle {
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    Btn { preferred-width: 0; horizontal-stretch: 1; text: "GO TO G30"; sub: "TOOL SETTER"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-go-g30(); } }
-                    Btn { preferred-width: 0; horizontal-stretch: 1; text: "SET G30 HERE"; hold: true; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-set-g30(); } }
+                    Btn { width: 320px; text: "GO TO G30"; sub: "TOOL SETTER"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-go-g30(); } }
+                    Btn { width: 320px; text: "SET G30 HERE"; hold: true; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-set-g30(); } }
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    Cell { preferred-width: 0; horizontal-stretch: 1; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
-                    Cell { preferred-width: 0; horizontal-stretch: 1; key: "SETTER"; value: Live.ut-setter; }
-                    Cell { preferred-width: 0; horizontal-stretch: 2; key: "G30 POSITION"; value: Live.ut-g30; }
+                    Cell { width: 154px; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
+                    Cell { width: 154px; key: "SETTER"; value: Live.ut-setter; }
+                    Cell { width: 320px; key: "G30 POSITION"; value: Live.ut-g30; }
                 }
                 Rectangle { vertical-stretch: 1; }
             }

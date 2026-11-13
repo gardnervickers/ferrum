@@ -126,7 +126,7 @@ export component ProbeScreen inherits Rectangle {
                     Label { x: 0; y: 4px; width: parent.width; horizontal-alignment: center; text: Live.pr-hint; }
                     Path {
                         // The browser build redraws a changed Path over open overlays.
-                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
+                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open || root.more-open || root.defaults-open || root.wcs-open);
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-outline;
@@ -134,7 +134,7 @@ export component ProbeScreen inherits Rectangle {
                     }
                     Path {
                         // The browser build redraws a changed Path over open overlays.
-                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
+                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open || root.more-open || root.defaults-open || root.wcs-open);
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-arrows;
@@ -142,7 +142,7 @@ export component ProbeScreen inherits Rectangle {
                     }
                     Path {
                         // The browser build redraws a changed Path over open overlays.
-                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open);
+                        visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open || root.more-open || root.defaults-open || root.wcs-open);
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-heads;
@@ -241,7 +241,7 @@ export component ProbeScreen inherits Rectangle {
         title: "MORE SETTINGS · THIS RUN ONLY";
         dw: 1300px;
         // Sized to the rows so no empty band is left below them.
-        dh: min(900px, 200px + ceil(Live.pr-more.length / 3) * 114px);
+        dh: min(900px, 140px + ceil(Live.pr-more.length / 3) * 114px);
         close => { root.more-open = false; }
         Note { text: "Changed values show in amber and go back to the default after the run. Defaults live under DEFAULTS."; }
         GridLayout {
@@ -262,7 +262,7 @@ export component ProbeScreen inherits Rectangle {
             Seg { horizontal-stretch: 1; text: "TOOL SETTER"; on: root.defaults-tab == "setter"; clicked => { root.defaults-tab = "setter"; } }
             Seg { horizontal-stretch: 1; text: "CALIBRATION"; on: root.defaults-tab == "cal"; clicked => { root.defaults-tab = "cal"; } }
         }
-        Note { text: "Saved values (#3004–#3037). Tap one to change it; it is written to LinuxCNC now."; }
+        Note { height: 28px; text: "Saved values (#3004–#3037). Tap one to change it; it is written to LinuxCNC now."; }
         Rectangle {
             vertical-stretch: 1;
             background: Theme.well;

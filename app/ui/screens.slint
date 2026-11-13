@@ -108,7 +108,8 @@ component MdiPanel inherits VerticalLayout {
                         property <int> i: row * 2 + col;
                         property <MdiCard> card: Live.mdi-cards[i];
                         horizontal-stretch: 1;
-                        height: 70px;
+                        // Three rows fit above the keypad, so none is cut in half.
+                        height: 60px;
                         border-radius: 6px;
                         background: i >= Live.mdi-cards.length ? transparent : ct.pressed && unlocked ? Theme.sel : Theme.raised;
                         border-width: i >= Live.mdi-cards.length ? 0 : 1px;

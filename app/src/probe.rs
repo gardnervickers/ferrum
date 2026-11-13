@@ -652,7 +652,7 @@ impl Probe {
         live.set_pr_shape_label(
             match self.mode {
                 "find" => "WHAT ARE YOU PROBING?",
-                "meas" => "WHAT TO MEASURE? (NO WCS CHANGE)",
+                "meas" => "WHAT TO MEASURE?",
                 _ => "WHAT TO CALIBRATE",
             }
             .into(),
