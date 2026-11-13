@@ -369,6 +369,10 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         let on = st.borrow().status.as_ref().is_some_and(|s| s.optional_stop);
         m.send(Command::OptionalStop(!on));
     });
+    // LinuxCNC shuts the whole session down when its display program exits.
+    actions.on_exit(|| {
+        let _ = slint::quit_event_loop();
+    });
     let weak = ui.as_weak();
     actions.on_navigate(move |id| {
         if let Some(ui) = weak.upgrade() {

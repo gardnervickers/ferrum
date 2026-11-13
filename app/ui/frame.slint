@@ -78,6 +78,19 @@ export component StatusBar inherits Rectangle {
             font-size: 24px;
             color: Theme.muted;
         }
+        // Closing the display ends the LinuxCNC session; never mid-program.
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                width: 110px;
+                height: 48px;
+                text: "EXIT";
+                font-size: 20px;
+                hold: true;
+                enabled: !Live.running;
+                clicked => { Actions.exit(); }
+            }
+        }
     }
 }
 
