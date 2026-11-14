@@ -54,8 +54,8 @@ component MdiPanel inherits VerticalLayout {
             height: 72px;
             background: Theme.well;
             border-width: 1px;
-            border-color: input.has-focus ? Theme.sel : Theme.line;
-            border-radius: 6px;
+            border-color: input.has-focus ? Theme.sel : Theme.raised-border;
+            border-radius: Theme.radius-ctl;
             clip: true;
             // A long line slides left so its end (where typing happens) stays in view.
             input := TextInput {
@@ -92,8 +92,10 @@ component MdiPanel inherits VerticalLayout {
     }
     HorizontalLayout {
         spacing: 0px;
-        for c in Live.mdi-categories: Seg {
+        for c[i] in Live.mdi-categories: Seg {
             text: c;
+            first: i == 0;
+            last: i == Live.mdi-categories.length - 1;
             on: Live.mdi-category == c;
             clicked => { Actions.mdi-category-set(c); }
         }
@@ -112,8 +114,8 @@ component MdiPanel inherits VerticalLayout {
                         horizontal-stretch: 1;
                         // Three rows fit above the keypad, so none is cut in half.
                         height: 60px;
-                        border-radius: 6px;
-                        background: i >= Live.mdi-cards.length ? transparent : ct.pressed && unlocked ? Theme.sel : Theme.raised;
+                        border-radius: Theme.radius-ctl;
+                        background: i >= Live.mdi-cards.length ? transparent : ct.pressed && unlocked ? Theme.sel-soft : Theme.raised;
                         border-width: i >= Live.mdi-cards.length ? 0 : 1px;
                         border-color: Theme.raised-border;
                         opacity: unlocked ? 1 : 0.38;
@@ -125,7 +127,7 @@ component MdiPanel inherits VerticalLayout {
                             HorizontalLayout {
                                 spacing: 10px;
                                 Text { text: card.label; font-family: Theme.display; font-size: 26px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
-                                if card.moves: Text { vertical-alignment: center; text: "· MOVES"; font-family: Theme.display; font-size: 18px; color: #f2c14e; }
+                                if card.moves: Text { vertical-alignment: center; text: "· MOVES"; font-family: Theme.display; font-size: 18px; color: Theme.warn; }
                             }
                             if card.desc != "": Text { text: card.desc; font-family: Theme.body; font-size: 17px; color: Theme.muted; overflow: elide; }
                         }
@@ -157,39 +159,50 @@ component GLine inherits Rectangle {
     in property <bool> picked;
     callback tapped();
     height: 32px;
-    background: current ? #2b3a6b : picked ? Theme.raised : transparent;
+    background: current ? Theme.sel-soft : picked ? Theme.raised : transparent;
+    if current: Rectangle { x: 0; width: 4px; background: Theme.sel; }
     HorizontalLayout {
         padding-left: 8px;
-        spacing: 12px;
-        Text { width: 70px; horizontal-alignment: right; vertical-alignment: center; text: n; font-family: Theme.body; font-size: 18px; color: Theme.dim; }
-        Text { vertical-alignment: center; text: code; font-family: Theme.body; font-size: 21px; color: current ? Theme.ink : Theme.muted; overflow: elide; }
+        spacing: 14px;
+        Text { width: 62px; horizontal-alignment: right; vertical-alignment: center; text: n; font-family: Theme.body; font-size: 18px; color: current ? Theme.sel-ink : Theme.dim; }
+        Text { vertical-alignment: center; text: code; font-family: Theme.body; font-weight: current ? 600 : 400; font-size: 21px; color: current ? Theme.ink : Theme.muted; overflow: elide; }
     }
     TouchArea { clicked => { root.tapped(); } }
 }
 
 component ProgramCard inherits Card {
     VerticalLayout {
-        padding: 14px;
+        padding: Theme.pad;
         spacing: 12px;
         HorizontalLayout {
-            H3 { horizontal-stretch: 1; text: Live.program == "" ? "NO PROGRAM LOADED" : Live.program; overflow: elide; }
-            Label { vertical-alignment: center; text: "LINE " + min(Live.line, Live.gcode-count) + " / " + Live.gcode-count; }
+            height: 34px;
+            spacing: 14px;
+            H3 { horizontal-stretch: 1; vertical-alignment: center; text: Live.program == "" ? "NO PROGRAM LOADED" : Live.program; color: Live.program == "" ? Theme.muted : Theme.ink; overflow: elide; }
+            Label { vertical-alignment: center; text: "LINE"; font-size: 16px; color: Theme.dim; }
+            // Fixed width: the count must not nudge the title as it grows.
+            Text {
+                width: 130px;
+                vertical-alignment: center;
+                horizontal-alignment: right;
+                text: min(Live.line, Live.gcode-count) + " / " + Live.gcode-count;
+                font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink;
+            }
         }
         Rectangle {
-            height: 8px;
-            border-radius: 4px;
+            height: 6px;
+            border-radius: 3px;
             background: Theme.well;
             Rectangle {
                 x: 0;
                 width: Live.gcode-count == 0 ? 0 : parent.width * min(1, Live.line / Live.gcode-count);
-                border-radius: 4px;
+                border-radius: 3px;
                 background: Theme.sel;
             }
         }
         plot-area := Rectangle {
             vertical-stretch: 1;
             background: Theme.well;
-            border-radius: 6px;
+            border-radius: Theme.radius-ctl;
             clip: true;
             // Report the size a few times a second; Rust redraws only when it
             // changes. (`changed width` misses the first layout.)
@@ -288,28 +301,33 @@ component ProgramCard inherits Card {
             }
             if Live.program == "": Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
             // Show or hide the machine model (table, head, column).
-            Seg {
-                x: parent.width - self.width - 10px; y: 10px;
+            Btn {
+                x: parent.width - self.width - 12px; y: 12px;
                 width: 130px; height: 48px; font-size: 20px;
                 text: "MACHINE"; on: Live.plot-machine;
                 clicked => { Actions.plot-machine(); }
             }
             Text {
                 // Top corner: the work origin's axes often sit bottom left.
-                x: 14px; y: 10px;
-                text: (Live.plot-view == "top" ? "TOP VIEW" : Live.plot-view == "front" ? "FRONT VIEW" : "ISO VIEW") + (Live.plot-summary == "" ? "" : " · " + Live.plot-summary);
-                font-family: Theme.body; font-size: 16px; color: Theme.dim;
+                x: 16px; y: 12px;
+                text: (Live.plot-view == "top" ? "TOP VIEW" : Live.plot-view == "front" ? "FRONT VIEW" : "ISO VIEW") + (Live.plot-summary == "" ? "" : "  ·  " + Live.plot-summary);
+                font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim;
             }
         }
         HorizontalLayout {
-            spacing: 10px;
-            Seg { width: 90px; text: "ISO"; on: Live.plot-view == "iso"; clicked => { Actions.plot-view("iso"); } }
-            Seg { width: 90px; text: "TOP"; on: Live.plot-view == "top"; clicked => { Actions.plot-view("top"); } }
-            Seg { width: 110px; text: "FRONT"; on: Live.plot-view == "front"; clicked => { Actions.plot-view("front"); } }
+            height: 56px;
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 0px;
+                Seg { width: 96px; first: true; text: "ISO"; on: Live.plot-view == "iso"; clicked => { Actions.plot-view("iso"); } }
+                Seg { width: 96px; text: "TOP"; on: Live.plot-view == "top"; clicked => { Actions.plot-view("top"); } }
+                Seg { width: 110px; last: true; text: "FRONT"; on: Live.plot-view == "front"; clicked => { Actions.plot-view("front"); } }
+            }
             Rectangle { horizontal-stretch: 1; }
-            Seg { width: 64px; font-size: 34px; text: "−"; clicked => { Actions.plot-zoom(1 / 1.5, 0.5, 0.5); } }
-            Seg { width: 64px; font-size: 34px; text: "+"; clicked => { Actions.plot-zoom(1.5, 0.5, 0.5); } }
-            Seg { width: 80px; text: "FIT"; clicked => { Actions.plot-fit(); } }
+            Btn { width: 68px; font-size: 32px; text: "−"; clicked => { Actions.plot-zoom(1 / 1.5, 0.5, 0.5); } }
+            Btn { width: 68px; font-size: 32px; text: "+"; clicked => { Actions.plot-zoom(1.5, 0.5, 0.5); } }
+            Btn { width: 84px; text: "FIT"; clicked => { Actions.plot-fit(); } }
+            Rectangle { width: 4px; }
             Btn { width: 170px; text: "CLEAR TRAIL"; clicked => { Actions.plot-clear-trail(); } }
         }
     }
@@ -326,7 +344,8 @@ component GcodeView inherits VerticalLayout {
     Rectangle {
         vertical-stretch: 1;
         background: Theme.well;
-        border-radius: 6px;
+        border-radius: Theme.radius-ctl;
+        clip: true;
         list := ListView {
             for code[i] in Live.gcode-lines: GLine {
                 n: i + 1;
@@ -347,22 +366,22 @@ component GcodeView inherits VerticalLayout {
 
 component RunTabs inherits HorizontalLayout {
     spacing: 0px;
-    Seg { text: "G-CODE"; on: Live.run-tab == "program"; clicked => { Live.run-tab = "program"; } }
+    Seg { first: true; text: "G-CODE"; on: Live.run-tab == "program"; clicked => { Live.run-tab = "program"; } }
     Seg { text: "MDI"; on: Live.run-tab == "mdi"; clicked => { Live.run-tab = "mdi"; } }
-    Seg { text: "JOG"; on: Live.run-tab == "jog"; clicked => { Live.run-tab = "jog"; } }
+    Seg { last: true; text: "JOG"; on: Live.run-tab == "jog"; clicked => { Live.run-tab = "jog"; } }
 }
 
 export component RunScreen inherits Rectangle {
     // The right panel keeps one width for every tab (the JOG tab's), so the
     // backplot never moves or resizes when switching tabs.
     HorizontalLayout {
-        padding: 14px;
-        spacing: 14px;
+        padding: Theme.gap;
+        spacing: Theme.gap;
         ProgramCard { horizontal-stretch: 1; }
         Card {
             width: 545px;
             VerticalLayout {
-                padding: 14px;
+                padding: Theme.pad;
                 spacing: 12px;
                 RunTabs { }
                 if Live.run-tab == "program": GcodeView { vertical-stretch: 1; }

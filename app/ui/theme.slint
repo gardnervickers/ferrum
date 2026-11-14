@@ -1,4 +1,5 @@
-// Colors and fonts from rust_gui/mockup.html.
+// The design tokens: colours, type, spacing and radii. Screens take every
+// colour and size from here so the look stays one system (see docs/DESIGN.md).
 import "../fonts/BebasNeue-Regular.ttf";
 import "../fonts/BarlowCondensed-Regular.ttf";
 import "../fonts/BarlowCondensed-Medium.ttf";
@@ -8,25 +9,52 @@ import "../fonts/BarlowCondensed-SemiBold.ttf";
 import "../fonts/MillSymbols.ttf";
 
 export global Theme {
-    out property <color> page: #121517;
-    out property <color> frame: #1b1f22;
-    out property <color> bar: #15181a;
-    out property <color> panel: #24292d;
-    out property <color> panel2: #2d3338;
-    out property <color> raised: #383f45;
-    out property <color> raised-border: #4a535a;
-    out property <color> line: #3d454b;
-    out property <color> well: #0f1214;
-    out property <color> ink: #e8ebed;
-    out property <color> muted: #97a1a8;
-    out property <color> dim: #6b747b;
-    out property <color> sel: #6d7cff;
-    out property <color> go: #2e9a57;
-    out property <color> go-border: #3fb86b;
-    out property <color> hold: #8a6512;
-    out property <color> hold-border: #d99a1e;
-    out property <color> stop: #8f2b28;
-    out property <color> stop-border: #cf4440;
+    // Surfaces, darkest to lightest. Depth comes from these steps, not from
+    // borders: page < panel < panel2 < raised.
+    out property <color> page: #0b0d0f;
+    out property <color> frame: #0f1215;
+    out property <color> bar: #0b0d0f;
+    out property <color> panel: #171b1f;
+    out property <color> panel2: #1e2328;
+    out property <color> raised: #272d33;
+    out property <color> raised-border: #343b43;
+    out property <color> line: #242a30;
+    out property <color> well: #090b0c;
+
+    // Text.
+    out property <color> ink: #eef1f3;
+    out property <color> muted: #9ba6ae;
+    out property <color> dim: #64707a;
+
+    // The one accent. Selected things are a tint with an accent edge and
+    // accent text, never a slab of solid colour.
+    out property <color> sel: #7f8fff;
+    out property <color> sel-soft: #7f8fff26;
+    out property <color> sel-ink: #c9d0ff;
+
+    // Machine actions keep their solid colours: these are the only filled
+    // buttons on the screen, so they are found at a glance.
+    out property <color> go: #1f8a4d;
+    out property <color> go-border: #3ccb7c;
+    out property <color> hold: #9a6a0c;
+    out property <color> hold-border: #f0b23c;
+    out property <color> stop: #a1302c;
+    out property <color> stop-border: #ee5a54;
+
+    // Status tones (pills, messages, flags).
+    out property <color> good: #6fdc9c;
+    out property <color> warn: #f3c463;
+    out property <color> bad: #ff8f8a;
+    out property <color> info: #8cc4ef;
+
+    // Type: Bebas Neue for labels and buttons, Barlow Condensed for values and text.
     out property <string> display: "Bebas Neue";
     out property <string> body: "Barlow Condensed";
+
+    // Spacing and corners.
+    out property <length> gap: 14px;
+    out property <length> pad: 16px;
+    out property <length> radius: 12px;
+    out property <length> radius-ctl: 10px;
+    out property <length> radius-sm: 7px;
 }

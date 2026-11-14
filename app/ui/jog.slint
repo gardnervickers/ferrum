@@ -21,8 +21,10 @@ export component JogPanel inherits VerticalLayout {
     HorizontalLayout {
         spacing: 0px;
         Label { width: 70px; vertical-alignment: center; text: "STEP"; }
-        for s in Live.jog-steps: Seg {
+        for s[i] in Live.jog-steps: Seg {
             text: s;
+            first: i == 0;
+            last: i == Live.jog-steps.length - 1;
             // A browser can only step: a lost release must not leave an axis moving.
             enabled: !(Live.remote && s == "CONT");
             on: Live.jog-step == s && !(Live.remote && s == "CONT");
