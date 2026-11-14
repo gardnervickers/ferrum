@@ -18,6 +18,8 @@ export struct WarmStage { rpm: string, minutes: string, state: string }
 export struct StatusRow { key: string, value: string, kind: string }
 export struct JobOp { pos: string, badge: string, kind: string, name: string, detail: string, enabled: bool, state: string, can-toggle: bool, selected: bool, progress: float, progress-text: string, stop-after: bool }
 export struct ConvField { key: string, label: string, value: string, unit: string, choice: bool }
+// One face of the backplot's view cube, in a 100 × 100 box.
+export struct CubeFace { label: string, path: string, grid: string, lx: float, ly: float, labelled: bool, facing: float, on: bool }
 export struct GotoRow { name: string, x: string, y: string, px: float, py: float }
 
 export global Live {
@@ -80,7 +82,11 @@ export global Live {
     in-out property <string> run-tab: "program";
     in property <image> plot;
     in property <string> plot-summary;
-    in property <string> plot-view: "iso";
+    // The backplot caption: TOP VIEW, ISO VIEW, ORBIT VIEW...
+    in property <string> plot-view: "ISO VIEW";
+    in property <[CubeFace]> cube-faces;
+    // Outline of the cube cells a tap would pick, or empty.
+    in property <string> cube-hot;
     in property <bool> plot-machine: true;
     // Drag preview offset of the backplot image (per screen, not mirrored).
     in-out property <float> plot-dx;
@@ -314,6 +320,12 @@ export global Actions {
     // Pan and zoom points as fractions of the plot's width and height, so a
     // browser of any size moves the mill's image by what the finger did.
     callback plot-pan(dx: float, dy: float, seq: int);
+    // Turn and raise the backplot view, in degrees.
+    callback plot-orbit(dyaw: float, dpitch: float);
+    // A tap on the view cube, as a fraction of its box.
+    callback plot-cube-tap(x: float, y: float);
+    // Pointer over the cube (x < 0 when it leaves).
+    callback plot-cube-hover(x: float, y: float);
     callback plot-zoom(factor: float, x: float, y: float);
     callback plot-fit();
     callback plot-machine();

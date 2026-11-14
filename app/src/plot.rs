@@ -2,7 +2,7 @@
 //! interpreter (in the background), the live tool position and its trail.
 
 use crate::config::Config;
-use crate::{Actions, Live, MainWindow};
+use crate::{Actions, CubeFace, Live, MainWindow};
 use preview::machine::{Machine, Pose};
 use preview::software::{Base, View, Zoom};
 use preview::{rs274, Toolpath, P4};
@@ -37,6 +37,8 @@ pub struct Plot {
     /// last base stays on screen until its replacement is ready.
     base: Option<(Key, Base)>,
     pending: Option<Key>,
+    /// Turns the view to a view-cube snap.
+    turn: slint::Timer,
     /// Draw inline (headless screenshots).
     inline: bool,
     setup: Option<rs274::Setup>,
@@ -89,7 +91,10 @@ impl Plot {
         if self.base.as_ref().map(|b| b.0) != Some(key) {
             if self.inline {
                 self.base = Some((key, Base::draw(&self.tp, self.view, w, h, None, self.zoom)));
-            } else if self.pending != Some(key) {
+            } else if self.pending.is_none() {
+                // One draw in flight: an orbit or a pan asks for a new view
+                // every frame, and the Pi draws slower than that. The next
+                // starts when this one lands, for the latest view.
                 self.pending = Some(key);
                 let tp = self.tp.clone();
                 std::thread::spawn(move || {
@@ -249,6 +254,26 @@ pub fn machine_pose(plot: &Rc<RefCell<Plot>>, pose: Pose) {
     }
 }
 
+/// The caption and the view cube for `v`.
+fn show_view(ui: &MainWindow, v: View) {
+    let live = ui.global::<Live>();
+    live.set_plot_view(format!("{} VIEW", preview::cube::name(v)).into());
+    let faces: Vec<CubeFace> = preview::cube::faces(v)
+        .into_iter()
+        .map(|f| CubeFace {
+            label: f.label.into(),
+            path: f.path.into(),
+            grid: f.grid.into(),
+            lx: f.lx as f32,
+            ly: f.ly as f32,
+            labelled: f.labelled,
+            facing: f.facing as f32,
+            on: f.on,
+        })
+        .collect();
+    live.set_cube_faces(slint::ModelRc::new(slint::VecModel::from(faces)));
+}
+
 thread_local! {
     static PLOT: RefCell<Option<Rc<RefCell<Plot>>>> = const { RefCell::new(None) };
 }
@@ -270,6 +295,7 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         dirty: false,
         base: None,
         pending: None,
+        turn: slint::Timer::default(),
         inline: false,
         setup: setup(cfg),
         rapid: rapid(cfg),
@@ -297,10 +323,53 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
             "front" => View::Front,
             _ => View::Iso,
         };
-        st.zoom = Zoom::default();
-        ui.global::<Live>().set_plot_view(v);
+        show_view(&ui, st.view);
         st.redraw(&ui);
     });
+    // Orbit: degrees of turn and raise, from dragging the view cube.
+    let (p, weak) = (plot.clone(), ui.as_weak());
+    actions.on_plot_orbit(move |dyaw, dpitch| {
+        let Some(ui) = weak.upgrade() else { return };
+        let mut st = p.borrow_mut();
+        st.turn.stop();
+        ui.global::<Live>().set_cube_hot("".into());
+        st.view = st.view.orbited(dyaw as f64, dpitch as f64);
+        show_view(&ui, st.view);
+        st.redraw(&ui);
+    });
+    // A tap on the view cube turns the view to that face, edge or corner.
+    let (p, weak) = (plot.clone(), ui.as_weak());
+    actions.on_plot_cube_tap(move |x, y| {
+        let Some(ui) = weak.upgrade() else { return };
+        let st = p.borrow();
+        let Some(to) = preview::cube::hit(st.view, x as f64 * 100.0, y as f64 * 100.0) else { return };
+        ui.global::<Live>().set_cube_hot("".into());
+        let (from, start) = (st.view, std::time::Instant::now());
+        let (p2, weak) = (p.clone(), ui.as_weak());
+        st.turn.start(slint::TimerMode::Repeated, Duration::from_millis(16), move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut st = p2.borrow_mut();
+            let t = (start.elapsed().as_secs_f64() / 0.32).min(1.0);
+            // Ease out: quick to leave, gentle to land.
+            let e = 1.0 - (1.0 - t).powi(3);
+            st.view = if t >= 1.0 { to } else { preview::cube::between(from, to, e) };
+            show_view(&ui, st.view);
+            st.redraw(&ui);
+            if t >= 1.0 {
+                st.turn.stop();
+            }
+        });
+    });
+    // Light the part of the cube a tap would pick: under the pointer on the
+    // Mac, under the finger while pressed. Off the box (x < 0) clears it.
+    let (p, weak) = (plot.clone(), ui.as_weak());
+    actions.on_plot_cube_hover(move |x, y| {
+        let Some(ui) = weak.upgrade() else { return };
+        let st = p.borrow();
+        let hot = if x < 0.0 { String::new() } else { preview::cube::hot(st.view, x as f64 * 100.0, y as f64 * 100.0) };
+        ui.global::<Live>().set_cube_hot(hot.into());
+    });
+    show_view(ui, View::Iso);
     // Zoom and pan, in logical pixels from the UI. A drag moves the old
     // image at once (plot-dx/dy) and the redraw replaces it.
     let (p, weak) = (plot.clone(), ui.as_weak());

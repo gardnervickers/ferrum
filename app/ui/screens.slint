@@ -135,7 +135,17 @@ component MdiPanel inherits VerticalLayout {
                             }
                             if card.desc != "": Text { text: card.desc; font-family: Theme.body; font-size: 17px; color: Theme.muted; overflow: elide; }
                         }
-                        ct := TouchArea {
+                        // What a tap would pick, lit.
+                if Live.cube-hot != "": Path {
+                    width: parent.width; height: parent.height;
+                    viewbox-width: 100; viewbox-height: 100;
+                    commands: Live.cube-hot;
+                    fill: Theme.sel.with-alpha(ct.pressed ? 0.55 : 0.35);
+                    stroke: Theme.sel;
+                    stroke-width: 1.5px;
+                }
+                ct := TouchArea {
+                    changed has-hover => { if !self.has-hover && !self.pressed { Actions.plot-cube-hover(-1, -1); } }
                             enabled: unlocked && i < Live.mdi-cards.length;
                             clicked => { Actions.mdi-pick(card.fill); }
                         }
@@ -308,35 +318,103 @@ component ProgramCard inherits Card {
                 double-clicked => { if !self.cur-drag && !self.last-drag { Actions.plot-fit(); } }
             }
             if Live.program == "": Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
+            // Zoom down the left edge, the camera caption beside it.
+            if Live.program != "": VerticalLayout {
+                x: 12px; y: 12px; width: 68px;
+                spacing: 8px;
+                alignment: start;
+                Btn { height: 56px; font-size: 32px; text: "+"; clicked => { Actions.plot-zoom(1.5, 0.5, 0.5); } }
+                Btn { height: 56px; font-size: 32px; text: "−"; clicked => { Actions.plot-zoom(1 / 1.5, 0.5, 0.5); } }
+                Rectangle { height: 6px; }
+                Btn { height: 56px; font-size: 20px; text: "FIT"; clicked => { Actions.plot-fit(); } }
+                Btn { height: 56px; font-size: 20px; text: "CLEAR"; clicked => { Actions.plot-clear-trail(); } }
+            }
+            if Live.program != "": Text {
+                x: 96px; y: 14px;
+                text: Live.plot-view + (Live.plot-summary == "" ? "" : "  ·  " + Live.plot-summary);
+                font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim;
+            }
+            // View cube: drag to orbit, tap a face, edge or corner to look
+            // from there.
+            if Live.program != "": cube := Rectangle {
+                x: parent.width - self.width - 10px; y: 10px;
+                width: 150px; height: 150px;
+                for f in Live.cube-faces: Path {
+                    width: parent.width; height: parent.height;
+                    viewbox-width: 100; viewbox-height: 100;
+                    commands: f.path;
+                    fill: f.on ? Theme.sel.mix(Theme.raised, 0.25) : Theme.panel2.mix(#3a424b, 1 - f.facing * 0.7);
+                    stroke: f.on ? Theme.sel : Theme.raised-border;
+                    stroke-width: f.on ? 2px : 1px;
+                }
+                for f in Live.cube-faces: Path {
+                    width: parent.width; height: parent.height;
+                    viewbox-width: 100; viewbox-height: 100;
+                    commands: f.grid;
+                    stroke: f.on ? Theme.sel : Theme.raised-border;
+                    stroke-width: 1px;
+                }
+                for f in Live.cube-faces: Text {
+                    visible: f.labelled;
+                    x: f.lx / 100 * parent.width - 40px; y: f.ly / 100 * parent.height - 10px;
+                    width: 80px; height: 20px;
+                    horizontal-alignment: center; vertical-alignment: center;
+                    text: f.label;
+                    font-family: Theme.display; font-size: 15px; letter-spacing: 1.2px;
+                    color: f.on ? Theme.sel-ink : Theme.muted;
+                }
+                // What a tap would pick, lit.
+                if Live.cube-hot != "": Path {
+                    width: parent.width; height: parent.height;
+                    viewbox-width: 100; viewbox-height: 100;
+                    commands: Live.cube-hot;
+                    fill: Theme.sel.with-alpha(ct.pressed ? 0.55 : 0.35);
+                    stroke: Theme.sel;
+                    stroke-width: 1.5px;
+                }
+                ct := TouchArea {
+                    changed has-hover => { if !self.has-hover && !self.pressed { Actions.plot-cube-hover(-1, -1); } }
+                    property <bool> dragging;
+                    // Finger travel already turned into orbit.
+                    property <length> done-x;
+                    property <length> done-y;
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down {
+                            self.dragging = false; self.done-x = 0; self.done-y = 0;
+                            Actions.plot-cube-hover(self.mouse-x / self.width, self.mouse-y / self.height);
+                        } else if e.kind == PointerEventKind.move && !self.pressed {
+                            Actions.plot-cube-hover(self.mouse-x / self.width, self.mouse-y / self.height);
+                        } else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) && !self.has-hover {
+                            Actions.plot-cube-hover(-1, -1);
+                        }
+                    }
+                    moved => {
+                        if !self.pressed { return; }
+                        if !self.dragging {
+                            Actions.plot-cube-hover(self.mouse-x / self.width, self.mouse-y / self.height);
+                        }
+                        if !self.dragging && abs(self.mouse-x - self.pressed-x) + abs(self.mouse-y - self.pressed-y) < 8px { return; }
+                        self.dragging = true;
+                        let dx = self.mouse-x - self.pressed-x - self.done-x;
+                        let dy = self.mouse-y - self.pressed-y - self.done-y;
+                        if abs(dx) + abs(dy) < 2px { return; }
+                        self.done-x += dx;
+                        self.done-y += dy;
+                        // A degree for about every 1.25 px of finger travel.
+                        Actions.plot-orbit(dx / 1px * 0.8, dy / 1px * 0.8);
+                    }
+                    clicked => {
+                        if !self.dragging { Actions.plot-cube-tap(self.mouse-x / self.width, self.mouse-y / self.height); }
+                    }
+                }
+            }
             // Show or hide the table and the tool.
-            Btn {
-                x: parent.width - self.width - 12px; y: 12px;
+            if Live.program != "": Btn {
+                x: parent.width - self.width - 12px; y: parent.height - self.height - 12px;
                 width: 130px; height: 48px; font-size: 20px;
                 text: "TABLE"; on: Live.plot-machine;
                 clicked => { Actions.plot-machine(); }
             }
-            Text {
-                // Top corner: the work origin's axes often sit bottom left.
-                x: 16px; y: 12px;
-                text: (Live.plot-view == "top" ? "TOP VIEW" : Live.plot-view == "front" ? "FRONT VIEW" : "ISO VIEW") + (Live.plot-summary == "" ? "" : "  ·  " + Live.plot-summary);
-                font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim;
-            }
-        }
-        HorizontalLayout {
-            height: 56px;
-            spacing: 12px;
-            HorizontalLayout {
-                spacing: 0px;
-                Seg { width: 96px; first: true; text: "ISO"; on: Live.plot-view == "iso"; clicked => { Actions.plot-view("iso"); } }
-                Seg { width: 96px; text: "TOP"; on: Live.plot-view == "top"; clicked => { Actions.plot-view("top"); } }
-                Seg { width: 110px; last: true; text: "FRONT"; on: Live.plot-view == "front"; clicked => { Actions.plot-view("front"); } }
-            }
-            Rectangle { horizontal-stretch: 1; }
-            Btn { width: 68px; font-size: 32px; text: "−"; clicked => { Actions.plot-zoom(1 / 1.5, 0.5, 0.5); } }
-            Btn { width: 68px; font-size: 32px; text: "+"; clicked => { Actions.plot-zoom(1.5, 0.5, 0.5); } }
-            Btn { width: 84px; text: "FIT"; clicked => { Actions.plot-fit(); } }
-            Rectangle { width: 4px; }
-            Btn { width: 170px; text: "CLEAR TRAIL"; clicked => { Actions.plot-clear-trail(); } }
         }
     }
 }

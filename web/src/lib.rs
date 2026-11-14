@@ -22,7 +22,7 @@ slint::include_modules!();
 
 #[allow(unused_parens, clippy::all)]
 mod mirror {
-    use super::{Actions, CheckRow, DroRow, FileRow, GotoRow, Live, MdiCard, MsgRow, NavItem, ConvField, JobOp, OffsetRow, PillData, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot, StatusRow, ToolRow, WarmStage};
+    use super::{Actions, CheckRow, CubeFace, DroRow, FileRow, GotoRow, Live, MdiCard, MsgRow, NavItem, ConvField, JobOp, OffsetRow, PillData, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot, StatusRow, ToolRow, WarmStage};
     include!(concat!(env!("OUT_DIR"), "/mirror.rs"));
 }
 

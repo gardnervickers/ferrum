@@ -5,11 +5,40 @@ use crate::machine::{Cylinder, Scene, Solid};
 use crate::{Kind, Toolpath, P4};
 use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum View {
-    Iso,
-    Top,
-    Front,
+/// The camera direction, in whole degrees so it can key the image cache.
+/// `yaw` turns about Z (0 looks from the front, along +Y; 45 from front
+/// left); `pitch` raises the eye (0 level, 90 straight down).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct View {
+    pub yaw: i16,
+    pub pitch: i16,
+}
+
+#[allow(non_upper_case_globals)]
+impl View {
+    /// True isometric: the eye along (-1, -1, 1).
+    pub const Iso: View = View { yaw: 45, pitch: 35 };
+    pub const Top: View = View { yaw: 0, pitch: 90 };
+    pub const Front: View = View { yaw: 0, pitch: 0 };
+
+    /// Turned by `dyaw` and raised by `dpitch` degrees; pitch stays between
+    /// straight up and straight down, yaw wraps.
+    pub fn orbited(self, dyaw: f64, dpitch: f64) -> View {
+        let yaw = (self.yaw as f64 + dyaw).round() as i32;
+        let yaw = ((yaw + 180).rem_euclid(360) - 180) as i16;
+        let pitch = (self.pitch as f64 + dpitch).round().clamp(-90.0, 90.0) as i16;
+        View { yaw, pitch }
+    }
+
+    /// Screen right, screen up and toward the eye, as unit vectors.
+    pub(crate) fn basis(self) -> ([f64; 3], [f64; 3], [f64; 3]) {
+        // The exact isometric pitch, so Iso matches the classic projection.
+        let iso = 35.264_389_682_754_654_f64;
+        let pitch = match self.pitch { 35 => iso, -35 => -iso, p => p as f64 };
+        let (sy, cy) = (self.yaw as f64).to_radians().sin_cos();
+        let (sp, cp) = pitch.to_radians().sin_cos();
+        ([cy, -sy, 0.0], [sy * sp, cy * sp, cp], [-sy * cp, -cy * cp, sp])
+    }
 }
 
 /// Op colors, matching the mockup.
@@ -19,12 +48,8 @@ pub const OP_COLORS: [[u8; 3]; 6] =
 const BG: [u8; 3] = [0x0f, 0x12, 0x14];
 
 fn project(v: View, p: P4) -> (f64, f64) {
-    match v {
-        View::Top => (p[0], p[1]),
-        View::Front => (p[0], p[2]),
-        // Isometric: X right-down, Y right-up, Z up.
-        View::Iso => ((p[0] - p[1]) * 0.7071, (p[0] + p[1]) * 0.4082 + p[2] * 0.8165),
-    }
+    let (r, u, _) = v.basis();
+    (r[0] * p[0] + r[1] * p[1] + r[2] * p[2], u[0] * p[0] + u[1] * p[1] + u[2] * p[2])
 }
 
 /// The user's zoom and pan on top of the fitted view: `zoom` scales about
@@ -72,29 +97,23 @@ struct Fit {
 
 impl Fit {
     fn new(tp: &Toolpath, view: View, w: u32, h: u32, z: Zoom) -> Self {
-        let mut pts: Vec<(f64, f64)> = vec![project(view, [0.0; 4])];
-        if let Some((lo, hi)) = tp.bounds() {
-            for x in [lo[0], hi[0]] {
-                for y in [lo[1], hi[1]] {
-                    for z in [lo[2], hi[2]] {
-                        pts.push(project(view, [x, y, z, 0.0]));
-                    }
-                }
+        // The toolpath box, grown to take in the work origin.
+        let (mut lo, mut hi) = ([0.0f64; 3], [0.0f64; 3]);
+        if let Some((a, b)) = tp.bounds() {
+            for i in 0..3 {
+                lo[i] = a[i].min(0.0);
+                hi[i] = b[i].max(0.0);
             }
         }
-        let (mut x0, mut x1, mut y0, mut y1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-        for (x, y) in pts {
-            x0 = x0.min(x);
-            x1 = x1.max(x);
-            y0 = y0.min(y);
-            y1 = y1.max(y);
-        }
+        // Fit the box's bounding sphere, not its outline in this view, so
+        // the scale holds still while the view orbits.
+        let c = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0, 0.0];
+        let d = ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt().max(1.0);
         let margin = 40.0;
-        let sw = (x1 - x0).max(1.0);
-        let sh = (y1 - y0).max(1.0);
-        let scale = ((w as f64 - 2.0 * margin) / sw).min((h as f64 - 2.0 * margin) / sh);
-        let ox = (w as f64 - sw * scale) / 2.0 - x0 * scale;
-        let oy = (h as f64 - sh * scale) / 2.0 - y0 * scale;
+        let scale = ((w as f64 - 2.0 * margin) / d).min((h as f64 - 2.0 * margin) / d);
+        let (px, py) = project(view, c);
+        let ox = w as f64 / 2.0 - px * scale;
+        let oy = h as f64 / 2.0 - py * scale;
         // Apply the zoom about the center and the pan (y points down on screen).
         let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
         let scale_z = scale * z.zoom;
@@ -321,11 +340,7 @@ impl Base {
 
 /// Toward the viewer, for back-face culling and depth order.
 fn toward_viewer(v: View) -> [f64; 3] {
-    match v {
-        View::Top => [0.0, 0.0, 1.0],
-        View::Front => [0.0, -1.0, 0.0],
-        View::Iso => [-1.0, -1.0, 1.0],
-    }
+    v.basis().2
 }
 
 /// A box as flat-shaded faces (the ones facing the viewer).
@@ -333,7 +348,7 @@ fn draw_box(pm: &mut Pixmap, fit: &Fit, s: &Solid) {
     let n = toward_viewer(fit.view);
     for axis in 0..3 {
         for side in [-1.0, 1.0] {
-            if n[axis] * side <= 0.0 {
+            if n[axis] * side <= 1e-6 {
                 continue;
             }
             // The face's four corners, in order around it.
@@ -387,7 +402,7 @@ fn draw_cylinder(pm: &mut Pixmap, fit: &Fit, c: &Cylinder) {
         pm.fill_path(&path, &paint([0x9a, 0x7a, 0x30], 110), tiny_skia::FillRule::Winding, Transform::identity(), None);
         pm.stroke_path(&path, &paint(gold, 255), &stroke(1.5), Transform::identity(), None);
     }
-    if fit.view != View::Front {
+    if toward_viewer(fit.view)[2] > 0.05 {
         if let Some(path) = poly(&top) {
             pm.fill_path(&path, &paint([0xc8, 0x9e, 0x40], 90), tiny_skia::FillRule::Winding, Transform::identity(), None);
             pm.stroke_path(&path, &paint(gold, 255), &stroke(1.0), Transform::identity(), None);
