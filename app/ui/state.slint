@@ -247,8 +247,14 @@ export global Live {
     in property <[ProbeItem]> conv-types;
     in property <string> conv-title;
     in property <string> conv-tool;
-    in property <[ConvField]> conv-setup;
-    in property <[ConvField]> conv-op;
+    // The inputs are split into sections; one is open at a time. The recap
+    // lists every section's values in a line (key = section id).
+    in property <[ProbeItem]> conv-sections;
+    in property <string> conv-section: "shape";
+    in property <[ConvField]> conv-fields;
+    in property <[ConvField]> conv-recap;
+    // Side view for the DEPTH section, top down: clearance, retract, start, end.
+    in property <[ConvField]> conv-levels;
     in property <bool> conv-show-holes;
     in property <[string]> conv-holes;
     in property <int> conv-hole-sel: -1;
@@ -383,6 +389,7 @@ export global Actions {
     callback job-build();
     callback conv-type(id: string);
     callback conv-field(key: string);
+    callback conv-section(id: string);
     callback conv-hole-add();
     callback conv-hole-del();
     callback conv-hole-select(index: int);
