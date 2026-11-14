@@ -217,9 +217,27 @@ component ProgramCard inherits Card {
                 property <bool> cur-drag;
                 property <bool> last-drag;
                 property <int> landed: Live.plot-landed;
+                // How much of the current drag has already been sent as pans.
+                property <length> sent-x;
+                property <length> sent-y;
                 function show() {
-                    Live.plot-dx = (self.a-x + self.b-x + (self.dragging ? self.mouse-x - self.pressed-x : 0)) / 1px;
-                    Live.plot-dy = (self.a-y + self.b-y + (self.dragging ? self.mouse-y - self.pressed-y : 0)) / 1px;
+                    Live.plot-dx = (self.a-x + self.b-x + (self.dragging ? self.mouse-x - self.pressed-x - self.sent-x : 0)) / 1px;
+                    Live.plot-dy = (self.a-y + self.b-y + (self.dragging ? self.mouse-y - self.pressed-y - self.sent-y : 0)) / 1px;
+                }
+                // Send the unsent part of the drag as one numbered pan.
+                function send() {
+                    let dx = self.mouse-x - self.pressed-x - self.sent-x;
+                    let dy = self.mouse-y - self.pressed-y - self.sent-y;
+                    if dx == 0 && dy == 0 { return; }
+                    self.seq = max(self.seq, Live.plot-pan-seq) + 1;
+                    if self.a-seq == 0 {
+                        self.a-seq = self.seq; self.a-x = dx; self.a-y = dy;
+                    } else {
+                        self.b-seq = self.seq; self.b-x += dx; self.b-y += dy;
+                    }
+                    self.sent-x += dx;
+                    self.sent-y += dy;
+                    Actions.plot-pan(dx / self.width, dy / self.height, self.seq);
                 }
                 changed landed => {
                     if self.b-seq != 0 && Live.plot-pan-seq >= self.b-seq {
@@ -235,22 +253,14 @@ component ProgramCard inherits Card {
                 pointer-event(e) => {
                     if e.kind == PointerEventKind.down {
                         self.dragging = false;
+                        self.sent-x = 0;
+                        self.sent-y = 0;
                         self.last-drag = self.cur-drag;
                         self.cur-drag = false;
                     } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
                         if self.dragging {
+                            self.send();
                             self.dragging = false;
-                            self.seq = max(self.seq, Live.plot-pan-seq) + 1;
-                            if self.a-seq == 0 {
-                                self.a-seq = self.seq;
-                                self.a-x = self.mouse-x - self.pressed-x;
-                                self.a-y = self.mouse-y - self.pressed-y;
-                            } else {
-                                self.b-seq = self.seq;
-                                self.b-x += self.mouse-x - self.pressed-x;
-                                self.b-y += self.mouse-y - self.pressed-y;
-                            }
-                            Actions.plot-pan((self.mouse-x - self.pressed-x) / self.width, (self.mouse-y - self.pressed-y) / self.height, self.seq);
                             self.show();
                         }
                     }
@@ -259,6 +269,13 @@ component ProgramCard inherits Card {
                     if self.pressed && (self.dragging || abs(self.mouse-x - self.pressed-x) + abs(self.mouse-y - self.pressed-y) > 8px) {
                         self.dragging = true;
                         self.cur-drag = true;
+                        // Render while dragging: one pan in flight at a time,
+                        // so a slow redraw (the Pi, a big program) only makes
+                        // the updates less frequent. Until it lands the
+                        // last image slides with the finger.
+                        if self.a-seq == 0 {
+                            self.send();
+                        }
                         self.show();
                     }
                 }
