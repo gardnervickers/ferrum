@@ -1,5 +1,10 @@
-# drives module: servo readiness from drive_readiness (mymill.hal).
-net required-drives-ready => millgui.drives.ready
+# drives module: servo HLFB state from mymill.hal. Each axis is ready once
+# its HLFB has stayed good for [HLFB]ARM_DELAY while enabled (the signal
+# that arms the fault monitor), and faulted when HLFB drops after that.
+net x-hlfb-monitor-arm => millgui.drives.ready-x
+net y-hlfb-monitor-arm => millgui.drives.ready-y
+net z-hlfb-monitor-arm => millgui.drives.ready-z
+net a-hlfb-monitor-arm => millgui.drives.ready-a
 net x-hlfb-fault => millgui.drives.fault-x
 net y-hlfb-fault => millgui.drives.fault-y
 net z-hlfb-fault => millgui.drives.fault-z

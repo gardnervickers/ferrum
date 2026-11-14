@@ -161,10 +161,10 @@ impl Module for Probe {
     }
 }
 
-/// Servo drive readiness from drive_readiness (HLFB).
+/// Servo drive readiness from HLFB, per axis (millgui/hal/drives.hal).
 struct Drives {
     axes: Vec<char>,
-    ready: Option<BitPin>,
+    ready: Vec<(char, BitPin)>,
     faults: Vec<(char, BitPin)>,
 }
 
@@ -173,29 +173,38 @@ impl Module for Drives {
         "drives"
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
-        self.ready = Some(comp.bit("drives.ready", Dir::In)?);
         for a in &self.axes {
-            let name = format!("drives.fault-{}", a.to_ascii_lowercase());
-            self.faults.push((*a, comp.bit(&name, Dir::In)?));
+            let l = a.to_ascii_lowercase();
+            self.ready.push((*a, comp.bit(&format!("drives.ready-{l}"), Dir::In)?));
+            self.faults.push((*a, comp.bit(&format!("drives.fault-{l}"), Dir::In)?));
         }
         Ok(())
     }
     fn pills(&self, s: Option<&Status>, out: &mut Vec<Pill>) {
-        let Some(ready) = &self.ready else { return };
+        if self.ready.is_empty() {
+            return;
+        }
         let faulted: String = self.faults.iter().filter(|(_, p)| p.get()).map(|(a, _)| *a).collect();
         out.push(if !faulted.is_empty() {
             Pill::new(format!("DRIVE FAULT {faulted}"), "bad")
-        } else if ready.get() {
+        } else if self.not_ready().is_empty() {
             Pill::new("DRIVES HLFB OK", "good")
         } else if s.is_some_and(|s| s.power_on()) {
-            Pill::new("DRIVES NOT READY", "warn")
+            Pill::new(format!("DRIVES NOT READY {}", self.not_ready()), "warn")
         } else {
             Pill::new("DRIVES OFF", "")
         });
     }
     fn motion_block(&self) -> Option<String> {
-        let ready = self.ready.as_ref()?;
-        (!ready.get()).then(|| "Wait for all drives to become ready".into())
+        let waiting = self.not_ready();
+        (!waiting.is_empty()).then(|| format!("Wait for the {waiting} drive(s) to become ready"))
+    }
+}
+
+impl Drives {
+    /// Axes whose HLFB has not armed yet, e.g. "XZ".
+    fn not_ready(&self) -> String {
+        self.ready.iter().filter(|(_, p)| !p.get()).map(|(a, _)| *a).collect()
     }
 }
 
@@ -245,8 +254,8 @@ impl Module for Drawbar {
     }
 }
 
-/// motion.feed-inhibit = probe_manager fault OR drives not ready. Shows why
-/// motion is held.
+/// Why motion.feed-inhibit is set. In mymill.hal that is only the probe
+/// manager's fault; drives-not-ready stays unlinked unless a HAL adds it.
 #[derive(Default)]
 struct Interlock {
     held: Option<BitPin>,
@@ -298,7 +307,7 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
         "files" => screen("files", "FILES", ICON_FILES),
         "util" => screen("util", "UTIL", ICON_UTIL),
         "probe" => Some(Box::new(Probe::default())),
-        "drives" => Some(Box::new(Drives { axes: cfg.coordinates().chars().collect(), ready: None, faults: Vec::new() })),
+        "drives" => Some(Box::new(Drives { axes: cfg.coordinates().chars().collect(), ready: Vec::new(), faults: Vec::new() })),
         "drawbar" => Some(Box::new(Drawbar::default())),
         "interlock" => Some(Box::new(Interlock::default())),
         _ => None,
