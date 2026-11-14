@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Live, Actions, ProbeItem, ProbeOpt, ProbeSpot, ProbeParam } from "state.slint";
+import { Live, Actions, ProbeItem, ProbeMove, ProbeOpt, ProbeSpot, ProbeParam } from "state.slint";
 import { Btn, Seg, Card, Label, H3, Note, Pill } from "widgets.slint";
 
 // One run value: label (with unit, and the default once changed), then
@@ -9,6 +9,7 @@ component Stepper inherits Rectangle {
     in property <ProbeParam> p;
     in property <bool> enabled: true;
     background: p.changed ? Theme.warn-soft : Theme.panel2;
+    animate background { duration: Theme.settle; }
     border-radius: Theme.radius-ctl;
     min-width: 300px;
     horizontal-stretch: 1;
@@ -135,7 +136,9 @@ export component ProbeScreen inherits Rectangle {
                 Label { height: 26px; text: Live.pr-shape-label; overflow: elide; }
                 for s in Live.pr-shapes: Btn { height: 66px; text: s.label; on: s.on; enabled: !Live.pr-running; clicked => { Actions.probe-shape(s.id); } }
                 Rectangle { vertical-stretch: 1; }
-                Note { font-size: 18px; text: Live.pr-routine; }
+                // Two lines' room, top-aligned: a shorter routine name must
+                // not drop the text.
+                Note { height: 48px; vertical-alignment: top; font-size: 18px; text: Live.pr-routine; }
             }
         }
         // 2 · Where: the picture (its spots are the only controls on it),
@@ -178,6 +181,7 @@ export component ProbeScreen inherits Rectangle {
                         background: sp.on ? Theme.warn.with-alpha(0.4) : st.pressed ? Theme.sel.with-alpha(0.5) : Theme.sel-soft;
                         border-width: 3px;
                         border-color: sp.on ? Theme.warn : Theme.sel;
+                        animate background, border-color { duration: Theme.quick; }
                         st := TouchArea { enabled: !Live.pr-running; clicked => { Actions.probe-target(sp.id); } }
                     }
                     // Approach moves, drawn over the spots (not tappable).
@@ -194,6 +198,29 @@ export component ProbeScreen inherits Rectangle {
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-heads;
                         fill: Theme.warn; stroke: transparent;
+                    }
+                    // The probe tip playing the routine once: out along each
+                    // move, a ring where it touches, then the next.
+                    for m[i] in Live.pr-moves: Rectangle {
+                        property <float> f: max(0, min(1, Live.pr-move-t - i));
+                        property <length> r: 11px * pic.sc;
+                        visible: root.paths-visible && Live.pr-move-t >= i && Live.pr-move-t < i + 1;
+                        x: pic.ox + (m.x1 + (m.x2 - m.x1) * f) * pic.sc * 1px - self.r;
+                        y: pic.oy + (m.y1 + (m.y2 - m.y1) * f) * pic.sc * 1px - self.r;
+                        width: 2 * self.r; height: 2 * self.r;
+                        border-radius: self.r;
+                        background: Theme.ink;
+                        border-width: 3px;
+                        border-color: Theme.warn;
+                        // The touch.
+                        Rectangle {
+                            visible: parent.f > 0.98;
+                            x: -parent.r; y: -parent.r;
+                            width: 4 * parent.r; height: 4 * parent.r;
+                            border-radius: 2 * parent.r;
+                            border-width: 2px;
+                            border-color: Theme.warn;
+                        }
                     }
                 }
                 OptRow { label: Live.pr-opts-label; opts: Live.pr-opts; enabled: !Live.pr-running; }

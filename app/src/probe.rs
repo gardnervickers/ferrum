@@ -22,7 +22,7 @@ use crate::config::Config;
 use crate::manual::KeypadTarget;
 use crate::settings::Settings;
 use crate::toolchange::Io;
-use crate::{Actions, Live, MainWindow, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot};
+use crate::{Actions, Live, MainWindow, ProbeItem, ProbeMove, ProbeOpt, ProbeParam, ProbeSpot};
 use linuxcnc::{Command, Handle, Message, MessageKind, Status};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
@@ -717,6 +717,7 @@ impl Probe {
         live.set_pr_outline(outline.into());
         live.set_pr_arrows(arrows.into());
         live.set_pr_heads(heads.into());
+        play_moves(ui, segs(self, &sel));
         let spots: Vec<ProbeSpot> = if on_picture {
             targets
                 .iter()
@@ -1016,6 +1017,60 @@ fn picture(p: &Probe, sel: &Target) -> (String, String, String) {
     (outline, lines, heads)
 }
 
+thread_local! {
+    /// The moves last played on the picture, and the clock playing them.
+    static PLAYED: RefCell<(Vec<[f64; 4]>, slint::Timer)> = RefCell::new((Vec::new(), slint::Timer::default()));
+}
+
+/// Seconds for the tip to travel one move, then to rest at the touch.
+const MOVE_S: f64 = 0.6;
+const REST_S: f64 = 0.25;
+
+/// Where the animated tip is after `secs`: the move's index plus how far
+/// along it is (eased, 0–1), or -1 once every move has played.
+fn move_phase(secs: f64, moves: usize) -> f32 {
+    let per = MOVE_S + REST_S;
+    let i = (secs / per).floor();
+    if i as usize >= moves {
+        return -1.0;
+    }
+    let f = ((secs - i * per) / MOVE_S).min(1.0);
+    // Ease in and out, like a probe leaving and slowing to touch.
+    let e = f * f * (3.0 - 2.0 * f);
+    // Stay just inside this move while resting on the touch.
+    (i + e.min(0.999)) as f32
+}
+
+/// Animate the tip once along `moves` when they differ from the last ones
+/// shown (a new shape, target or option), so the picture shows the routine.
+fn play_moves(ui: &MainWindow, moves: Vec<[f64; 4]>) {
+    PLAYED.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.0 == moves {
+            return;
+        }
+        p.0 = moves.clone();
+        let live = ui.global::<Live>();
+        let model: Vec<ProbeMove> =
+            moves.iter().map(|m| ProbeMove { x1: m[0] as f32, y1: m[1] as f32, x2: m[2] as f32, y2: m[3] as f32 }).collect();
+        live.set_pr_moves(ModelRc::new(VecModel::from(model)));
+        live.set_pr_move_t(if moves.is_empty() { -1.0 } else { 0.0 });
+        if moves.is_empty() {
+            p.1.stop();
+            return;
+        }
+        let (start, n, weak) = (std::time::Instant::now(), moves.len(), ui.as_weak());
+        p.1.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(16), move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let t = move_phase(start.elapsed().as_secs_f64(), n);
+            ui.global::<Live>().set_pr_move_t(t);
+            if t < 0.0 {
+                PLAYED.with(|p| p.borrow().1.stop());
+            }
+        });
+    });
+}
+
 /// Probe approach moves in picture units (from the mockup).
 fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
     let k = t.kind;
@@ -1312,6 +1367,18 @@ pub fn message(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, m: &Message) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn move_phase_plays_each_move_once() {
+        assert_eq!(super::move_phase(0.0, 2), 0.0);
+        // Halfway through the first move: eased to the middle.
+        assert!((super::move_phase(super::MOVE_S / 2.0, 2) - 0.5).abs() < 1e-6);
+        // Resting on the first touch, still on move 0.
+        let rest = super::move_phase(super::MOVE_S + 0.1, 2);
+        assert!(rest > 0.99 && rest < 1.0);
+        assert_eq!(super::move_phase(super::MOVE_S + super::REST_S + 0.001, 2).floor(), 1.0);
+        assert_eq!(super::move_phase(10.0, 2), -1.0);
+    }
 
     #[test]
     fn eval_lines() {
