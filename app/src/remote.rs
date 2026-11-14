@@ -54,7 +54,8 @@ struct Shared {
 pub struct Remote {
     shared: Arc<Mutex<Shared>>,
     last: Map<String, Value>,
-    last_plot: Option<slint::Image>,
+    /// The backplot version last encoded (see `plot::version`).
+    last_plot: Option<u64>,
     png: Option<Arc<Vec<u8>>>,
     ticks: u32,
 }
@@ -112,11 +113,14 @@ impl Remote {
         self.ticks = self.ticks.wrapping_add(1);
         let mut png = None;
         if self.ticks % 5 == 0 || self.png.is_none() {
-            let img = live.get_plot();
-            if self.last_plot.as_ref() != Some(&img) {
-                self.png = encode(&img).map(Arc::new);
-                self.last_plot = Some(img);
-                png = self.png.clone();
+            let v = crate::plot::version();
+            if self.last_plot != Some(v) {
+                // A GPU texture has no CPU copy: its pixels come from a later frame.
+                if let Some(buf) = live.get_plot().to_rgba8().or_else(|| crate::plot::gpu_pixels(ui)) {
+                    self.png = encode(&buf).map(Arc::new);
+                    self.last_plot = Some(v);
+                    png = self.png.clone();
+                }
             }
         }
         for c in clients {
@@ -147,8 +151,7 @@ impl Remote {
     }
 }
 
-fn encode(img: &slint::Image) -> Option<Vec<u8>> {
-    let buf = img.to_rgba8()?;
+fn encode(buf: &slint::SharedPixelBuffer<slint::Rgba8Pixel>) -> Option<Vec<u8>> {
     if buf.width() == 0 {
         return None;
     }

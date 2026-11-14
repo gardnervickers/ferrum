@@ -2,6 +2,7 @@
 //! image per view and size; the tool marker and live trail go on a copy.
 
 use crate::machine::{Cylinder, Scene, Solid};
+use crate::raster::{Coverage, Pen};
 use crate::{Kind, Toolpath, P4};
 use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
@@ -45,9 +46,9 @@ impl View {
 pub const OP_COLORS: [[u8; 3]; 6] =
     [[0x6d, 0x7c, 0xff], [0xf3, 0xc4, 0x63], [0x7f, 0xd6, 0xa0], [0xe0, 0x7a, 0x7a], [0x8c, 0xc4, 0xef], [0xc4, 0x9c, 0xf0]];
 
-const BG: [u8; 3] = [0x0f, 0x12, 0x14];
+pub const BG: [u8; 3] = [0x0f, 0x12, 0x14];
 
-fn project(v: View, p: P4) -> (f64, f64) {
+pub fn project(v: View, p: P4) -> (f64, f64) {
     let (r, u, _) = v.basis();
     (r[0] * p[0] + r[1] * p[1] + r[2] * p[2], u[0] * p[0] + u[1] * p[1] + u[2] * p[2])
 }
@@ -86,17 +87,19 @@ impl Zoom {
 }
 
 /// Screen mapping that fits the toolpath (and the work origin) in the image.
-#[derive(Clone, Copy)]
-struct Fit {
-    view: View,
-    scale: f64,
-    ox: f64,
-    oy: f64,
-    h: f64,
+/// Shared with the GPU renderer so both draw the same picture.
+#[derive(Clone, Copy, Debug)]
+pub struct Fit {
+    pub view: View,
+    /// Pixels per mm.
+    pub scale: f64,
+    pub ox: f64,
+    pub oy: f64,
+    pub h: f64,
 }
 
 impl Fit {
-    fn new(tp: &Toolpath, view: View, w: u32, h: u32, z: Zoom) -> Self {
+    pub fn new(tp: &Toolpath, view: View, w: u32, h: u32, z: Zoom) -> Self {
         // The toolpath box, grown to take in the work origin.
         let (mut lo, mut hi) = ([0.0f64; 3], [0.0f64; 3]);
         if let Some((a, b)) = tp.bounds() {
@@ -122,7 +125,8 @@ impl Fit {
         Self { view, scale: scale_z, ox, oy, h: h as f64 }
     }
 
-    fn map(&self, p: P4) -> (f32, f32) {
+    /// Work coordinates to image pixels (y down).
+    pub fn map(&self, p: P4) -> (f32, f32) {
         let (x, y) = project(self.view, p);
         ((self.ox + x * self.scale) as f32, (self.h - (self.oy + y * self.scale)) as f32)
     }
@@ -137,60 +141,6 @@ fn paint(rgb: [u8; 3], alpha: u8) -> Paint<'static> {
 
 fn stroke(width: f32) -> Stroke {
     Stroke { width, line_cap: LineCap::Round, ..Default::default() }
-}
-
-/// Builds a path from segments in screen space: consecutive segments join
-/// into one polyline, and moves shorter than a fraction of a pixel merge into
-/// the next, so a dense program costs about as much as the pixels it covers.
-#[derive(Default)]
-struct Polyline {
-    pb: PathBuilder,
-    /// Last point emitted, and the latest point not yet emitted.
-    drawn: Option<(f32, f32)>,
-    pending: Option<(f32, f32)>,
-}
-
-impl Polyline {
-    const MERGE: f32 = 0.6;
-
-    fn pen(&self) -> Option<(f32, f32)> {
-        self.pending.or(self.drawn)
-    }
-
-    fn seg(&mut self, a: (f32, f32), b: (f32, f32)) {
-        let joined = self.pen().is_some_and(|p| (p.0 - a.0).abs() < 0.05 && (p.1 - a.1).abs() < 0.05);
-        if !joined {
-            self.flush();
-            self.pb.move_to(a.0, a.1);
-            self.drawn = Some(a);
-        }
-        let d = self.drawn.expect("pen");
-        if (b.0 - d.0).abs() < Self::MERGE && (b.1 - d.1).abs() < Self::MERGE {
-            self.pending = Some(b);
-        } else {
-            self.pb.line_to(b.0, b.1);
-            self.drawn = Some(b);
-            self.pending = None;
-        }
-    }
-
-    fn flush(&mut self) {
-        if let Some(p) = self.pending.take() {
-            self.pb.line_to(p.0, p.1);
-            self.drawn = Some(p);
-        }
-    }
-
-    fn finish(mut self) -> Option<tiny_skia::Path> {
-        // A lone point (all moves merged) still needs a line to show its cap.
-        if let (Some(d), None) = (self.drawn, self.pending) {
-            if self.pb.len() == 1 {
-                self.pb.line_to(d.0 + 0.01, d.1);
-            }
-        }
-        self.flush();
-        self.pb.finish()
-    }
 }
 
 /// The toolpath drawn for one view and size. Drawing it is the slow part
@@ -265,24 +215,38 @@ impl Base {
             }
         }
 
-        // Rapids dashed-looking (thin, dim), then feeds per op.
-        let mut rapids = Polyline::default();
-        let mut feeds: Vec<Polyline> = (0..tp.ops.len().max(1)).map(|_| Polyline::default()).collect();
-        for s in &tp.segs {
-            let a = fit.map(s.from);
-            let b = fit.map(s.to);
-            let pl = if s.kind == Kind::Rapid { &mut rapids } else { &mut feeds[s.op] };
-            pl.seg(a, b);
+        // Rapids thin and dim, then feeds per op, each as one layer.
+        let mut cov = Coverage::new(w, h);
+        let mut pen = Pen::new(&mut cov, 1.0);
+        for s in tp.segs.iter().filter(|s| s.kind == Kind::Rapid) {
+            pen.seg(fit.map(s.from), fit.map(s.to));
         }
-        if let Some(path) = rapids.finish() {
-            pm.stroke_path(&path, &paint([0x6b, 0x74, 0x7b], 150), &stroke(1.0), Transform::identity(), None);
-        }
-        for (i, pb) in feeds.into_iter().enumerate() {
-            let dim = highlight.is_some_and(|h| h != i);
-            if let Some(path) = pb.finish() {
-                let rgb = OP_COLORS[i % OP_COLORS.len()];
-                pm.stroke_path(&path, &paint(rgb, if dim { 40 } else { 230 }), &stroke(1.5), Transform::identity(), None);
+        pen.finish();
+        cov.paint(&mut pm, [0x6b, 0x74, 0x7b], 150);
+        // Feeds grouped by op without sorting the whole program: ops are
+        // mostly contiguous runs.
+        let nops = tp.ops.len().max(1);
+        let mut runs: Vec<Vec<(usize, usize)>> = vec![Vec::new(); nops];
+        let mut i = 0;
+        while i < tp.segs.len() {
+            let op = tp.segs[i].op.min(nops - 1);
+            let mut j = i + 1;
+            while j < tp.segs.len() && tp.segs[j].op == tp.segs[i].op {
+                j += 1;
             }
+            runs[op].push((i, j));
+            i = j;
+        }
+        for (op, list) in runs.iter().enumerate() {
+            let mut pen = Pen::new(&mut cov, 1.5);
+            for &(i, j) in list {
+                for s in tp.segs[i..j].iter().filter(|s| s.kind == Kind::Feed) {
+                    pen.seg(fit.map(s.from), fit.map(s.to));
+                }
+            }
+            pen.finish();
+            let dim = highlight.is_some_and(|h| h != op);
+            cov.paint(&mut pm, OP_COLORS[op % OP_COLORS.len()], if dim { 40 } else { 230 });
         }
         Base { pm, fit }
     }
@@ -353,7 +317,7 @@ impl Base {
 }
 
 /// Toward the viewer, for back-face culling and depth order.
-fn toward_viewer(v: View) -> [f64; 3] {
+pub(crate) fn toward_viewer(v: View) -> [f64; 3] {
     v.basis().2
 }
 
@@ -425,7 +389,7 @@ fn draw_cylinder(pm: &mut Pixmap, fit: &Fit, c: &Cylinder) {
 }
 
 /// Monotone chain; returns the hull counter-clockwise.
-fn convex_hull(mut pts: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
+pub(crate) fn convex_hull(mut pts: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
     pts.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
     pts.dedup();
     if pts.len() < 3 {
@@ -491,9 +455,9 @@ mod bench {
 
 /// Colour steps for the load-coloured trail: few enough that a long cut is
 /// a handful of strokes.
-const LOAD_STEPS: usize = 8;
+pub(crate) const LOAD_STEPS: usize = 8;
 
-fn load_step(load: f32) -> Option<usize> {
+pub(crate) fn load_step(load: f32) -> Option<usize> {
     load.is_finite().then(|| (load.clamp(0.0, 1.0) * (LOAD_STEPS - 1) as f32).round() as usize)
 }
 

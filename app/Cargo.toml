@@ -7,10 +7,11 @@ publish.workspace = true
 [dependencies]
 hal = { path = "../crates/hal" }
 linuxcnc = { path = "../crates/linuxcnc" }
-preview = { path = "../crates/preview" }
+preview = { path = "../crates/preview", features = ["gpu"] }
 jobcore = { path = "../crates/jobcore" }
-# Software renderer: the Pi 5 has no hardware GL under this X11 setup (llvmpipe).
-slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit-x11", "renderer-software"] }
+# Both renderers: GPU (femtovg on OpenGL) when the driver is a real GPU,
+# software otherwise (the Pi 5 currently has only llvmpipe). See renderer.rs.
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit-x11", "renderer-software", "renderer-femtovg", "unstable-winit-030"] }
 ctrlc = { version = "3", features = ["termination"] }
 png = "0.17"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
@@ -23,6 +24,10 @@ tungstenite = "0.29"
 slint-build = "1.18"
 uimirror = { path = "../crates/uimirror" }
 
-# The Mac simulator window: GPU drawing (software drawing at Retina size is slow).
+# The Mac simulator window: winit's macOS backend.
 [target.'cfg(target_os = "macos")'.dependencies]
-slint = { version = "1.18", default-features = false, features = ["backend-winit", "renderer-femtovg"] }
+slint = { version = "1.18", default-features = false, features = ["backend-winit", "unstable-winit-030"] }
+
+# Loads libEGL at runtime to ask the GL driver for its name.
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.8"

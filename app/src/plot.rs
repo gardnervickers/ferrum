@@ -42,11 +42,23 @@ pub struct Plot {
     pending: Option<Key>,
     /// Turns the view to a view-cube snap.
     turn: slint::Timer,
+    /// A worker thread is drawing a base.
+    busy: bool,
     /// Draw inline (headless screenshots).
     inline: bool,
     setup: Option<rs274::Setup>,
     rapid: f64,
     file: String,
+    /// Slint draws with OpenGL and the GPU backplot is ready: frames are
+    /// drawn in the rendering notifier instead of on the CPU.
+    gpu: bool,
+    /// A GPU frame is wanted at the next render.
+    gpu_frame: bool,
+    /// The web mirror asked for the GPU frame's pixels.
+    want_pixels: bool,
+    pixels: Option<SharedPixelBuffer<Rgba8Pixel>>,
+    /// Counts redraws, so the web mirror knows when the picture changed.
+    version: u64,
 }
 
 /// The preview INI: the machine INI without REMAP lines. Remaps read HAL
@@ -86,38 +98,60 @@ fn rapid(cfg: &Config) -> f64 {
 impl Plot {
     fn redraw(&mut self, ui: &MainWindow) {
         self.dirty = false;
+        self.version += 1;
+        self.pixels = None;
         let (w, h) = self.size;
         if w < 16 || h < 16 {
+            return;
+        }
+        if self.gpu && !self.inline {
+            self.gpu_frame = true;
+            ui.window().request_redraw();
             return;
         }
         let key = (self.id, self.view, w, h, self.zoom);
         if self.base.as_ref().map(|b| b.0) != Some(key) {
             if self.inline {
                 self.base = Some((key, Base::draw(&self.tp, self.view, w, h, None, self.zoom)));
-            } else if self.pending.is_none() {
-                // One draw in flight: an orbit or a pan asks for a new view
-                // every frame, and the Pi draws slower than that. The next
-                // starts when this one lands, for the latest view.
+            } else {
+                // One drawing at a time: on the Pi a drag asks for many, and
+                // parallel ones would starve the UI thread. The latest wish
+                // is drawn when the current one finishes.
                 self.pending = Some(key);
-                let tp = self.tp.clone();
-                std::thread::spawn(move || {
-                    let b = Base::draw(&tp, key.1, key.2, key.3, None, key.4);
-                    let _ = slint::invoke_from_event_loop(move || {
-                        with(|p| {
-                            let mut st = p.borrow_mut();
-                            if st.pending == Some(key) {
-                                st.pending = None;
-                                st.base = Some((key, b));
-                                st.dirty = true;
-                            }
-                        })
+                if !self.busy {
+                    self.busy = true;
+                    let tp = self.tp.clone();
+                    let weak = ui.as_weak();
+                    std::thread::spawn(move || {
+                        let t0 = std::time::Instant::now();
+                        let b = Base::draw(&tp, key.1, key.2, key.3, None, key.4);
+                        if perf() {
+                            eprintln!("millgui perf: backplot software base {}x{}, {} moves: {:.1} ms", key.2, key.3, tp.segs.len(), t0.elapsed().as_secs_f64() * 1e3);
+                        }
+                        let _ = slint::invoke_from_event_loop(move || {
+                            with(|p| {
+                                let mut st = p.borrow_mut();
+                                st.busy = false;
+                                if st.pending == Some(key) {
+                                    st.pending = None;
+                                    st.base = Some((key, b));
+                                }
+                                if let Some(ui) = weak.upgrade() {
+                                    st.redraw(&ui);
+                                }
+                            })
+                        });
                     });
-                });
+                }
             }
         }
         let Some((drawn, base)) = &self.base else { return };
         let scene = self.pose.filter(|_| self.show_machine).map(|p| self.machine.scene(&p));
+        let t0 = std::time::Instant::now();
         let pm = base.compose(&self.trail, &self.trail_load, self.tool, scene.as_ref());
+        if perf() {
+            eprintln!("millgui perf: backplot software compose {}x{}: {:.1} ms", w, h, t0.elapsed().as_secs_f64() * 1e3);
+        }
         let buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(pm.data(), pm.width(), pm.height());
         let live = ui.global::<Live>();
         live.set_plot(Image::from_rgba8(buf));
@@ -320,10 +354,16 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         base: None,
         pending: None,
         turn: slint::Timer::default(),
+        busy: false,
         inline: false,
         setup: setup(cfg),
         rapid: rapid(cfg),
         file: String::new(),
+        gpu: false,
+        gpu_frame: false,
+        want_pixels: false,
+        pixels: None,
+        version: 0,
     }));
     PLOT.with(|p| *p.borrow_mut() = Some(plot.clone()));
     let actions = ui.global::<Actions>();
@@ -332,7 +372,8 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         let Some(ui) = weak.upgrade() else { return };
         let scale = ui.window().scale_factor();
         let mut st = p.borrow_mut();
-        let size = ((w * scale) as u32, (h * scale) as u32);
+        // Held to a size any GPU can make a texture of.
+        let size = (((w * scale) as u32).min(4096), ((h * scale) as u32).min(4096));
         if size != st.size {
             st.size = size;
             st.redraw(&ui);
@@ -478,4 +519,122 @@ pub fn sync(ui: &MainWindow, file: &str) {
         p.borrow_mut().file = file.to_string();
         load(ui, p, file);
     });
+}
+
+thread_local! {
+    static GPU: RefCell<Option<preview::gpu::Gpu>> = const { RefCell::new(None) };
+}
+
+/// Draw the backplot with OpenGL when Slint renders with femtovg. Falls back
+/// to the software backplot if the GL setup fails.
+pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> {
+    let weak = ui.as_weak();
+    ui.window().set_rendering_notifier(move |state, api| {
+        let Some(ui) = weak.upgrade() else { return };
+        match (state, api) {
+            (slint::RenderingState::RenderingSetup, slint::GraphicsAPI::NativeOpenGL { get_proc_address }) => {
+                match unsafe { preview::gpu::Gpu::new(get_proc_address) } {
+                    Ok(g) => {
+                        eprintln!("millgui: backplot on the GPU: {}", g.describe());
+                        GPU.with(|c| *c.borrow_mut() = Some(g));
+                        with(|p| {
+                            let mut st = p.borrow_mut();
+                            st.gpu = true;
+                            st.base = None;
+                            st.dirty = true;
+                        });
+                    }
+                    Err(e) => eprintln!("millgui: GPU backplot unavailable ({e}); drawing it in software"),
+                }
+            }
+            (slint::RenderingState::BeforeRendering, _) => with(|p| gpu_frame(&ui, p)),
+            (slint::RenderingState::RenderingTeardown, _) => {
+                GPU.with(|c| *c.borrow_mut() = None);
+                with(|p| {
+                    let mut st = p.borrow_mut();
+                    st.gpu = false;
+                    st.dirty = true;
+                });
+            }
+            _ => {}
+        }
+    })
+}
+
+fn gpu_frame(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) {
+    let mut st = plot.borrow_mut();
+    if !st.gpu_frame {
+        return;
+    }
+    st.gpu_frame = false;
+    let (w, h) = st.size;
+    let scene = st.pose.filter(|_| st.show_machine).map(|p| st.machine.scene(&p));
+    let frame = preview::gpu::Frame { view: st.view, zoom: st.zoom, width: w, height: h, trail: &st.trail, loads: &st.trail_load, tool: st.tool, machine: scene.as_ref() };
+    let t0 = std::time::Instant::now();
+    let drawn = GPU.with(|c| {
+        let mut c = c.borrow_mut();
+        let g = c.as_mut()?;
+        let r = g.render(&st.tp, st.id, &frame).map(|tex| {
+            let px = if st.want_pixels { g.read_back(tex, w.max(16), h.max(16)) } else { None };
+            (tex, px)
+        });
+        Some(r)
+    });
+    match drawn {
+        Some(Ok((tex, px))) => {
+            if perf() {
+                eprintln!("millgui perf: backplot GPU frame {w}x{h}, {} moves: {:.1} ms", st.tp.segs.len(), t0.elapsed().as_secs_f64() * 1e3);
+            }
+            if let Some(px) = px {
+                st.want_pixels = false;
+                st.pixels = Some(SharedPixelBuffer::clone_from_slice(&px, w.max(16), h.max(16)));
+            }
+            let size = [w.max(16), h.max(16)].into();
+            let img = unsafe { slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(tex.0, size) }
+                .origin(slint::BorrowedOpenGLTextureOrigin::BottomLeft)
+                .build();
+            let live = ui.global::<Live>();
+            live.set_plot(img);
+            if live.get_plot_pan_seq() != st.pan_seq {
+                live.set_plot_pan_seq(st.pan_seq);
+                live.set_plot_landed(live.get_plot_landed() + 1);
+            }
+        }
+        Some(Err(e)) => {
+            eprintln!("millgui: GPU backplot failed ({e}); drawing it in software");
+            st.gpu = false;
+            st.dirty = true;
+        }
+        None => {}
+    }
+}
+
+/// The backplot's pixels for the web mirror when the image on screen is a
+/// GPU texture (which has no CPU copy). Asks for the next frame's pixels.
+pub fn gpu_pixels(ui: &MainWindow) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+    let mut out = None;
+    with(|p| {
+        let mut st = p.borrow_mut();
+        if st.gpu {
+            out = st.pixels.take();
+            st.want_pixels = true;
+            st.gpu_frame = true;
+            ui.window().request_redraw();
+        }
+    });
+    out
+}
+
+/// Changes whenever the backplot is redrawn.
+pub fn version() -> u64 {
+    let mut v = 0;
+    with(|p| v = p.borrow().version);
+    v
+}
+
+/// `MILLGUI_PERF=1` logs backplot frame times.
+fn perf() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("MILLGUI_PERF").is_some())
 }

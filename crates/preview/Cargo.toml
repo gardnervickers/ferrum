@@ -6,3 +6,8 @@ description = "Toolpath preview: LinuxCNC's interpreter (rs274) to segments, and
 
 [dependencies]
 tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
+glow = { version = "0.18", optional = true }
+
+[features]
+# OpenGL backplot, for Slint's GPU (femtovg) renderer.
+gpu = ["dep:glow"]

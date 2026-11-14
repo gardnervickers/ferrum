@@ -2548,6 +2548,7 @@ dependencies = [
  "ctrlc",
  "hal",
  "jobcore",
+ "libloading",
  "linuxcnc",
  "png 0.17.16",
  "preview",
@@ -3401,6 +3402,7 @@ dependencies = [
 name = "preview"
 version = "0.1.0"
 dependencies = [
+ "glow",
  "tiny-skia 0.12.0",
 ]
 
@@ -3983,6 +3985,7 @@ dependencies = [
  "const-field-offset",
  "i-slint-backend-linuxkms",
  "i-slint-backend-selector",
+ "i-slint-backend-winit",
  "i-slint-common",
  "i-slint-core",
  "i-slint-core-macros",

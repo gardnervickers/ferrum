@@ -12,7 +12,10 @@ pub mod cube;
 pub mod machine;
 pub mod mini;
 pub mod rs274;
+pub mod raster;
 pub mod software;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
 /// X Y Z A in work coordinates (mm, degrees).
 pub type P4 = [f64; 4];

@@ -229,6 +229,8 @@ component ProgramCard inherits Card {
                 running: true;
                 triggered => { Actions.plot-resize(plot-area.width / 1px, plot-area.height / 1px); }
             }
+            changed width => { Actions.plot-resize(plot-area.width / 1px, plot-area.height / 1px); }
+            changed height => { Actions.plot-resize(plot-area.width / 1px, plot-area.height / 1px); }
             Image { x: Live.plot-dx * 1px; y: Live.plot-dy * 1px; width: parent.width; height: parent.height; source: Live.plot; image-fit: fill; }
             // Drag to pan, wheel to zoom about the pointer, double tap to fit.
             pan := TouchArea {

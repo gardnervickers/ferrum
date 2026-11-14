@@ -18,6 +18,7 @@ mod plot;
 mod powerfeed;
 mod program;
 mod remote;
+mod renderer;
 mod settings;
 mod toolchange;
 mod offsets;
@@ -45,10 +46,14 @@ struct Args {
     screen: Option<String>,
     /// Screenshot extras: "keypad", "messages", "mdi".
     show: Vec<String>,
+    /// Simulator: program to load at start.
+    open: Option<PathBuf>,
+    /// Screenshot window size in pixels (default 1920x1080).
+    size: Option<(u32, u32)>,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new() };
+    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new(), open: None, size: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -61,6 +66,8 @@ fn parse_args() -> Args {
             }
             "--screen" => a.screen = it.next(),
             "--show" => a.show.extend(it.next()),
+            "--open" => a.open = it.next().map(PathBuf::from),
+            "--size" => a.size = it.next().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))),
             _ => {}
         }
     }
@@ -83,7 +90,15 @@ struct UiState {
 
 fn connect_machine(args: &Args, cfg: &Config) -> Box<dyn linuxcnc::Machine> {
     if args.sim {
-        return Box::new(linuxcnc::Sim::new());
+        let mut sim = linuxcnc::Sim::new();
+        // `--open <file>` (simulator only): start powered, homed, with a program loaded.
+        if let Some(f) = &args.open {
+            use linuxcnc::Machine;
+            for c in [Command::SetState(TaskState::EstopReset), Command::SetState(TaskState::On), Command::Home(-1), Command::ProgramOpen(f.to_string_lossy().into_owned())] {
+                let _ = sim.send(&c);
+            }
+        }
+        return Box::new(sim);
     }
     let nml = cfg.get("EMC", "NML_FILE").map(|f| cfg.dir().join(f).to_string_lossy().into_owned());
     // LinuxCNC starts the display after task is up, but give it a moment.
@@ -509,26 +524,16 @@ fn main() -> Result<(), slint::PlatformError> {
     // Keep the HAL component alive until exit.
     let _hal = if args.sim { None } else { setup_hal(&cfg, &mut modules, &mut notes) };
 
+    let (choice, why) = renderer::choose(&cfg);
+    let renderer = renderer::install(choice);
+    eprintln!("millgui: drawing with {why}");
     let ui = MainWindow::new()?;
     if !args.windowed && !args.sim {
         ui.window().set_fullscreen(true);
     }
     // A desktop window may be any size: scale the 1920x1080 layout to fit.
-    let fit = slint::Timer::default();
     if args.windowed || args.sim {
-        let weak = ui.as_weak();
-        fit.start(slint::TimerMode::Repeated, Duration::from_millis(200), move || {
-            let Some(ui) = weak.upgrade() else { return };
-            let w = ui.window();
-            let s = w.size();
-            if s.width == 0 || s.height == 0 {
-                return;
-            }
-            let target = (s.width as f32 / 1920.0).min(s.height as f32 / 1080.0);
-            if (target - w.scale_factor()).abs() > 0.01 {
-                w.dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged { scale_factor: target });
-            }
-        });
+        fit_desktop_window(&ui);
     }
     set_nav(&ui, &modules, args.screen.as_deref());
     let live = ui.global::<Live>();
@@ -654,6 +659,11 @@ fn main() -> Result<(), slint::PlatformError> {
     machine_cfg.apply(&ui);
     let plot = plot::wire(&ui, &cfg, &machine_cfg.model);
     let _plot_timer = plot::start_timer(&ui, &plot);
+    if renderer == renderer::Choice::Gpu {
+        if let Err(e) = plot::use_gpu(&ui) {
+            eprintln!("millgui: GPU backplot unavailable ({e:?})");
+        }
+    }
     mdi::wire(&ui, &handle, &cfg, &mut mdi_notes);
     if !mdi_notes.is_empty() {
         live.set_message(mdi_notes.join("; ").into());
@@ -786,11 +796,66 @@ fn set_nav(ui: &MainWindow, modules: &[Box<dyn Module>], screen: Option<&str>) {
     live.set_nav(ModelRc::new(VecModel::from(nav)));
 }
 
-/// Render one frame of a simulated, powered-on, homed machine to a PNG.
+/// Scale for a desktop window of `w` x `h` pixels. The layout is designed
+/// at 1920x1080 and needs that much width; a window of another shape gets
+/// the extra room as taller or wider screens.
+fn layout_scale(w: u32, h: u32) -> f32 {
+    (w as f32 / 1920.0).min(h as f32 / 1080.0)
+}
+
+/// Fit the 1920x1080 layout to a desktop window of any size.
+///
+/// The scale is set from winit's resize event before Slint handles it, so
+/// Slint lays out the new size at the new scale in one step. (Changing the
+/// scale afterwards leaves the window item at its old logical size, and the
+/// winit backend then resizes the window to match it, which can feed back
+/// into a runaway resize.) The OS display scale is ignored: the window's
+/// size alone decides. At startup the window takes most of its screen.
+fn fit_desktop_window(ui: &MainWindow) {
+    use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
+    let mut sized = false;
+    ui.window().on_winit_window_event(move |w, ev| {
+        // The first event: size the window to most of its screen. The
+        // resize that follows sets the scale.
+        if !sized {
+            sized = true;
+            w.with_winit_window(|ww| {
+                let Some(m) = ww.current_monitor().or_else(|| ww.primary_monitor()) else {
+                    eprintln!("millgui: no screen size known; the window keeps its size");
+                    return;
+                };
+                let ms = m.size();
+                // 16:9 in 85% of the screen.
+                let k = (ms.width as f64 * 0.85 / 1920.0).min(ms.height as f64 * 0.85 / 1080.0);
+                let _ = ww.request_inner_size(winit::dpi::PhysicalSize::new((1920.0 * k) as u32, (1080.0 * k) as u32));
+            });
+        }
+        match ev {
+            winit::event::WindowEvent::Resized(size) if size.width > 0 && size.height > 0 => {
+                let target = layout_scale(size.width, size.height);
+                if (target - w.scale_factor()).abs() > 0.0001 {
+                    w.dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged { scale_factor: target });
+                }
+                EventResult::Propagate
+            }
+            // Moving to a screen with another pixel density: the resize
+            // that follows sets the scale.
+            winit::event::WindowEvent::ScaleFactorChanged { .. } => EventResult::PreventDefault,
+            _ => EventResult::Propagate,
+        }
+    });
+}
+
 fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path) -> Result<(), slint::PlatformError> {
     use linuxcnc::Machine;
-    let window = headless::install(1920, 1080);
+    let (w, h) = args.size.unwrap_or((1920, 1080));
+    let window = headless::install(w, h);
     let ui = MainWindow::new()?;
+    if args.size.is_some() {
+        let s = layout_scale(w, h);
+        ui.window().dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged { scale_factor: s });
+        ui.window().dispatch_event(slint::platform::WindowEvent::Resized { size: slint::LogicalSize::new(w as f32 / s, h as f32 / s) });
+    }
     set_nav(&ui, modules, args.screen.as_deref());
     let mut sim = linuxcnc::Sim::new();
     for c in [
