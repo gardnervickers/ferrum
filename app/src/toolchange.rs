@@ -332,7 +332,7 @@ impl ToolChange {
 
 /// Wire the overlay. Returns the timer that polls the I/O (keep it alive).
 pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Rc<dyn Io>) -> slint::Timer {
-    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse().ok()).unwrap_or(99);
     let tc = Rc::new(RefCell::new(ToolChange { io, machine: machine.clone(), probe_tool, open: false, answered: false, seated: false, last: Inputs::default() }));
     let actions = ui.global::<Actions>();
     let (t, weak) = (tc.clone(), ui.as_weak());

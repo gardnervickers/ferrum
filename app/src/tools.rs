@@ -283,7 +283,10 @@ impl Tools {
                     Some(false) => "RETRACTED",
                     None => "UNKNOWN",
                 };
-                (label, idle && spindle_off && !i.change && i.drawbar_extended == Some(false), i.manual_request || i.drawbar_extended == Some(true))
+                // Clamping with a spindle command pending would start the
+                // spindle the moment the drawbar retracts (a safeguard: the
+                // overlay's RESUME makes the same check).
+                (label, idle && spindle_off && !i.change && i.drawbar_extended == Some(false), spindle_off && (i.manual_request || i.drawbar_extended == Some(true)))
             }
             None => ("NOT FITTED", false, false),
         };
@@ -393,7 +396,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
 }
 
 pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn Io>>, path: PathBuf) -> Rc<RefCell<Tools>> {
-    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse().ok()).unwrap_or(99);
     let tools = Rc::new(RefCell::new(Tools { path, tools: Vec::new(), selected: None, status: None, machine: machine.clone(), io, ui: ui.as_weak(), probe_tool }));
     tools.borrow_mut().load();
     crate::manual::add_keypad_target(Rc::new(Keys(tools.clone())));
@@ -480,6 +483,8 @@ pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<
             let i = io.read();
             if extend && !(i.spindle_request == Some(false) && !i.change && st.status.as_ref().is_some_and(|s| !s.busy())) {
                 st.note("The drawbar can only release with the spindle off and nothing running", true);
+            } else if !extend && i.spindle_request != Some(false) {
+                st.note("Turn the spindle command off (M5) before clamping: it would start as the drawbar retracts", true);
             } else {
                 io.set_manual_request(extend);
                 // With the drawbar released the tool comes out: clear the
