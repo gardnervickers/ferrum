@@ -128,6 +128,22 @@ impl Offsets {
         Ok(())
     }
 
+    /// DRO ZERO: one tap zeroes an axis of the active system. No hold, so
+    /// the status bar says what it read and where to put it back.
+    fn zero_active(&mut self, letter: &str) -> Result<(), String> {
+        let axis = COLS[..4].iter().position(|c| c.eq_ignore_ascii_case(letter)).ok_or_else(|| format!("No axis {letter}"))?;
+        let sys = self.active().ok_or("Not connected to LinuxCNC")?;
+        let was = self.ready()?.work_position()[axis];
+        self.zero_here(sys, axis)?;
+        if let Some(ui) = self.ui.upgrade() {
+            let live = ui.global::<Live>();
+            let unit = if axis == 3 { "°" } else { "" };
+            live.set_message(format!("{} {} zeroed (read {was:.3}{unit}). Undo on OFFSETS › TIMELINE", CODES[sys], COLS[axis]).into());
+            live.set_message_error(false);
+        }
+        Ok(())
+    }
+
     fn show(&self, ui: &MainWindow) {
         let live = ui.global::<Live>();
         let active = self.active();
@@ -228,6 +244,13 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> Rc<Re
         let mut o = t.borrow_mut();
         let sel = o.selected;
         let r = o.zero_here(sel, axis.clamp(0, 3) as usize);
+        o.note(r);
+        o.refresh();
+    });
+    let t = o.clone();
+    actions.on_dro_zero(move |letter| {
+        let mut o = t.borrow_mut();
+        let r = o.zero_active(&letter);
         o.note(r);
         o.refresh();
     });

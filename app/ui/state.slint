@@ -384,6 +384,8 @@ export global Actions {
     callback offsets-select(index: int);
     callback offsets-activate();
     callback offsets-zero(axis: int);
+    // DRO ZERO: one axis of the active work system reads 0 here.
+    callback dro-zero(axis: string);
     callback offsets-clear();
     callback offsets-clear-all();
     callback offsets-clear-g92();

@@ -71,8 +71,10 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       drawbar; T200–249 warn "touch off likely required"; show the spindle nose reference state.
 - [x] Manual drawbar extend outside M6, and M61 Q0, on Tools.
 - [x] Tool table add/delete rows and scratch tools T200–249.
-- [x] Offsets: columns match XYZR; ZERO HERE and CLEAR need a hold; active WCS tagged;
+- [x] Offsets: columns match XYZR; ZERO HERE is one tap (Gardner, 2026-11-14), CLEAR needs a hold;
+      undo either from the timeline; active WCS tagged;
       G92/G52 indicator with CLEAR.
+- [x] DRO: a ZERO button on each axis zeroes it in the active WCS with one tap.
 - [ ] Check on the Pi whether LinuxCNC rewrites PARAMETER_FILE after G10 while running;
       inactive WCS rows come from it at startup and from edits made in millgui.
 
