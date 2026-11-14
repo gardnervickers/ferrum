@@ -248,13 +248,15 @@ export component LeftColumn inherits Rectangle {
                 Kv { label: "CYCLE TIME"; value: Live.cycle-time; }
             }
         }
+        // One line, always: a wrapped second line would push the quick
+        // buttons below the column.
         Text {
             text: Live.modal;
             font-family: Theme.body;
             font-size: 18px;
             letter-spacing: 0.3px;
             color: Theme.dim;
-            wrap: word-wrap;
+            overflow: elide;
         }
         Card {
             VerticalLayout {
@@ -274,14 +276,14 @@ export component LeftColumn inherits Rectangle {
             HorizontalLayout {
                 spacing: 8px;
                 if Live.quick-mist: Btn {
-                    height: 58px; font-size: 22px;
+                    height: 54px; font-size: 22px;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: "MIST"; on: Live.mist;
                     enabled: Live.connected && Live.power;
                     clicked => { Actions.mist-toggle(); }
                 }
                 if Live.quick-flood: Btn {
-                    height: 58px; font-size: 22px;
+                    height: 54px; font-size: 22px;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: "FLOOD"; on: Live.flood;
                     enabled: Live.connected && Live.power;
@@ -293,7 +295,7 @@ export component LeftColumn inherits Rectangle {
                 // Released: tap to clamp. Clamped: hold to release (spindle
                 // off, nothing running); releasing also clears the tool.
                 if Live.quick-drawbar && Live.tools-drawbar != "NOT FITTED": Btn {
-                    height: 58px; font-size: 22px;
+                    height: 54px; font-size: 22px;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: Live.tools-drawbar == "EXTENDED" ? "CLAMP TOOL" : "RELEASE TOOL";
                     kind: Live.tools-drawbar == "EXTENDED" ? "hold" : "";
@@ -303,7 +305,7 @@ export component LeftColumn inherits Rectangle {
                     clicked => { Actions.tools-drawbar(Live.tools-drawbar != "EXTENDED"); }
                 }
                 if Live.quick-home: Btn {
-                    height: 58px; font-size: 22px;
+                    height: 54px; font-size: 22px;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: "HOME ALL"; sub: "HOLD"; hold: true;
                     enabled: Live.connected && Live.power && !Live.running;
