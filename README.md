@@ -25,7 +25,7 @@ millgui/scripts/deploy
 - `scripts/deploy` copies only millgui's own files: `millgui/run`,
   `millgui/bin/millgui`, `millgui/mdi.toml`, `millgui/hal/*.hal`, `millgui/web/dist` (the
   browser screen, from `scripts/build-web`) and `millgui.ini`.
-- Browser screen: with `[MILLGUI]REMOTE_PORT = 8088`, open `http://<pi>:8088/` (`?perf` logs
+- Browser screen (off by default; it has no access control): with `[MILLGUI]REMOTE_PORT = 8088`, open `http://<pi>:8088/` (`?perf` logs
   frame timings to the console). It mirrors the touchscreen; navigation is per screen.
 - Override the target with `MILLGUI_PI=user@host` and `MILLGUI_DEST=path`.
 

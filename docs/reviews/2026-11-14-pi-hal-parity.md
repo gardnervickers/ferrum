@@ -6,6 +6,16 @@ from git blob `6d3316a9` (the copy reconstructed from the Pi), cited as
 "Pi:N". The Pi's own `mymill.ini`, subroutines, Python remap and postgui file
 were not visible, so every item that depends on them is marked unverified.
 
+## Decisions applied (Gardner, 2026-11-14)
+
+- Item 1: `millgui/hal/outputs.hal` sets the two 7i76E values and
+  `millgui.ini` runs it through `[MILLGUI]POSTGUI_HALFILE`. The values are
+  the repo's `probe_basic_postgui.hal`; the Pi's copy was not read. Not yet
+  run on the mill.
+- Item 3: the A axis no longer holds back CYCLE START or power feed. The
+  pill still reports it.
+- Remote control: `REMOTE_PORT` is commented out in `millgui.ini`.
+
 ## Result
 
 All 22 nets in `millgui/hal/*.hal` match the Pi HAL: every signal exists with

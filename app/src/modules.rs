@@ -202,7 +202,9 @@ impl Module for Drives {
         });
     }
     fn motion_block(&self) -> Option<String> {
-        let waiting = self.not_ready();
+        // The rotary is often off the table with its drive unplugged, and
+        // HAL does not need it to run: only X, Y and Z hold a start back.
+        let waiting: String = self.not_ready().chars().filter(|a| *a != 'A').collect();
         (!waiting.is_empty()).then(|| format!("Wait for the {waiting} drive(s) to become ready"))
     }
 }

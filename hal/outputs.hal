@@ -1,0 +1,7 @@
+# 7i76E field output drive modes, as Probe Basic's postgui file sets them
+# (probe_basic_postgui.hal). LinuxCNC leaves the POSTGUI file to the GUI, so
+# under millgui these would otherwise stay at the card's defaults.
+# Run through [MILLGUI]POSTGUI_HALFILE in millgui.ini, whatever modules are on.
+# Keep the two values equal to probe_basic_postgui.hal's.
+setp hm2_7i76e.0.7i76.0.0.output_source 0x0000F7FF
+setp hm2_7i76e.0.7i76.0.0.output_sink   0x00000800
