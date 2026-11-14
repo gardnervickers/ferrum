@@ -370,6 +370,37 @@ impl JobSession {
         Ok(self.job.ops.len())
     }
 
+    /// Add the ops of a CAM program, all or none: the job only changes when
+    /// every op passes the checks together.
+    pub fn add_cam(&mut self, source: &str, ops: Vec<crate::fusion::CamOp>, hooks: &mut Hooks, machine: &MachineFn) -> Result<usize> {
+        self.require_editable()?;
+        if self.job.ops.len() + ops.len() > MAX_OPS {
+            return Err(Error::job(format!(
+                "A job can hold at most {} ops; this program has {} and the job already has {}.",
+                MAX_OPS,
+                ops.len(),
+                self.job.ops.len()
+            )));
+        }
+        let new: Vec<Op> = ops
+            .into_iter()
+            .map(|c| {
+                let mut params = Map::new();
+                params.insert("source".into(), Value::String(source.into()));
+                params.insert("setup".into(), c.setup.to_dict());
+                params.insert("body".into(), Value::Array(c.body.into_iter().map(Value::String).collect()));
+                Op::new((hooks.new_id)(), c.name, "cam", params)
+            })
+            .collect();
+        let check = Job { name: "check".into(), ops: new.clone() };
+        compile_job(&check, &machine()?)?;
+        let n = new.len();
+        self.job.ops.extend(new);
+        self.save()?;
+        self.changed(machine);
+        Ok(n)
+    }
+
     /// Add a conversational op from a configured generator.
     pub fn add_from_generator(
         &mut self,

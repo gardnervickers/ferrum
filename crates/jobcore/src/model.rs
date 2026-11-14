@@ -325,6 +325,15 @@ impl Setup {
         errors
     }
 
+    pub fn to_dict(&self) -> Value {
+        let mut m = serde_json::Map::new();
+        for (k, v) in [("units", &self.units), ("wcs", &self.wcs), ("tool", &self.tool), ("rpm", &self.rpm),
+                       ("spindle_dir", &self.spindle_dir), ("coolant", &self.coolant), ("feed", &self.feed)] {
+            m.insert(k.into(), v.clone());
+        }
+        Value::Object(m)
+    }
+
     pub fn from_dict(data: &Value) -> Result<Setup> {
         let m = require_keys("setup", data, &["units", "wcs", "tool", "rpm"], &["spindle_dir", "coolant", "feed"])?;
         Ok(Setup {

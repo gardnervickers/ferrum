@@ -13,6 +13,7 @@
 //! * [`py`]: the Python formatting, JSON and error text they depend on
 
 pub mod compiler;
+pub mod fusion;
 pub mod gcode;
 pub mod helper;
 pub mod mill_ops;

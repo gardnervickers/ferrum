@@ -137,10 +137,13 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
     let mut incremental = false;
     let mut cycle = false;
     let mut code_before = false;
-    // units, plane, feed mode, arc distance, work offset
-    let mut modal: [Option<String>; 5] = Default::default();
+    // The first skipped line whose effect the restart copy cannot replay.
+    let mut unreplayable: Option<String> = None;
+    // units, plane, feed mode, arc distance, work offset, path blending,
+    // canned-cycle retract
+    let mut modal: [Option<String>; 7] = Default::default();
     p.percent = lines.first().is_some_and(|l| l.as_ref().trim() == "%");
-    for raw in lines.iter().take(index) {
+    for (lines_seen, raw) in lines.iter().take(index).enumerate() {
         let line = raw.as_ref();
         if let Some(c) = comment_only(line) {
             p.op = Some(c);
@@ -154,6 +157,35 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
         let has = |l: char, v: f64| w.iter().any(|&(a, b)| a == l && (b - v).abs() < 1e-6);
         let gs: Vec<f64> = w.iter().filter(|(a, _)| *a == 'G').map(|&(_, v)| v).collect();
         let g = |v: f64| gs.iter().any(|&b| (b - v).abs() < 1e-6);
+        if unreplayable.is_none() {
+            const G_NO: [(f64, &str); 12] = [
+                (10.0, "writes offsets or tool data"),
+                (92.0, "shifts the work offsets"),
+                (92.1, "clears G92 offsets"),
+                (92.2, "suspends G92 offsets"),
+                (92.3, "restores G92 offsets"),
+                (96.0, "sets constant surface speed"),
+                (28.1, "stores a reference position"),
+                (30.1, "stores a reference position"),
+                (43.1, "sets a dynamic tool length offset"),
+                (43.2, "adds a tool length offset"),
+                (38.2, "probes"),
+                (38.3, "probes"),
+            ];
+            // M codes whose effect the preamble sets (or that leave none).
+            const M_OK: [f64; 14] = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 30.0, 48.0, 49.0, 61.0];
+            let why = gs
+                .iter()
+                .find_map(|&v| G_NO.iter().find(|(c, _)| (c - v).abs() < 1e-6).map(|(c, why)| format!("G{} {why}", fmt(*c))))
+                .or_else(|| {
+                    w.iter()
+                        .find(|&&(a, v)| a == 'M' && !M_OK.contains(&v))
+                        .map(|&(_, v)| format!("M{} has an effect the restart cannot repeat", fmt(v)))
+                });
+            if let Some(why) = why {
+                unreplayable = Some(format!("Line {} before here: {why}. Run the program from the start", lines_seen + 1));
+            }
+        }
         if let Some(&(_, t)) = w.iter().find(|(a, _)| *a == 'T') {
             selected = Some(t as i32);
         }
@@ -195,10 +227,20 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
                 _ if v == 93.0 || v == 94.0 || v == 95.0 => Some(2),
                 _ if (v - 90.1).abs() < 1e-6 || (v - 91.1).abs() < 1e-6 => Some(3),
                 _ if (54.0..=59.3).contains(&v) => Some(4),
+                _ if v == 61.0 || (v - 61.1).abs() < 1e-6 || v == 64.0 => Some(5),
+                _ if v == 98.0 || v == 99.0 => Some(6),
                 _ => None,
             };
             if let Some(i) = slot {
-                modal[i] = Some(format!("G{}", fmt(v)));
+                let mut code = format!("G{}", fmt(v));
+                if v == 64.0 {
+                    for l in ['P', 'Q'] {
+                        if let Some(&(_, x)) = w.iter().find(|(a, _)| *a == l) {
+                            code.push_str(&format!(" {l}{}", fmt(x)));
+                        }
+                    }
+                }
+                modal[i] = Some(code);
             }
         }
         if g(90.0) {
@@ -273,6 +315,8 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
         Some("Pick a line of the program".into())
     } else if code_before || at.is_some_and(not_plain) {
         Some("This program uses o-words or parameters before here; run it from the start".into())
+    } else if let Some(why) = unreplayable {
+        Some(why)
     } else if comp {
         Some("Cutter compensation is on at this line; pick a line before the G41/G42".into())
     } else if incremental {
@@ -578,6 +622,14 @@ mod tests {
         assert!(plan(&g, 13).problem.unwrap().contains("arc"));
         g[12] = "G91".into();
         assert!(plan(&g, 13).problem.unwrap().contains("Incremental"));
+        let mut g: Vec<String> = (0..14).map(|_| "G0 X0 Y0 Z5".to_string()).collect();
+        g[3] = "G10 L20 P1 X0".into();
+        assert!(plan(&g, 13).problem.unwrap().contains("Line 4 before here: G10 writes offsets"));
+        g[3] = "M100 P1".into();
+        assert!(plan(&g, 13).problem.unwrap().contains("M100"));
+        g[3] = "G64 P0.02".into();
+        assert!(plan(&g, 13).problem.is_none());
+        assert!(plan(&g, 13).preamble()[1].contains("G64 P0.02"), "{:?}", plan(&g, 13).preamble());
     }
 
     #[test]

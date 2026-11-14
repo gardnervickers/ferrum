@@ -73,6 +73,7 @@ impl Pins {
 enum Pick {
     Open(Vec<String>),
     Step,
+    Program(Vec<PathBuf>),
 }
 
 pub struct Job {
@@ -255,7 +256,7 @@ impl Job {
             (s["note"].as_str().unwrap_or("").to_string(), s["note_tone"].as_str().unwrap_or("").to_string())
         };
         let note = if note.is_empty() && n == 0 {
-            "No ops yet. Use ADD TO JOB on the CONV page, or ADD STEP.".to_string()
+            "No ops yet. Use ADD PROGRAM for a Fusion program, ADD TO JOB on the CONV page, or ADD STEP.".to_string()
         } else {
             note
         };
@@ -301,6 +302,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         "max_forward_rpm": num("SPINDLE_0", "MAX_FORWARD_VELOCITY"),
         "max_reverse_rpm": num("SPINDLE_0", "MAX_REVERSE_VELOCITY"),
     });
+    let init_nc = init["nc_folder"].as_str().unwrap_or_default().to_string();
     let mut pins = None;
     let mut down = None;
     if !sim {
@@ -381,6 +383,19 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         t.borrow_mut().open_pick("ADD A MANUAL STEP", STEP_PRESETS.iter().map(|s| s.to_string()).collect(), Pick::Step);
     });
     let t = j.clone();
+    let nc = PathBuf::from(init_nc);
+    actions.on_job_add_program(move || {
+        let programs = cam_programs(&nc);
+        let mut jb = t.borrow_mut();
+        if programs.is_empty() {
+            jb.pinned = Some((format!("No programs in {}.", nc.display()), "error".into()));
+            jb.refresh();
+            return;
+        }
+        let names = programs.iter().map(|p| p.file_name().unwrap_or_default().to_string_lossy().into_owned()).collect();
+        jb.open_pick("ADD A FUSION PROGRAM", names, Pick::Program(programs));
+    });
+    let t = j.clone();
     actions.on_job_move(move |dir| {
         let mut jb = t.borrow_mut();
         if let Some(id) = jb.selected.clone() {
@@ -429,6 +444,11 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
                 }
             }
             Some(Pick::Step) => jb.act(json!({"cmd": "add_step", "index": i})),
+            Some(Pick::Program(paths)) => {
+                if let Some(p) = paths.get(i) {
+                    jb.act(json!({"cmd": "import_cam", "path": p}));
+                }
+            }
             None => {}
         }
     });
@@ -450,4 +470,21 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         }
     });
     (j, timer)
+}
+
+/// G-code programs directly in the programs folder (not built jobs), by name.
+fn cam_programs(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_file())
+                .filter(|p| {
+                    p.extension().and_then(|e| e.to_str()).is_some_and(|e| ["ngc", "nc", "tap"].contains(&e.to_ascii_lowercase().as_str()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
 }

@@ -112,7 +112,7 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       built program reads mymill-job.stamp from millgui's component. 2026-11-13: the Pi's config
       checkout (131b64c) predates mymill_job, so JOB and CONV fail there until it is updated.
 - [ ] Simulator ignores the skip and stop-after pins (it steps lines without interpreting).
-- [ ] CAM ops (Fusion imports) into a job: no millgui page yet.
+- [x] CAM ops (Fusion imports) into a job: JOB › ADD PROGRAM splits a Fusion program at its op-name comments (`jobcore/src/fusion.rs`). Anything it cannot account for (no op names, o-words or parameters, odd header lines, an op without tool, speed, M3/M4 or work offset before its first move, a first move that cuts) refuses the whole program with the reason; all ops are added or none.
 
 ## M8 Remote web (see ARCHITECTURE.md, Remote access)
 

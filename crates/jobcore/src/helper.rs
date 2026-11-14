@@ -182,6 +182,7 @@ impl Helper {
             "new" => self.cmd_new()?,
             "open" => self.cmd_open(r)?,
             "add_step" => self.cmd_add_step(r)?,
+            "import_cam" => self.cmd_import_cam(r)?,
             "remove" => self.cmd_remove(r)?,
             "move" => self.cmd_move(r)?,
             "set_enabled" => self.cmd_set_enabled(r)?,
@@ -462,6 +463,31 @@ impl Helper {
         let pos = self.with_session("add_step", |s, m, hooks| s.add_step(&message, hooks, m))?;
         let mut out = Map::new();
         out.insert("message".into(), Value::String(format!("ADDED STEP AS OP {}.", pos)));
+        Ok(out)
+    }
+
+    /// Split a Fusion program into ops and add them. Any doubt refuses the
+    /// whole program, with the reason; it can still run whole from FILES.
+    fn cmd_import_cam(&mut self, r: &Map<String, Value>) -> Result<Map<String, Value>> {
+        self.require_session("import_cam")?;
+        let path = PathBuf::from(py::str_of(get(r, "path")?));
+        let file = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let refuse = |why: String| {
+            Error::job(format!("{} was not added: {}. Run it whole from FILES instead.", file.to_uppercase(), why))
+        };
+        let text = std::fs::read_to_string(&path).map_err(|e| refuse(format!("it could not be read ({e})")))?;
+        let ops = crate::fusion::split(&text).map_err(refuse)?;
+        let n = self
+            .with_session("import_cam", |s, m, hooks| s.add_cam(&file, ops, hooks, m))
+            .map_err(|e| match e {
+                Error::Job(errs) => refuse(errs.join("; ")),
+                other => other,
+            })?;
+        let mut out = Map::new();
+        out.insert(
+            "message".into(),
+            Value::String(format!("ADDED {} OP{} FROM {}.", n, if n == 1 { "" } else { "S" }, file.to_uppercase())),
+        );
         Ok(out)
     }
 
