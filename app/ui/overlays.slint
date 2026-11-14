@@ -5,7 +5,7 @@ import { Live, Actions, MsgRow } from "state.slint";
 import { Btn, Label, H3, Note, Pill } from "widgets.slint";
 
 component Scrim inherits Rectangle {
-    background: #050708a0;
+    background: Theme.scrim;
     TouchArea { }  // swallow taps behind the dialog
 }
 
@@ -13,7 +13,7 @@ component Dialog inherits Rectangle {
     background: Theme.panel;
     border-width: 1px;
     border-color: Theme.line;
-    border-radius: 10px;
+    border-radius: Theme.radius;
 }
 
 export component Keypad inherits Scrim {
@@ -29,13 +29,13 @@ export component Keypad inherits Scrim {
                 background: Theme.well;
                 border-width: 1px;
                 border-color: Theme.sel;
-                border-radius: 6px;
+                border-radius: Theme.radius-ctl;
                 // Shown selected until the first key replaces it.
                 if Live.keypad-fresh: Rectangle {
                     x: parent.width - 16px - self.width + 6px;
                     width: fresh-text.preferred-width + 12px;
                     height: 60px;
-                    border-radius: 4px;
+                    border-radius: Theme.radius-sm;
                     background: Theme.sel.with-alpha(0.45);
                 }
                 fresh-text := Text {
@@ -59,7 +59,7 @@ export component Keypad inherits Scrim {
             HorizontalLayout {
                 spacing: 20px;
                 Btn { text: "CANCEL"; clicked => { Actions.keypad-done(false); } }
-                Btn { text: "ENTER"; kind: "go"; clicked => { Actions.keypad-done(true); } }
+                Btn { text: "ENTER"; clicked => { Actions.keypad-done(true); } }
             }
         }
     }
@@ -79,7 +79,7 @@ export component MessageDrawer inherits Scrim {
             Rectangle {
                 vertical-stretch: 1;
                 background: Theme.well;
-                border-radius: 6px;
+                border-radius: Theme.radius-ctl;
                 clip: true;
                 Flickable {
                     content-height: list.preferred-height;
@@ -96,7 +96,7 @@ export component MessageDrawer inherits Scrim {
                                 wrap: word-wrap;
                                 font-family: Theme.body;
                                 font-size: 22px;
-                                color: m.kind == "error" ? #ff8f8a : m.kind == "display" ? #8cc4ef : Theme.ink;
+                                color: m.kind == "error" ? Theme.bad : m.kind == "display" ? Theme.info : Theme.ink;
                             }
                         }
                         if Live.messages.length == 0: Note { text: "No messages."; }
@@ -107,7 +107,7 @@ export component MessageDrawer inherits Scrim {
                 spacing: 20px;
                 Btn { width: 240px; text: "CLEAR"; clicked => { Actions.clear-messages(); } }
                 Rectangle { horizontal-stretch: 1; }
-                Btn { width: 240px; text: "CLOSE"; kind: "go"; clicked => { Live.drawer-open = false; } }
+                Btn { width: 240px; text: "CLOSE"; clicked => { Live.drawer-open = false; } }
             }
         }
     }
@@ -119,9 +119,9 @@ component ToolCard inherits Rectangle {
     in property <string> desc;
     in property <bool> highlight;
     background: Theme.panel2;
-    border-radius: 8px;
+    border-radius: Theme.radius-ctl;
     border-width: highlight ? 2px : 0px;
-    border-color: #d99a1e;
+    border-color: Theme.hold-border;
     horizontal-stretch: 1;
     VerticalLayout {
         padding: 16px;
@@ -166,16 +166,16 @@ export component ToolChange inherits Scrim {
             // Slot kept when empty so the dialog never reflows.
             Rectangle {
                 height: 48px;
-                border-radius: 6px;
-                background: Live.tc-scratch != "" ? #43361a : transparent;
-                Text { text: Live.tc-scratch; font-family: Theme.display; font-size: 22px; letter-spacing: 1px; color: #f3c463; }
+                border-radius: Theme.radius-ctl;
+                background: Live.tc-scratch != "" ? Theme.warn-soft : transparent;
+                Text { text: Live.tc-scratch; font-family: Theme.display; font-size: 22px; letter-spacing: 1px; color: Theme.warn; }
             }
             Rectangle {
                 height: 72px;
-                border-radius: 8px;
-                background: Live.tc-seated ? #1f3a2a : Theme.well;
+                border-radius: Theme.radius-ctl;
+                background: Live.tc-seated ? Theme.good-soft : Theme.well;
                 border-width: 1px;
-                border-color: Live.tc-seated ? #3fb86b : Theme.line;
+                border-color: Live.tc-seated ? Theme.good : Theme.line;
                 HorizontalLayout {
                     padding-left: 18px;
                     spacing: 18px;
@@ -183,9 +183,9 @@ export component ToolChange inherits Scrim {
                         y: (parent.height - self.height) / 2;
                         width: 40px;
                         height: 40px;
-                        border-radius: 6px;
+                        border-radius: Theme.radius-ctl;
                         border-width: 2px;
-                        border-color: Live.tc-seated ? #3fb86b : Theme.muted;
+                        border-color: Live.tc-seated ? Theme.good : Theme.muted;
                         background: Live.tc-seated ? Theme.go : transparent;
                         if Live.tc-seated: Path { width: 28px; height: 28px; viewbox-width: 24; viewbox-height: 24; commands: "M4 12l5 5L20 6"; stroke: Theme.ink; stroke-width: 4px; fill: transparent; }
                     }

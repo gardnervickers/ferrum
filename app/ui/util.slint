@@ -9,7 +9,7 @@ component Cell inherits Rectangle {
     height: 74px;
     min-width: 0px;
     background: Theme.panel2;
-    border-radius: 6px;
+    border-radius: Theme.radius-ctl;
     VerticalLayout {
         padding-left: 12px;
         padding-top: 6px;
@@ -18,7 +18,7 @@ component Cell inherits Rectangle {
             text: value;
             font-family: Theme.display;
             font-size: 28px;
-            color: kind == "good" ? #7fd6a0 : kind == "warn" ? #f3c463 : kind == "bad" ? #ff8f8a : Theme.ink;
+            color: kind == "good" ? Theme.good : kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : Theme.ink;
             overflow: elide;
         }
     }
@@ -48,8 +48,8 @@ export component UtilScreen inherits Rectangle {
                     for st[i] in Live.wu-stages: Rectangle {
                         width: 154px;
                         height: 124px;
-                        border-radius: 6px;
-                        background: st.state == "run" ? #1f3a2a : Theme.panel2;
+                        border-radius: Theme.radius-ctl;
+                        background: st.state == "run" ? Theme.good-soft : Theme.panel2;
                         border-width: st.state == "run" ? 2px : 0;
                         border-color: Theme.go-border;
                         VerticalLayout {
@@ -59,14 +59,14 @@ export component UtilScreen inherits Rectangle {
                             Rectangle {
                                 height: 38px;
                                 background: rt.pressed ? Theme.raised : Theme.well;
-                                border-radius: 4px;
+                                border-radius: Theme.radius-sm;
                                 Text { text: st.rpm + " RPM"; font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink; }
                                 rt := TouchArea { enabled: !Live.wu-running; clicked => { Actions.edit("wu-rpm-" + i); } }
                             }
                             Rectangle {
                                 height: 38px;
                                 background: mt.pressed ? Theme.raised : Theme.well;
-                                border-radius: 4px;
+                                border-radius: Theme.radius-sm;
                                 Text { text: st.minutes + " MIN"; font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink; }
                                 mt := TouchArea { enabled: !Live.wu-running; clicked => { Actions.edit("wu-min-" + i); } }
                             }
@@ -75,13 +75,13 @@ export component UtilScreen inherits Rectangle {
                 }
                 Rectangle {
                     height: 14px;
-                    border-radius: 7px;
+                    border-radius: Theme.radius-ctl;
                     background: Theme.well;
-                    Rectangle { x: 0; width: parent.width * Live.wu-progress; border-radius: 7px; background: Theme.go-border; }
+                    Rectangle { x: 0; width: parent.width * Live.wu-progress; border-radius: Theme.radius-ctl; background: Theme.go-border; }
                 }
                 Label { height: 26px; overflow: elide; text: Live.wu-text; }
                 // Fixed slot so START/STOP never move.
-                Text { height: 26px; overflow: elide; font-family: Theme.body; font-size: 19px; color: #f3c463; text: !Live.wu-running ? Live.wu-ready : ""; }
+                Text { height: 26px; overflow: elide; font-family: Theme.body; font-size: 19px; color: Theme.warn; text: !Live.wu-running ? Live.wu-ready : ""; }
                 HorizontalLayout {
                     spacing: 12px;
                     Btn { width: 320px; kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }

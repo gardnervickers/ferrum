@@ -8,8 +8,8 @@ import { Btn, Seg, Card, Label, H3, Note, Pill } from "widgets.slint";
 component Stepper inherits Rectangle {
     in property <ProbeParam> p;
     in property <bool> enabled: true;
-    background: p.changed ? #43361a : Theme.panel2;
-    border-radius: 6px;
+    background: p.changed ? Theme.warn-soft : Theme.panel2;
+    border-radius: Theme.radius-ctl;
     min-width: 300px;
     horizontal-stretch: 1;
     height: 106px;
@@ -22,7 +22,7 @@ component Stepper inherits Rectangle {
             text: (p.unit != "" ? p.label + "  " + p.unit : p.label) + (p.changed ? "   ·   DEFAULT " + p.def : "");
             font-size: 20px;
             overflow: elide;
-            color: p.changed ? #f3c463 : Theme.muted;
+            color: p.changed ? Theme.warn : Theme.muted;
         }
         HorizontalLayout {
             height: 58px;
@@ -31,7 +31,7 @@ component Stepper inherits Rectangle {
             Rectangle {
                 horizontal-stretch: 1;
                 background: Theme.well;
-                border-radius: 6px;
+                border-radius: Theme.radius-ctl;
                 border-width: 1px;
                 border-color: vt.pressed ? Theme.sel : Theme.line;
                 Text { x: 6px; width: parent.width - 12px; horizontal-alignment: center; vertical-alignment: center; text: p.value; font-family: Theme.body; font-weight: 600; font-size: 28px; color: Theme.ink; overflow: elide; }
@@ -82,7 +82,7 @@ component Dialog inherits Rectangle {
     in property <length> dw: 1300px;
     in property <length> dh: 760px;
     callback close();
-    background: #000000a0;
+    background: Theme.scrim;
     TouchArea {}
     Rectangle {
         x: (parent.width - root.dw) / 2;
@@ -90,7 +90,7 @@ component Dialog inherits Rectangle {
         width: root.dw;
         height: root.dh;
         background: Theme.panel;
-        border-radius: 10px;
+        border-radius: Theme.radius;
         border-width: 1px;
         border-color: Theme.raised-border;
         VerticalLayout {
@@ -99,7 +99,7 @@ component Dialog inherits Rectangle {
             HorizontalLayout {
                 height: 64px;
                 H3 { horizontal-stretch: 1; vertical-alignment: center; text: root.title; }
-                Btn { width: 200px; height: 64px; kind: "go"; text: "DONE"; clicked => { root.close(); } }
+                Btn { width: 200px; height: 64px; text: "DONE"; clicked => { root.close(); } }
             }
             @children
         }
@@ -155,7 +155,7 @@ export component ProbeScreen inherits Rectangle {
                     vertical-stretch: 1;
                     min-height: 300px;
                     background: Theme.well;
-                    border-radius: 6px;
+                    border-radius: Theme.radius-ctl;
                     clip: true;
                     property <float> sc: min(self.width / 400px, (self.height - 30px) / 300px);
                     property <length> ox: (self.width - 400px * sc) / 2;
@@ -175,9 +175,9 @@ export component ProbeScreen inherits Rectangle {
                         width: (edge ? sp.w : 2 * sp.r) * pic.sc * 1px;
                         height: (edge ? sp.h : 2 * sp.r) * pic.sc * 1px;
                         border-radius: (edge ? 8 : sp.r) * pic.sc * 1px;
-                        background: sp.on ? #f3c46366 : st.pressed ? #6d7cff80 : #6d7cff38;
+                        background: sp.on ? Theme.warn.with-alpha(0.4) : st.pressed ? Theme.sel.with-alpha(0.5) : Theme.sel-soft;
                         border-width: 3px;
-                        border-color: sp.on ? #f3c463 : #6d7cff;
+                        border-color: sp.on ? Theme.warn : Theme.sel;
                         st := TouchArea { enabled: !Live.pr-running; clicked => { Actions.probe-target(sp.id); } }
                     }
                     // Approach moves, drawn over the spots (not tappable).
@@ -186,14 +186,14 @@ export component ProbeScreen inherits Rectangle {
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-arrows;
-                        stroke: #f3c463c0; stroke-width: 2px; fill: transparent;
+                        stroke: Theme.warn.with-alpha(0.75); stroke-width: 2px; fill: transparent;
                     }
                     Path {
                         visible: root.paths-visible;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-heads;
-                        fill: #f3c463; stroke: transparent;
+                        fill: Theme.warn; stroke: transparent;
                     }
                 }
                 OptRow { label: Live.pr-opts-label; opts: Live.pr-opts; enabled: !Live.pr-running; }
@@ -202,7 +202,7 @@ export component ProbeScreen inherits Rectangle {
                 Rectangle {
                     height: 150px;
                     background: Theme.well;
-                    border-radius: 6px;
+                    border-radius: Theme.radius-ctl;
                     clip: true;
                     Text { x: 12px; y: 10px; width: parent.width - 24px; height: parent.height - 20px; text: Live.pr-result; font-family: Theme.body; font-size: 22px; color: Theme.ink; wrap: word-wrap; vertical-alignment: top; }
                 }
@@ -250,7 +250,7 @@ export component ProbeScreen inherits Rectangle {
                     font-family: Theme.body;
                     font-size: 19px;
                     overflow: elide;
-                    color: Live.pr-running || Live.pr-ready != "" ? #f3c463 : Theme.muted;
+                    color: Live.pr-running || Live.pr-ready != "" ? Theme.warn : Theme.muted;
                     text: Live.pr-running ? "RUNNING…" : Live.pr-ready != "" ? Live.pr-ready : "Ready.";
                 }
                 Btn { height: 60px; font-size: 22px; text: Live.pr-load-label; enabled: Live.pr-load-enabled && !locked && Live.power && !Live.pr-running; clicked => { Actions.probe-load(); } }
@@ -292,7 +292,7 @@ export component ProbeScreen inherits Rectangle {
         Rectangle {
             vertical-stretch: 1;
             background: Theme.well;
-            border-radius: 6px;
+            border-radius: Theme.radius-ctl;
             clip: true;
             Flickable {
                 content-height: dlist.preferred-height;
@@ -305,7 +305,7 @@ export component ProbeScreen inherits Rectangle {
                             y: 3px;
                             height: parent.height - 6px;
                             background: dt.pressed ? Theme.raised : Theme.panel2;
-                            border-radius: 6px;
+                            border-radius: Theme.radius-ctl;
                             HorizontalLayout {
                                 padding-left: 16px;
                                 padding-right: 16px;

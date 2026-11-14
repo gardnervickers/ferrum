@@ -15,7 +15,7 @@ component Cell inherits Rectangle {
         y: 6px;
         width: parent.width - 12px;
         height: parent.height - 12px;
-        border-radius: 5px;
+        border-radius: Theme.radius-ctl;
         background: ta.pressed && root.enabled ? Theme.raised : #ffffff08;
         border-width: 1px;
         border-color: ta.pressed && root.enabled ? Theme.sel : #ffffff14;
@@ -64,11 +64,15 @@ export component OffsetsScreen inherits Rectangle {
                 Rectangle {
                     vertical-stretch: 1;
                     background: Theme.well;
-                    border-radius: 6px;
+                    border-radius: Theme.radius-ctl;
                     VerticalLayout {
                         for o[i] in Live.offsets: Rectangle {
                             vertical-stretch: 1;
-                            background: i == Live.offsets-selected ? Theme.sel : rt.pressed ? Theme.raised : transparent;
+                            background: i == Live.offsets-selected ? Theme.sel-soft : rt.pressed ? Theme.raised : transparent;
+                            border-radius: Theme.radius-sm;
+                            border-width: i == Live.offsets-selected ? 2px : 0;
+                            border-color: Theme.sel;
+                            animate background { duration: Theme.quick; }
                             rt := TouchArea { clicked => { Actions.offsets-select(i); } }
                             HorizontalLayout {
                                 padding-left: 12px;
@@ -90,13 +94,13 @@ export component OffsetsScreen inherits Rectangle {
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    Btn { width: 240px; kind: "go"; text: "MAKE " + Live.offsets-sel-label + " ACTIVE"; enabled: !locked && !Live.offsets[Live.offsets-selected].active; clicked => { Actions.offsets-activate(); } }
+                    Btn { width: 240px; text: "MAKE " + Live.offsets-sel-label + " ACTIVE"; enabled: !locked && !Live.offsets[Live.offsets-selected].active; clicked => { Actions.offsets-activate(); } }
                     Btn { width: 180px; text: "ZERO X HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(0); } }
                     Btn { width: 180px; text: "ZERO Y HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(1); } }
                     Btn { width: 180px; text: "ZERO Z HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(2); } }
                     Btn { width: 200px; text: "CLEAR " + Live.offsets-sel-label; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear(); } }
                     Rectangle { horizontal-stretch: 1; }
-                    Btn { width: 190px; kind: "stop"; text: "CLEAR ALL"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear-all(); } }
+                    Btn { width: 190px; text: "CLEAR ALL"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear-all(); } }
                 }
             }
         }

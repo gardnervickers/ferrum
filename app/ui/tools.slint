@@ -13,7 +13,7 @@ component Cell inherits Rectangle {
         y: 5px;
         width: parent.width - 12px;
         height: parent.height - 10px;
-        border-radius: 5px;
+        border-radius: Theme.radius-ctl;
         background: ta.pressed && root.editable ? Theme.raised : #ffffff08;
         border-width: 1px;
         border-color: ta.pressed && root.editable ? Theme.sel : #ffffff14;
@@ -25,7 +25,7 @@ component Cell inherits Rectangle {
             text: tag ? "NEEDS LENGTH" : root.text;
             font-family: tag ? Theme.display : Theme.body;
             font-size: tag ? 19px : 24px;
-            color: tag ? #f3c463 : Theme.ink;
+            color: tag ? Theme.warn : Theme.ink;
         }
     }
     ta := TouchArea { enabled: editable; clicked => { root.tapped(); } }
@@ -59,11 +59,16 @@ export component ToolsScreen inherits Rectangle {
                 Rectangle {
                     vertical-stretch: 1;
                     background: Theme.well;
-                    border-radius: 6px;
-                    ListView {
+                    border-radius: Theme.radius-ctl;
+                    clip: true;
+                    tl := ListView {
                         for t[i] in Live.tools: Rectangle {
                             height: 54px;
-                            background: i == Live.tools-selected ? Theme.sel : rt.pressed ? Theme.raised : transparent;
+                            background: i == Live.tools-selected ? Theme.sel-soft : rt.pressed ? Theme.raised : transparent;
+                            border-radius: Theme.radius-sm;
+                            border-width: i == Live.tools-selected ? 2px : 0;
+                            border-color: Theme.sel;
+                            animate background { duration: Theme.quick; }
                             rt := TouchArea { clicked => { Actions.tools-select(i); } }
                             HorizontalLayout {
                                 padding-left: 12px;
@@ -72,7 +77,7 @@ export component ToolsScreen inherits Rectangle {
                                     width: 110px;
                                     spacing: 6px;
                                     Text { vertical-alignment: center; text: t.t; font-family: Theme.display; font-size: 26px; color: Theme.ink; }
-                                    if t.current: Text { vertical-alignment: center; text: "● IN"; font-family: Theme.display; font-size: 18px; color: #7fd6a0; }
+                                    if t.current: Text { vertical-alignment: center; text: "● IN"; font-family: Theme.display; font-size: 18px; color: Theme.good; }
                                 }
                                 Cell {
                                     width: 170px;
@@ -93,10 +98,27 @@ export component ToolsScreen inherits Rectangle {
                                     text: "   " + t.comment;
                                     font-family: Theme.body;
                                     font-size: 22px;
-                                    color: t.scratch ? #f3c463 : Theme.muted;
+                                    color: t.scratch ? Theme.warn : Theme.muted;
                                     overflow: elide;
                                 }
                             }
+                        }
+                    }
+                    // More tools below: cover the cut-off row and say so.
+                    if tl.content-height > tl.visible-height && tl.content-y > tl.visible-height - tl.content-height + 4px: Rectangle {
+                        y: parent.height - 40px;
+                        height: 40px;
+                        background: Theme.well;
+                        Rectangle { y: 0; height: 1px; background: Theme.line; }
+                        Text {
+                            x: parent.width - self.width - 16px;
+                            vertical-alignment: center;
+                            height: parent.height;
+                            text: "SCROLL FOR MORE TOOLS";
+                            font-family: Theme.display;
+                            font-size: 17px;
+                            letter-spacing: 1px;
+                            color: Theme.dim;
                         }
                     }
                 }
@@ -131,7 +153,7 @@ export component ToolsScreen inherits Rectangle {
                     Rectangle {
                         vertical-stretch: 1;
                         background: Theme.well;
-                        border-radius: 6px;
+                        border-radius: Theme.radius-ctl;
                         ListView {
                             for c in Live.tools-check: Rectangle {
                                 height: 62px;

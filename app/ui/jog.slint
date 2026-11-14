@@ -116,7 +116,7 @@ component WcsRow inherits HorizontalLayout {
 component StatusLine inherits Rectangle {
     height: 52px;
     background: Theme.well;
-    border-radius: 6px;
+    border-radius: Theme.radius-ctl;
     Text {
         x: 14px;
         width: parent.width - 28px;
@@ -125,7 +125,7 @@ component StatusLine inherits Rectangle {
         text: Live.pf-status;
         font-family: Theme.body;
         font-size: 21px;
-        color: Live.pf-status-error ? #ff8f8a : Theme.muted;
+        color: Live.pf-status-error ? Theme.bad : Theme.muted;
     }
 }
 
@@ -229,7 +229,7 @@ component GotoPanel inherits VerticalLayout {
                 vertical-stretch: 1;
                 min-height: 140px;
                 background: Theme.well;
-                border-radius: 6px;
+                border-radius: Theme.radius-ctl;
                 clip: true;
                 Flickable {
                     content-height: glist.preferred-height;
@@ -239,8 +239,11 @@ component GotoPanel inherits VerticalLayout {
                         alignment: start;
                         for g[i] in Live.gotos: Rectangle {
                             height: 48px;
-                            border-radius: 4px;
-                            background: i == Live.goto-selected ? Theme.sel : gt.pressed ? Theme.raised : transparent;
+                            border-radius: Theme.radius-sm;
+                            background: i == Live.goto-selected ? Theme.sel-soft : gt.pressed ? Theme.raised : transparent;
+                            border-width: i == Live.goto-selected ? 2px : 0;
+                            border-color: Theme.sel;
+                            animate background { duration: Theme.quick; }
                             Text {
                                 x: 12px;
                                 vertical-alignment: center;
@@ -266,7 +269,7 @@ component GotoPanel inherits VerticalLayout {
         Rectangle {
             horizontal-stretch: 1;
             background: Theme.well;
-            border-radius: 6px;
+            border-radius: Theme.radius-ctl;
             clip: true;
             property <length> side: min(self.width, self.height) - 30px;
             property <length> ox: (self.width - side) / 2;
@@ -278,7 +281,7 @@ component GotoPanel inherits VerticalLayout {
                 y: oy + side * g.py - 7px;
                 width: 14px;
                 height: 14px;
-                border-radius: 7px;
+                border-radius: Theme.radius-ctl;
                 background: i == Live.goto-selected ? Theme.sel : Theme.muted;
                 Text {
                     x: 18px;
@@ -296,7 +299,7 @@ component GotoPanel inherits VerticalLayout {
                 height: 26px;
                 border-radius: 13px;
                 border-width: 3px;
-                border-color: #f2c14e;
+                border-color: Theme.warn;
             }
             Text { x: 10px; y: 8px; text: Live.pf-wcs + " XY"; font-family: Theme.display; font-size: 22px; color: Theme.dim; }
         }

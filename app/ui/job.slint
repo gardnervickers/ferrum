@@ -8,7 +8,7 @@ component Bar inherits Rectangle {
     in property <string> text;
     height: 30px;
     background: Theme.well;
-    border-radius: 4px;
+    border-radius: Theme.radius-sm;
     clip: true;
     Rectangle { x: 0; width: parent.width * clamp(root.value, 0, 1); background: Theme.go; }
     Text { text: root.text; font-family: Theme.display; font-size: 20px; letter-spacing: 1px; color: Theme.ink; horizontal-alignment: center; vertical-alignment: center; }
@@ -18,8 +18,9 @@ component OpRow inherits Rectangle {
     in property <JobOp> op;
     in property <int> index;
     height: 84px;
-    border-radius: 6px;
-    background: op.selected ? #2c3366 : op.state == "current" ? #1d3a28 : Theme.panel2;
+    border-radius: Theme.radius-ctl;
+    background: op.selected ? Theme.sel-soft : op.state == "current" ? Theme.good-soft : Theme.panel2;
+    animate background { duration: Theme.quick; }
     border-width: op.selected ? 2px : 0px;
     border-color: Theme.sel;
     property <bool> faded: op.state == "skipped" || op.state == "done";
@@ -45,7 +46,7 @@ component OpRow inherits Rectangle {
                 horizontal-alignment: center;
                 font-family: Theme.display;
                 font-size: 30px;
-                color: op.state == "done" ? Theme.muted : #7fd6a0;
+                color: op.state == "done" ? Theme.muted : Theme.good;
             }
         }
         Text { width: 44px; vertical-alignment: center; horizontal-alignment: center; text: op.pos; font-family: Theme.display; font-size: 34px; color: faded ? Theme.dim : Theme.muted; }
@@ -58,14 +59,14 @@ component OpRow inherits Rectangle {
                 Rectangle {
                     width: 76px;
                     height: 30px;
-                    border-radius: 4px;
-                    background: op.kind == "step" ? #43361a : op.kind == "cam" ? #1e3346 : #2a2f5a;
+                    border-radius: Theme.radius-sm;
+                    background: op.kind == "step" ? Theme.warn-soft : op.kind == "cam" ? Theme.info-soft : Theme.sel-soft;
                     Text {
                         text: op.badge;
                         font-family: Theme.display;
                         font-size: 20px;
                         letter-spacing: 1px;
-                        color: op.kind == "step" ? #f3c463 : op.kind == "cam" ? #8cc4ef : #b9c0ff;
+                        color: op.kind == "step" ? Theme.warn : op.kind == "cam" ? Theme.info : Theme.sel-ink;
                     }
                 }
                 Text { horizontal-stretch: 1; vertical-alignment: center; text: op.name; font-family: Theme.display; font-size: 28px; letter-spacing: 1px; color: faded ? Theme.dim : Theme.ink; overflow: elide; }
@@ -97,7 +98,7 @@ export component JobScreen inherits Rectangle {
             Rectangle {
                 vertical-stretch: 1;
                 background: Theme.well;
-                border-radius: 6px;
+                border-radius: Theme.radius-ctl;
                 ListView {
                     for op[i] in Live.job-ops: Rectangle {
                         height: 92px;
@@ -112,7 +113,7 @@ export component JobScreen inherits Rectangle {
                 font-family: Theme.body;
                 font-size: 22px;
                 overflow: elide;
-                color: Live.job-note-tone == "error" ? #ff8f8a : Live.job-note-tone == "warn" ? #f3c463 : Live.job-note-tone == "ready" ? #7fd6a0 : Theme.muted;
+                color: Live.job-note-tone == "error" ? Theme.bad : Live.job-note-tone == "warn" ? Theme.warn : Live.job-note-tone == "ready" ? Theme.good : Theme.muted;
             }
             HorizontalLayout {
                 spacing: 12px;
@@ -129,7 +130,7 @@ export component JobScreen inherits Rectangle {
                 Btn { width: 260px; text: "START AT OP"; enabled: !locked && has-sel; clicked => { Actions.job-start-at(); } }
                 Btn { width: 320px; text: "STOP AFTER THIS OP"; on: Live.job-stop-requested; enabled: Live.job-running; clicked => { Actions.job-stop-after(); } }
                 Rectangle { horizontal-stretch: 1; }
-                Btn { width: 460px; kind: "hold"; hold: true; text: "BUILD AND LOAD"; enabled: !locked && Live.job-ops.length > 0; clicked => { Actions.job-build(); } }
+                Btn { width: 460px; hold: true; text: "BUILD AND LOAD"; enabled: !locked && Live.job-ops.length > 0; clicked => { Actions.job-build(); } }
             }
         }
     }

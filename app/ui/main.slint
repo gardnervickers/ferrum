@@ -56,10 +56,10 @@ export component MainWindow inherits Window {
         animate opacity { duration: Theme.quick; }
         width: 860px;
         height: 84px;
-        background: #4a1c1c;
+        background: Theme.panel2;
         border-width: 2px;
-        border-color: #ff8f8a;
-        border-radius: 8px;
+        border-color: Theme.bad;
+        border-radius: Theme.radius-ctl;
         Text {
             x: 24px;
             width: parent.width - 48px;
@@ -69,7 +69,7 @@ export component MainWindow inherits Window {
             font-family: Theme.body;
             font-weight: 600;
             font-size: 26px;
-            color: #ffe2e0;
+            color: Theme.bad;
         }
         TouchArea { clicked => { Live.toast = ""; Actions.toast-dismiss(); } }
     }

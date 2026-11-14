@@ -26,17 +26,21 @@ export component FilesScreen inherits Rectangle {
                 Rectangle {
                     vertical-stretch: 1;
                     background: Theme.well;
-                    border-radius: 6px;
+                    border-radius: Theme.radius-ctl;
                     ListView {
                         for f[i] in Live.files: Rectangle {
                             height: 58px;
-                            background: i == Live.files-selected ? Theme.sel : ft.pressed ? Theme.raised : transparent;
+                            background: i == Live.files-selected ? Theme.sel-soft : ft.pressed ? Theme.raised : transparent;
+                            border-radius: Theme.radius-sm;
+                            border-width: i == Live.files-selected ? 2px : 0;
+                            border-color: Theme.sel;
+                            animate background { duration: Theme.quick; }
                             HorizontalLayout {
                                 padding-left: 12px;
                                 padding-right: 12px;
                                 Text { horizontal-stretch: 1; vertical-alignment: center; text: (f.dir ? "▸ " : "") + f.name; font-family: Theme.body; font-size: 24px; color: Theme.ink; overflow: elide; }
-                                Text { width: 120px; horizontal-alignment: right; vertical-alignment: center; text: f.size; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.ink : Theme.muted; }
-                                Text { width: 200px; horizontal-alignment: right; vertical-alignment: center; text: f.modified; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.ink : Theme.muted; }
+                                Text { width: 120px; horizontal-alignment: right; vertical-alignment: center; text: f.size; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.sel-ink : Theme.muted; }
+                                Text { width: 200px; horizontal-alignment: right; vertical-alignment: center; text: f.modified; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.sel-ink : Theme.muted; }
                             }
                             ft := TouchArea { clicked => { Actions.files-tap(i); } }
                         }
@@ -51,7 +55,6 @@ export component FilesScreen inherits Rectangle {
                     Btn {
                         width: 240px;
                         text: "LOAD";
-                        kind: "go";
                         enabled: Live.files-name != "" && !Live.running;
                         clicked => { Actions.files-load(); }
                     }
@@ -70,7 +73,7 @@ export component FilesScreen inherits Rectangle {
                 Rectangle {
                     height: 380px;
                     background: Theme.panel2;
-                    border-radius: 6px;
+                    border-radius: Theme.radius-ctl;
                     clip: true;
                     sf := Flickable {
                         content-height: sm.preferred-height + 16px;
@@ -88,7 +91,8 @@ export component FilesScreen inherits Rectangle {
                     if sf.content-height > sf.height && sf.content-y > sf.height - sf.content-height + 4px: Rectangle {
                         y: parent.height - 44px;
                         height: 44px;
-                        background: @linear-gradient(180deg, Theme.panel2.with-alpha(0) 0%, Theme.panel2 70%);
+                        background: Theme.panel2;
+                        Rectangle { y: 0; height: 1px; background: Theme.line; }
                         Text {
                             x: parent.width - self.width - 12px;
                             y: parent.height - self.height - 6px;
@@ -102,7 +106,7 @@ export component FilesScreen inherits Rectangle {
                 Rectangle {
                     vertical-stretch: 1;
                     background: Theme.well;
-                    border-radius: 6px;
+                    border-radius: Theme.radius-ctl;
                     clip: true;
                     Flickable {
                         content-height: pv.preferred-height;

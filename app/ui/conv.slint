@@ -16,7 +16,7 @@ component FieldRow inherits Rectangle {
             background: f.choice ? Theme.raised : Theme.well;
             border-width: 1px;
             border-color: touch.pressed ? Theme.sel : f.choice ? Theme.raised-border : Theme.line;
-            border-radius: 6px;
+            border-radius: Theme.radius-ctl;
             HorizontalLayout {
                 padding-left: 12px;
                 padding-right: 12px;
@@ -78,11 +78,15 @@ export component ConvScreen inherits Rectangle {
                         if Live.conv-show-holes: Rectangle {
                             vertical-stretch: 1;
                             background: Theme.well;
-                            border-radius: 6px;
+                            border-radius: Theme.radius-ctl;
                             ListView {
                                 for h[i] in Live.conv-holes: Rectangle {
                                     height: 46px;
-                                    background: i == Live.conv-hole-sel ? Theme.sel : ht.pressed ? Theme.raised : transparent;
+                                    background: i == Live.conv-hole-sel ? Theme.sel-soft : ht.pressed ? Theme.raised : transparent;
+                                    border-radius: Theme.radius-sm;
+                                    border-width: i == Live.conv-hole-sel ? 2px : 0;
+                                    border-color: Theme.sel;
+                                    animate background { duration: Theme.quick; }
                                     ht := TouchArea { clicked => { Actions.conv-hole-select(i); } }
                                     Text { x: 12px; vertical-alignment: center; text: h; font-family: Theme.body; font-size: 22px; color: Theme.ink; }
                                 }
@@ -96,7 +100,7 @@ export component ConvScreen inherits Rectangle {
                         pic := Rectangle {
                             vertical-stretch: 1;
                             background: Theme.well;
-                            border-radius: 6px;
+                            border-radius: Theme.radius-ctl;
                             clip: true;
                             property <float> sc: min(self.width / 400px, self.height / 300px);
                             property <length> ox: (self.width - 400px * sc) / 2;
@@ -115,7 +119,7 @@ export component ConvScreen inherits Rectangle {
                                 x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                                 viewbox-width: 400; viewbox-height: 300;
                                 commands: Live.conv-path;
-                                stroke: #f3c46333; stroke-width: Live.conv-swept * pic.sc * 1px; stroke-line-cap: round; fill: transparent;
+                                stroke: Theme.warn.with-alpha(0.2); stroke-width: Live.conv-swept * pic.sc * 1px; stroke-line-cap: round; fill: transparent;
                             }
                             Path {
                                 // The browser build redraws a changed Path over open overlays.
@@ -123,13 +127,13 @@ export component ConvScreen inherits Rectangle {
                                 x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                                 viewbox-width: 400; viewbox-height: 300;
                                 commands: Live.conv-path;
-                                stroke: #f3c463; stroke-width: 2px; fill: transparent;
+                                stroke: Theme.warn; stroke-width: 2px; fill: transparent;
                             }
                         }
                         Rectangle {
                             height: 210px;
                             background: Theme.panel2;
-                            border-radius: 6px;
+                            border-radius: Theme.radius-ctl;
                             Text {
                                 x: 12px;
                                 y: 10px;
@@ -139,7 +143,7 @@ export component ConvScreen inherits Rectangle {
                                 wrap: word-wrap;
                                 font-family: Theme.body;
                                 font-size: 20px;
-                                color: Live.conv-error ? #ff8f8a : Theme.ink;
+                                color: Live.conv-error ? Theme.bad : Theme.ink;
                             }
                         }
                     }
@@ -148,7 +152,7 @@ export component ConvScreen inherits Rectangle {
                     spacing: 12px;
                     Note { horizontal-stretch: 1; vertical-alignment: center; text: "LOAD AS PROGRAM saves the G-code and opens it on RUN. ADD TO JOB keeps these fields as a job op."; }
                     Btn { width: 260px; text: "LOAD AS PROGRAM"; enabled: !Live.conv-error && !locked; clicked => { Actions.conv-load(); } }
-                    Btn { width: 240px; kind: "go"; text: "ADD TO JOB"; enabled: !Live.conv-error && !Live.job-running; clicked => { Actions.conv-add(); } }
+                    Btn { width: 240px; text: "ADD TO JOB"; enabled: !Live.conv-error && !Live.job-running; clicked => { Actions.conv-add(); } }
                 }
             }
         }
