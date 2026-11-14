@@ -64,19 +64,21 @@ pub type Line = ([f64; 3], [f64; 3]);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene {
-    pub table: Solid,
+    /// None when the table is hidden (the tool still shows).
+    pub table: Option<Solid>,
     /// The T-slots on the table top.
     pub slots: Vec<Line>,
     pub tool: Option<Cylinder>,
 }
 
 impl Machine {
-    pub fn scene(&self, pose: &Pose) -> Scene {
+    /// The table (with `table`) and the tool at `pose`.
+    pub fn scene(&self, pose: &Pose, table: bool) -> Scene {
         let o = pose.offset;
         let top = -self.nose_above_table - o[2];
         let (cx, cy) = (self.table_center[0] - o[0], self.table_center[1] - o[1]);
         let [tl, td, tt] = self.table;
-        let table = Solid {
+        let table_box = Solid {
             lo: [cx - tl / 2.0, cy - td / 2.0, top - tt],
             hi: [cx + tl / 2.0, cy + td / 2.0, top],
             rgb: [0x2c, 0x33, 0x39],
@@ -94,7 +96,10 @@ impl Machine {
             let len = if pose.tool_len > 0.5 { pose.tool_len } else { (4.0 * pose.tool_dia).clamp(10.0, 40.0) };
             Cylinder { center: [pose.tip[0], pose.tip[1]], z0: pose.tip[2], z1: pose.tip[2] + len, r }
         });
-        Scene { table, slots, tool }
+        if !table {
+            return Scene { table: None, slots: Vec::new(), tool };
+        }
+        Scene { table: Some(table_box), slots, tool }
     }
 }
 
@@ -107,10 +112,10 @@ mod tests {
         let m = Machine::pm728vt();
         // Work Z 0 is 200 mm below the top of travel (machine Z -200).
         let pose = Pose { tip: [0.0, 0.0, 0.0, 0.0], tool_len: 80.0, tool_dia: 10.0, offset: [215.0, -90.0, -200.0] };
-        let s = m.scene(&pose);
+        let s = m.scene(&pose, true);
         // Nose 380 above the table at Z 0, so the table top is 180 below work Z 0.
-        assert_eq!(s.table.hi[2], -180.0);
-        assert_eq!((s.table.lo[0] + s.table.hi[0]) / 2.0, 0.0);
+        assert_eq!(s.table.unwrap().hi[2], -180.0);
+        assert_eq!((s.table.unwrap().lo[0] + s.table.unwrap().hi[0]) / 2.0, 0.0);
         assert_eq!(s.slots.len(), 3);
         let t = s.tool.unwrap();
         assert_eq!((t.z0, t.z1, t.r), (0.0, 80.0, 5.0));
@@ -120,8 +125,17 @@ mod tests {
     fn unknown_tool_is_not_drawn_and_unknown_length_is_a_stub() {
         let m = Machine::pm728vt();
         let mut pose = Pose { tool_dia: 0.0, ..Default::default() };
-        assert!(m.scene(&pose).tool.is_none());
+        assert!(m.scene(&pose, true).tool.is_none());
         pose.tool_dia = 6.0;
-        assert_eq!(m.scene(&pose).tool.unwrap().z1, 24.0);
+        assert_eq!(m.scene(&pose, true).tool.unwrap().z1, 24.0);
+    }
+
+    #[test]
+    fn hiding_the_table_keeps_the_tool() {
+        let m = Machine::pm728vt();
+        let pose = Pose { tool_dia: 6.0, ..Default::default() };
+        let s = m.scene(&pose, false);
+        assert!(s.table.is_none() && s.slots.is_empty());
+        assert!(s.tool.is_some());
     }
 }

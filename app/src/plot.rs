@@ -146,7 +146,7 @@ impl Plot {
             }
         }
         let Some((drawn, base)) = &self.base else { return };
-        let scene = self.pose.filter(|_| self.show_machine).map(|p| self.machine.scene(&p));
+        let scene = self.pose.map(|p| self.machine.scene(&p, self.show_machine));
         let t0 = std::time::Instant::now();
         let pm = base.compose(&self.trail, &self.trail_load, self.tool, scene.as_ref());
         if perf() {
@@ -306,7 +306,7 @@ pub fn machine_pose(plot: &Rc<RefCell<Plot>>, pose: Pose) {
     let mut st = plot.borrow_mut();
     if st.pose != Some(pose) {
         st.pose = Some(pose);
-        st.dirty |= st.show_machine;
+        st.dirty = true;
     }
 }
 
@@ -568,7 +568,7 @@ fn gpu_frame(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) {
     }
     st.gpu_frame = false;
     let (w, h) = st.size;
-    let scene = st.pose.filter(|_| st.show_machine).map(|p| st.machine.scene(&p));
+    let scene = st.pose.map(|p| st.machine.scene(&p, st.show_machine));
     let frame = preview::gpu::Frame { view: st.view, zoom: st.zoom, width: w, height: h, trail: &st.trail, loads: &st.trail_load, tool: st.tool, machine: scene.as_ref() };
     let t0 = std::time::Instant::now();
     let drawn = GPU.with(|c| {

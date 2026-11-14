@@ -261,7 +261,9 @@ impl Base {
         pm.fill(Color::from_rgba8(BG[0], BG[1], BG[2], 255));
         let fit = self.fit;
         if let Some(scene) = machine {
-            draw_box(&mut pm, &fit, &scene.table);
+            if let Some(t) = &scene.table {
+                draw_box(&mut pm, &fit, t);
+            }
             let mut pb = PathBuilder::new();
             for (a, b) in &scene.slots {
                 let (a, b) = (fit.map([a[0], a[1], a[2], 0.0]), fit.map([b[0], b[1], b[2], 0.0]));
@@ -442,7 +444,7 @@ mod bench {
         let base = Base::draw(&std::sync::Arc::new(tp), View::Iso, 1100, 700, None, Default::default());
         let m = crate::machine::Machine::pm728vt();
         let pose = crate::machine::Pose { tip: [50.0, 30.0, 5.0, 0.0], tool_len: 80.0, tool_dia: 10.0, offset: [100.0, -90.0, -200.0] };
-        let scene = m.scene(&pose);
+        let scene = m.scene(&pose, true);
         for with in [false, true] {
             let t = std::time::Instant::now();
             for _ in 0..20 {

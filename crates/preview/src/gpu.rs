@@ -438,7 +438,7 @@ impl Gpu {
             add(v);
             (at as i32, (v.len() - at) as i32)
         };
-        let table = f.machine.map(|m| box_faces(fit.view, &m.table)).unwrap_or_default();
+        let table = f.machine.and_then(|m| m.table.as_ref()).map(|t| box_faces(fit.view, t)).unwrap_or_default();
         let table_fill = push_fills(&mut fills, 0, table.iter().map(|(c, fill, _)| (c.to_vec(), *fill)));
         let table_edges = range(&mut lines, &mut |v| {
             for (c, _, edge) in &table {
