@@ -527,6 +527,12 @@ impl Probe {
         if target != active {
             restore.push(WCS[active].to_string());
         }
+        // Several stock macros (bore, pocket, slot) end in G91. Left on, the
+        // next G53 or absolute move from MDI or RUN FROM SELECTED fails or
+        // goes somewhere else, so put back the mode the probing started in.
+        if let Some(mode) = distance_mode(self.status.as_ref()) {
+            restore.push(mode.to_string());
+        }
         self.results.clear();
         let what = self.selected().label;
         self.result_text = format!("Running: {what}");
@@ -1405,6 +1411,18 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
     probe
 }
 
+/// "G90" or "G91" from the active modal codes (stored as code * 10).
+fn distance_mode(s: Option<&Status>) -> Option<&'static str> {
+    let g = &s?.active_gcodes;
+    if g.contains(&910) {
+        Some("G91")
+    } else if g.contains(&900) {
+        Some("G90")
+    } else {
+        None
+    }
+}
+
 pub fn apply_status(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, s: &Status) {
     let mut p = probe.borrow_mut();
     // Everything `check` reads, so the readiness hint never goes stale.
@@ -1449,6 +1467,20 @@ pub fn message(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, m: &Message) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distance_mode_reads_g90_g91_not_g91_1() {
+        let mut s = Status::default();
+        s.active_gcodes = [-1; 17];
+        s.active_gcodes[6] = 910;
+        s.active_gcodes[12] = 911;
+        assert_eq!(distance_mode(Some(&s)), Some("G91"));
+        s.active_gcodes[6] = 900;
+        assert_eq!(distance_mode(Some(&s)), Some("G90"));
+        s.active_gcodes[6] = -1;
+        assert_eq!(distance_mode(Some(&s)), None);
+        assert_eq!(distance_mode(None), None);
+    }
 
     #[test]
     fn values_keep_their_slot() {
