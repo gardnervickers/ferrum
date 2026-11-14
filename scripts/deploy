@@ -9,7 +9,9 @@ scripts/build
 scripts/build-web >/dev/null
 ssh "$PI" "mkdir -p $DEST/millgui/bin"
 scp -q target/aarch64-unknown-linux-gnu/release/millgui "$PI:$DEST/millgui/bin/millgui.new"
-scp -q run mdi.toml job_helper.py "$PI:$DEST/millgui/"
+scp -q run mdi.toml "$PI:$DEST/millgui/"
+# The JOB page used to run millgui/job_helper.py; it is built in now.
+ssh "$PI" "rm -f $DEST/millgui/job_helper.py"
 # machine.toml is edited on the machine: install it only the first time.
 ssh "$PI" "test -e $DEST/millgui/machine.toml" || scp -q machine.toml "$PI:$DEST/millgui/"
 scp -q ../millgui.ini "$PI:$DEST/"

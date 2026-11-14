@@ -2,7 +2,7 @@
 //! and thread milling.
 //!
 //! The screen only collects numbers. The G-code comes from the mill_ops
-//! generators in Python (through the job helper), so ADD TO JOB and LOAD AS
+//! generators in the jobcore crate (through the job session), so ADD TO JOB and LOAD AS
 //! PROGRAM cut exactly what the Probe Basic pages did. Every change is checked
 //! by the generator at once and its summary or errors shown.
 
@@ -295,7 +295,7 @@ impl Conv {
         SETUP.iter().chain(op_fields(&self.ty)).find(|f| f.key == key)
     }
 
-    /// The generator's inputs, as job_helper.py expects them.
+    /// The generator's inputs, as the job session expects them.
     fn request(&self, action: &str) -> Value {
         let mut attrs = serde_json::Map::new();
         for f in SETUP.iter() {

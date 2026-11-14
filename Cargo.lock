@@ -2288,6 +2288,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "jobcore"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "jobserver"
 version = "0.1.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2538,6 +2547,7 @@ dependencies = [
  "chrono",
  "ctrlc",
  "hal",
+ "jobcore",
  "linuxcnc",
  "png 0.17.16",
  "preview",

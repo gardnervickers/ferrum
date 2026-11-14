@@ -1,0 +1,92 @@
+;Tool  Pocket Z Offset     Diameter     Remark
+T1     P1     Z+144.438333 D+1.000000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T2     P2     Z+0.000000   D+1.500000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T3     P3     Z+0.000000   D+2.000000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T4     P4     Z+98.794101  D+2.500000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T5     P5     Z+100.885768 D+3.000000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T6     P6     Z+107.444101 D+3.500000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T7     P7     Z+109.232434 D+4.000000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T8     P8     Z+0.000000   D+4.500000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T9     P9     Z+125.572633 D+5.000000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T10    P10    Z+130.279200 D+5.500000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T11    P11    Z+130.582633 D+6.000000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T12    P12    Z+89.064367  D+6.350000   ; 2Fl 1/4in Ball End Mill (Purple)
+T13    P13    Z+78.521034  D+3.175000   ; 2Fl 1/8in HSS Flat End Mill (Precision Matthews)
+T14    P14    Z+67.632045  D+50.000000  ; Face Mill
+T15    P15    Z+89.602434  D+4.000000   ; 4mm Spot Drill
+T16    P0     Z+96.160900  D+5.000000   ; 5 mm spot
+T17    P17    Z+74.263192  D+4.000000   ; 4mm Metric Thread Mill
+T19    P19    Z+87.429200  D+4.762500   ; PM 3/16 HSS 2Flute
+T20    P20    Z+0.000000   D+0.793750   ; SpeTool - Carbide 1/32
+T21    P21    Z+75.897435  D+0.000000   ; unknown - 90deg 6mm engraver
+T22    P22    Z+66.038826  D+6.350000   ; Speed Tiger - 1/4 3flt Carbide Speed Tiger
+T23    P23    Z+63.426033  D+6.350000   ; Kodiak Cutting Tools - Kodiak 0.2500 (1/4) Carbide End Mill - 2 Flute Stub - 45 Degree ZRN Coated for Aluminum, 1/2 LOC
+T24    P24    Z+72.820768  D+3.175000   ; Kodiak Cutting Tools - Kodiak 0.1250 (1/8) Carbide End Mill - 2 Flute Stub - 45 Degree ZRN Coated for Aluminum, 1/4 LOC
+T25    P25    Z+0.000000   D+3.175000   ; Kodiak Cutting Tools - Kodiak 0.1250 (1/8) Carbide End Mill - 2 Flute - 45 Degree ZRN Coated for Aluminum with Corner Radius, 1/2 LOC
+T26    P26    Z+82.002633  D+4.762500   ; Kodiak Cutting Tools - Kodiak 0.1875 (3/16) Carbide End Mill - 2 Flute Ball Nose, 5/8 LOC
+T27    P27    Z+0.000000   D+6.350000   ; Kodiak Cutting Tools - Kodiak 0.2500 (1/4) Carbide End Mill - 2 Flute Stub - 45 Degree ZRN Coated for Aluminum with Corner Radius, 1/2 LOC
+T28    P28    Z+82.020967  D+6.350000   ; Kodiak Cutting Tools - Kodiak 0.2500 (1/4) Carbide End Mill - 2 Flute - 45 Degree ZRN Coated for Aluminum with Corner Radius, 3/4 LOC
+T29    P29    Z+0.000000   D+6.350000   ; Kodiak Cutting Tools - Kodiak 0.2500 (1/4) Carbide End Mill - 2 Flute - 45 Degree ZRN Coated for Aluminum, 3/4 LOC
+T31    P31    Z+83.632633  D+7.937500   ; Speed Tiger - 1FL Carbide
+T32    P32    Z+75.450967  D+7.937500   ; Kodiak Cutting Tools - Kodiak (3/8) Carbide End Mill - 3 Flute - 45 Degree ZRN Coated for Aluminum
+T33    P33    Z+127.897567 D+8.000000   ; 150 Series High-Speed Steel Jobber - Chicago Latrobe 57723
+T34    P34    Z+69.659233  D+9.525000   ; Kodiak Cutting Tools - Kodiak 0.3750 (3/8) Carbide End Mill - 3 Flute Bull Nose .010R, 5/8 LOC, 2 OAL
+T41    P41    Z+0.0000000  D+8.500000   ; 8.5mm Drill 
+T43    P43    Z+0.0000000  D+9.000000   ; 9mm Reamer 
+T39    P39    Z+0.0000000  D+7.000000   ; 7mm Drill 
+T47    P47    Z+0.0000000  D+9.500000   ; 9.5mm Counterbore Drill 
+
+
+T99    P99    Z+125.673000 D+3.175000   ; Probe
+T100   P100   Z+0.136233   D+40.000000  ; Spindle Nose
+T110   P110   Z+76.637435  D+2.350000   ; Luocut 2.35mm Thread Mill
+T200   P200   Z+0.000000   D+0.000000   ; Scratch tool 200
+T201   P201   Z+0.000000   D+0.000000   ; Scratch tool 201
+T202   P202   Z+0.000000   D+0.000000   ; Scratch tool 202
+T203   P203   Z+0.000000   D+0.000000   ; Scratch tool 203
+T204   P204   Z+0.000000   D+0.000000   ; Scratch tool 204
+T205   P205   Z+0.000000   D+0.000000   ; Scratch tool 205
+T206   P206   Z+0.000000   D+0.000000   ; Scratch tool 206
+T207   P207   Z+0.000000   D+0.000000   ; Scratch tool 207
+T208   P208   Z+0.000000   D+0.000000   ; Scratch tool 208
+T209   P209   Z+0.000000   D+0.000000   ; Scratch tool 209
+T210   P210   Z+0.000000   D+0.000000   ; Scratch tool 210
+T211   P211   Z+0.000000   D+0.000000   ; Scratch tool 211
+T212   P212   Z+0.000000   D+0.000000   ; Scratch tool 212
+T213   P213   Z+0.000000   D+0.000000   ; Scratch tool 213
+T214   P214   Z+0.000000   D+0.000000   ; Scratch tool 214
+T215   P215   Z+0.000000   D+0.000000   ; Scratch tool 215
+T216   P216   Z+0.000000   D+0.000000   ; Scratch tool 216
+T217   P217   Z+0.000000   D+0.000000   ; Scratch tool 217
+T218   P218   Z+0.000000   D+0.000000   ; Scratch tool 218
+T219   P219   Z+0.000000   D+0.000000   ; Scratch tool 219
+T220   P220   Z+0.000000   D+0.000000   ; Scratch tool 220
+T221   P221   Z+0.000000   D+0.000000   ; Scratch tool 221
+T222   P222   Z+0.000000   D+0.000000   ; Scratch tool 222
+T223   P223   Z+0.000000   D+0.000000   ; Scratch tool 223
+T224   P224   Z+0.000000   D+0.000000   ; Scratch tool 224
+T225   P225   Z+0.000000   D+0.000000   ; Scratch tool 225
+T226   P226   Z+0.000000   D+0.000000   ; Scratch tool 226
+T227   P227   Z+0.000000   D+0.000000   ; Scratch tool 227
+T228   P228   Z+0.000000   D+0.000000   ; Scratch tool 228
+T229   P229   Z+0.000000   D+0.000000   ; Scratch tool 229
+T230   P230   Z+0.000000   D+0.000000   ; Scratch tool 230
+T231   P231   Z+0.000000   D+0.000000   ; Scratch tool 231
+T232   P232   Z+0.000000   D+0.000000   ; Scratch tool 232
+T233   P233   Z+0.000000   D+0.000000   ; Scratch tool 233
+T234   P234   Z+0.000000   D+0.000000   ; Scratch tool 234
+T235   P235   Z+0.000000   D+0.000000   ; Scratch tool 235
+T236   P236   Z+0.000000   D+0.000000   ; Scratch tool 236
+T237   P237   Z+0.000000   D+0.000000   ; Scratch tool 237
+T238   P238   Z+0.000000   D+0.000000   ; Scratch tool 238
+T239   P239   Z+0.000000   D+0.000000   ; Scratch tool 239
+T240   P240   Z+0.000000   D+0.000000   ; Scratch tool 240
+T241   P241   Z+0.000000   D+0.000000   ; Scratch tool 241
+T242   P242   Z+0.000000   D+0.000000   ; Scratch tool 242
+T243   P243   Z+0.000000   D+0.000000   ; Scratch tool 243
+T244   P244   Z+0.000000   D+0.000000   ; Scratch tool 244
+T245   P245   Z+0.000000   D+0.000000   ; Scratch tool 245
+T246   P246   Z+0.000000   D+0.000000   ; Scratch tool 246
+T247   P247   Z+0.000000   D+0.000000   ; Scratch tool 247
+T248   P248   Z+0.000000   D+0.000000   ; Scratch tool 248
+T249   P249   Z+0.000000   D+0.000000   ; Scratch tool 249

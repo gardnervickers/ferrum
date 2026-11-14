@@ -1,10 +1,11 @@
 //! JOB screen (milestone 6): the open job, its build, and the `mymill-job`
 //! HAL pins the built program reads.
 //!
-//! The rules live in Python (mymill_vcp/job_session.py, shared with the Probe
-//! Basic JOB page): millgui/job_helper.py hosts one JobSession and answers
-//! JSON lines. This side shows its snapshots, loads the programs it builds,
-//! copies its pins to HAL, and asks it before CYCLE START starts a program.
+//! The rules live in the jobcore crate (a port of mymill_vcp/job_session.py
+//! and mymill_job, checked against their output): one JobSession answering
+//! JSON requests in-process. This side shows its snapshots, loads the
+//! programs it builds, copies its pins to HAL, and asks it before CYCLE
+//! START starts a program.
 
 use crate::config::Config;
 use crate::{Actions, JobOp, Live, MainWindow};
@@ -12,11 +13,8 @@ use linuxcnc::{Command, Handle, Interp, Status};
 use serde_json::{json, Value};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
-use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command as Proc, Stdio};
+use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
 
 /// Must match mymill_job.model.MAX_OPS (one skip pin per position).
@@ -30,49 +28,16 @@ const STEP_PRESETS: [&str; 5] = [
     "MOVE CLAMPS CLEAR OF THE NEXT OP",
 ];
 
-/// The Python child process. One request, one reply, in order.
-struct Helper {
-    child: Child,
-    stdin: ChildStdin,
-    rx: Receiver<String>,
-}
+/// The job session (jobcore), one request and reply at a time.
+struct Helper(jobcore::Helper);
 
 impl Helper {
-    fn start(dir: &Path) -> Result<Self, String> {
-        let mut child = Proc::new("python3")
-            .arg("-u")
-            .arg("millgui/job_helper.py")
-            .current_dir(dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| format!("job helper: python3: {e}"))?;
-        let stdin = child.stdin.take().ok_or("job helper: no stdin")?;
-        let stdout = child.stdout.take().ok_or("job helper: no stdout")?;
-        let (tx, rx) = channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if tx.send(line).is_err() {
-                    break;
-                }
-            }
-        });
-        Ok(Self { child, stdin, rx })
+    fn start(dir: &std::path::Path) -> Result<Self, String> {
+        Ok(Self(jobcore::Helper::new(dir.to_path_buf())))
     }
 
     fn call(&mut self, req: &Value) -> Result<Value, String> {
-        writeln!(self.stdin, "{req}").and_then(|_| self.stdin.flush()).map_err(|e| format!("job helper: {e}"))?;
-        let line = self.rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "The job helper stopped answering".to_string())?;
-        serde_json::from_str(&line).map_err(|e| format!("job helper: bad reply: {e}"))
-    }
-}
-
-impl Drop for Helper {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        Ok(self.0.handle(req))
     }
 }
 
@@ -283,7 +248,7 @@ impl Job {
         live.set_job_fraction(s["job_fraction"].as_f64().unwrap_or(0.0) as f32);
         live.set_job_stop_requested(s["stop_requested"].as_bool().unwrap_or(false));
         let (note, tone) = if let Some(d) = &self.down {
-            (format!("{d}. The JOB page needs python3 and the mymill_job package in the config folder."), "error".to_string())
+            (d.clone(), "error".to_string())
         } else if let (Some((m, t)), false) = (&self.pinned, running) {
             (m.clone(), t.clone())
         } else {
