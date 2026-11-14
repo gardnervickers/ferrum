@@ -57,12 +57,13 @@ export component MainWindow inherits Window {
         init => { self.opacity = 1; }
         animate opacity { duration: Theme.quick; }
         width: 860px;
-        height: 84px;
+        // Grows to fit a long LinuxCNC error (up to 255 characters).
+        height: max(84px, toast-text.preferred-height + 28px);
         background: Theme.panel2;
         border-width: 2px;
         border-color: Theme.bad;
         border-radius: Theme.radius-ctl;
-        Text {
+        toast-text := Text {
             x: 24px;
             width: parent.width - 48px;
             vertical-alignment: center;

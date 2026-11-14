@@ -464,16 +464,22 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         match (s.interp, single) {
             (Interp::Paused, true) => m.send(Command::Step),
             (Interp::Paused, false) => m.send(Command::Resume),
-            (Interp::Idle, true) => {
-                m.send(Command::SetMode(linuxcnc::Mode::Auto));
-                m.send(Command::Step);
-            }
+            // The worker switches to AUTO first (and says so if it can't).
+            (Interp::Idle, true) => m.send(Command::Step),
             (Interp::Idle, false) => m.send(Command::ProgramRun(0)),
             _ => {}
         }
     });
-    let m = machine.clone();
-    actions.on_feed_hold(move || m.send(Command::Pause));
+    let (m, st) = (machine.clone(), state.clone());
+    // Only a running program or MDI command can be held. Task takes a pause
+    // while idle too and then reports PAUSED, which blocks MDI and mode
+    // changes until CYCLE START resumes nothing (the button is greyed out
+    // when idle; this covers the remote screen).
+    actions.on_feed_hold(move || {
+        if st.borrow().status.as_ref().is_some_and(|s| s.busy() && s.interp != Interp::Paused) {
+            m.send(Command::Pause);
+        }
+    });
     let m = machine.clone();
     // A restart under way loads the original program again once the abort
     // leaves the interpreter idle.
@@ -698,6 +704,11 @@ fn main() -> Result<(), slint::PlatformError> {
                         with_manual(|mm| manual::log_message(ui, mm, &m));
                         live.set_message(SharedString::from(m.text.trim()));
                         live.set_message_error(m.kind == MessageKind::Error);
+                        // The header has room for a few words; show LinuxCNC's
+                        // errors in full where they can be read.
+                        if m.kind == MessageKind::Error {
+                            toast(ui, m.text.trim().to_string());
+                        }
                     }
                     Event::Disconnected(e) => {
                         let mut st = state.borrow_mut();
@@ -1236,13 +1247,15 @@ thread_local! {
 
 /// Show a refusal over the bottom bar for a few seconds.
 fn toast(ui: &MainWindow, text: String) {
+    // Long enough to read: 5 s, or about 15 characters a second (tap to close).
+    let shown = Duration::from_secs((text.chars().count() as u64 / 15).max(5));
     ui.global::<Live>().set_toast(text.into());
     let n = TOAST.with(|t| {
         t.set(t.get() + 1);
         t.get()
     });
     let weak = ui.as_weak();
-    slint::Timer::single_shot(Duration::from_secs(5), move || {
+    slint::Timer::single_shot(shown, move || {
         if TOAST.with(|t| t.get()) == n {
             if let Some(ui) = weak.upgrade() {
                 ui.global::<Live>().set_toast("".into());
