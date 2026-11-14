@@ -35,10 +35,13 @@ export component Btn inherits Rectangle {
     border-width: kind == "tripped" ? 3px : on && !filled ? 2px : flat ? 0 : 1px;
     opacity: enabled ? 1.0 : 0.38;
     clip: true;
+    animate background, border-color, opacity { duration: Theme.quick; }
     property <color> ink: filled || kind == "tripped" ? #ffffff : on ? Theme.sel-ink : flat ? Theme.muted : Theme.ink;
 
     Rectangle {
         background: touch.pressed && enabled ? #ffffff26 : transparent;
+        // Lights at once under the finger, fades when it lifts.
+        animate background { duration: touch.pressed ? 0ms : 200ms; }
     }
     Rectangle {
         x: 0;
@@ -73,6 +76,7 @@ export component Btn inherits Rectangle {
             font-size: root.font-size;
             letter-spacing: 0.05 * root.font-size;
             color: root.ink;
+            animate color { duration: Theme.quick; }
             horizontal-alignment: center;
             wrap: word-wrap;
         }
@@ -123,13 +127,14 @@ export component Pill inherits Rectangle {
     horizontal-stretch: 0;
     border-radius: 19px;
     background: kind == "bad" ? #ff8f8a24 : kind == "warn" ? #f3c4631c : Theme.panel;
+    animate background { duration: Theme.settle; }
     HorizontalLayout {
         padding-left: 14px;
         padding-right: 16px;
         spacing: 9px;
         VerticalLayout {
             alignment: center;
-            Rectangle { width: 9px; height: 9px; border-radius: 4.5px; background: tone; }
+            Rectangle { width: 9px; height: 9px; border-radius: 4.5px; background: tone; animate background { duration: Theme.settle; } }
         }
         Text {
             vertical-alignment: center;
@@ -139,6 +144,7 @@ export component Pill inherits Rectangle {
             font-size: 20px;
             letter-spacing: 1.2px;
             color: kind == "" ? Theme.muted : tone;
+            animate color { duration: Theme.settle; }
         }
     }
 }
@@ -181,8 +187,9 @@ export component Seg inherits Rectangle {
         height: parent.height - 8px;
         border-radius: Theme.radius-sm;
         background: root.on ? Theme.sel-soft : touch.pressed && root.enabled ? #ffffff1c : transparent;
-        border-width: root.on ? 2px : 0;
-        border-color: Theme.sel;
+        border-width: 2px;
+        border-color: root.on ? Theme.sel : transparent;
+        animate background, border-color { duration: Theme.quick; }
     }
     Text {
         width: parent.width;
@@ -194,6 +201,7 @@ export component Seg inherits Rectangle {
         font-size: root.font-size;
         letter-spacing: 0.05 * root.font-size;
         color: root.on ? Theme.sel-ink : Theme.muted;
+        animate color { duration: Theme.quick; }
     }
     touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
 }
@@ -209,6 +217,7 @@ export component NumField inherits Rectangle {
     border-width: 1px;
     border-color: touch.pressed ? Theme.sel : Theme.raised-border;
     border-radius: Theme.radius-ctl;
+    animate border-color { duration: touch.pressed ? 0ms : 200ms; }
     opacity: enabled ? 1 : 0.38;
     HorizontalLayout {
         padding-left: 14px;

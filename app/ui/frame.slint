@@ -124,6 +124,7 @@ component DroLine inherits Rectangle {
         font-family: Theme.display;
         font-size: 46px;
         color: data.homed ? Theme.sel : Theme.warn;
+        animate color { duration: 400ms; }
     }
     Text {
         x: 52px;
@@ -186,6 +187,8 @@ component OverrideRow inherits HorizontalLayout {
                 width: parent.width * Math.min(1.0, pct / Math.max(1, root.limit));
                 border-radius: 4px;
                 background: pct == 100 ? Theme.sel : Theme.warn;
+                animate width { duration: Theme.settle; easing: ease-out; }
+                animate background { duration: Theme.settle; }
             }
         }
         // 100% mark
@@ -209,6 +212,7 @@ component OverrideRow inherits HorizontalLayout {
         font-weight: 600;
         font-size: 27px;
         color: pct == 100 ? Theme.ink : Theme.warn;
+        animate color { duration: Theme.settle; }
     }
 }
 
@@ -371,8 +375,9 @@ export component BottomBar inherits Rectangle {
             Rectangle {
                 width: 192px; height: 112px;
                 border-radius: 15px;
-                border-width: Live.paused ? 4px : 0;
-                border-color: Theme.good;
+                border-width: 4px;
+                border-color: Live.paused ? Theme.good : transparent;
+                animate border-color { duration: Theme.settle; }
                 Btn {
                     x: 6px; y: 6px;
                     width: 180px; height: 100px; font-size: 32px; kind: "go";

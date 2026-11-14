@@ -160,6 +160,7 @@ component GLine inherits Rectangle {
     callback tapped();
     height: 32px;
     background: current ? Theme.sel-soft : picked ? Theme.raised : transparent;
+    animate background { duration: Theme.quick; }
     if current: Rectangle { x: 0; width: 4px; background: Theme.sel; }
     HorizontalLayout {
         padding-left: 8px;
@@ -197,6 +198,7 @@ component ProgramCard inherits Card {
                 width: Live.gcode-count == 0 ? 0 : parent.width * min(1, Live.line / Live.gcode-count);
                 border-radius: 3px;
                 background: Theme.sel;
+                animate width { duration: Theme.settle; easing: ease-out; }
             }
         }
         plot-area := Rectangle {
@@ -384,9 +386,10 @@ export component RunScreen inherits Rectangle {
                 padding: Theme.pad;
                 spacing: 12px;
                 RunTabs { }
-                if Live.run-tab == "program": GcodeView { vertical-stretch: 1; }
-                if Live.run-tab == "mdi": MdiPanel { vertical-stretch: 1; }
-                if Live.run-tab == "jog": JogPanel { vertical-stretch: 1; }
+                // The new tab's controls fade in; they take touches from the first frame.
+                if Live.run-tab == "program": GcodeView { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
+                if Live.run-tab == "mdi": MdiPanel { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
+                if Live.run-tab == "jog": JogPanel { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
             }
         }
     }

@@ -51,6 +51,11 @@ export global Theme {
     out property <string> display: "Bebas Neue";
     out property <string> body: "Barlow Condensed";
 
+    // Motion: short transitions on a change of state, nothing at idle.
+    // `quick` for presses and toggles, `settle` for bars and status colours.
+    out property <duration> quick: 140ms;
+    out property <duration> settle: 220ms;
+
     // Spacing and corners.
     out property <length> gap: 14px;
     out property <length> pad: 16px;

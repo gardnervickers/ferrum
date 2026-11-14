@@ -30,7 +30,12 @@ widgets in `app/ui/widgets.slint`.
 - **Touch.** Targets stay at least 48 px tall (primary ones 56 px and up);
   the hold-to-confirm sweep and the HOLD tag are part of `Btn`.
 - **Cheap to draw.** The Pi draws in software: flat fills and rounded
-  rectangles only. No gradients, shadows, or idle animations.
+  rectangles only. No gradients or shadows.
+- **Quiet motion.** Only a change of state animates, and briefly:
+  `Theme.quick` (140 ms) for presses, toggles and tab changes, `Theme.settle`
+  (220 ms) for bars and status colours. A press lights at once and fades on
+  release. Nothing moves position, nothing loops, nothing animates at idle,
+  and no animation delays a touch or a machine action.
 
 ## Widgets
 

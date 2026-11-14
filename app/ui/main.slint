@@ -51,6 +51,9 @@ export component MainWindow inherits Window {
         x: parent.width - self.width - 14px;
         // Under the top bar, clear of the plot and bottom-bar controls.
         y: 72px;
+        opacity: 0;
+        init => { self.opacity = 1; }
+        animate opacity { duration: Theme.quick; }
         width: 860px;
         height: 84px;
         background: #4a1c1c;
