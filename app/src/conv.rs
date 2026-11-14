@@ -112,7 +112,7 @@ const THREAD: [F; 7] = [
     f("cy", "CENTER Y", Kind::Len),
     f("diameter", "MAJOR DIA", Kind::Len),
     f("pitch", "PITCH", Kind::Len),
-    f("radial_passes", "PASSES", Kind::Count),
+    f("radial_passes", "RADIAL PASSES", Kind::Count),
     f("hand", "HAND", Kind::Choice(&["RH", "LH"])),
 ];
 
@@ -140,13 +140,15 @@ fn section_keys(ty: &str, section: &str) -> &'static [&'static str] {
         ("shape", "circle") => &["cx", "cy", "circle_d", "count", "start_angle"],
         ("shape", "bore") => &["cx", "cy", "diameter"],
         ("shape", _) => &["preset", "hand", "cx", "cy", "diameter", "pitch"],
-        ("depth", "face") => &["z_start", "z_end", "step_down"],
-        ("depth", "xy" | "grid" | "circle") => &["z_start", "z_end", "cycle", "cycle_param", "retract_mode"],
-        ("depth", "bore") => &["z_start", "z_end", "ramp_angle"],
-        ("depth", _) => &["z_start", "z_end", "radial_passes"],
+        // Clearance and retract are Z levels, so they sit with the depths.
+        ("depth", "face") => &["z_start", "z_end", "z_clear", "retract", "step_down"],
+        ("depth", "xy" | "grid" | "circle") => &["z_start", "z_end", "z_clear", "retract", "cycle", "cycle_param", "retract_mode"],
+        ("depth", "bore") => &["z_start", "z_end", "z_clear", "retract", "ramp_angle"],
+        ("depth", _) => &["z_start", "z_end", "z_clear", "retract"],
         ("tool", "face") => &["tool_number", "spindle_rpm", "xy_feed", "z_feed", "step_over"],
+        ("tool", "thread") => &["tool_number", "spindle_rpm", "xy_feed", "z_feed", "radial_passes"],
         ("tool", _) => &["tool_number", "spindle_rpm", "xy_feed", "z_feed"],
-        _ => &["wcs", "units", "coolant", "spindle_dir", "z_clear", "retract"],
+        _ => &["wcs", "units", "coolant", "spindle_dir"],
     }
 }
 
@@ -317,7 +319,9 @@ impl Conv {
         if self.unused(f.key) {
             return ConvField { key: f.key.into(), label: self.label(f).into(), value: "—".into(), unit: "".into(), choice: false };
         }
-        ConvField { key: f.key.into(), label: self.label(f).into(), value: self.get(f.key).into(), unit: self.unit(f).into(), choice: matches!(f.kind, Kind::Choice(_) | Kind::Preset) }
+        // Degrees read as part of the number.
+        let (value, unit) = if f.kind == Kind::Deg { (format!("{}°", self.get(f.key)), String::new()) } else { (self.get(f.key), self.unit(f)) };
+        ConvField { key: f.key.into(), label: self.label(f).into(), value: value.into(), unit: unit.into(), choice: matches!(f.kind, Kind::Choice(_) | Kind::Preset) }
     }
 
     fn find(&self, key: &str) -> Option<&'static F> {
@@ -342,20 +346,26 @@ impl Conv {
                 format!("{what} {} at X {} Y {}", g("hand"), g("cx"), g("cy"))
             }
             ("depth", ty) => {
-                let z = format!("Z {} to {}", g("z_start"), g("z_end"));
+                let z = format!("Z {} to {}  ·  clear Z {}", g("z_start"), g("z_end"), g("z_clear"));
                 match ty {
                     "face" => format!("{z}  ·  step down {}", g("step_down")),
                     "bore" => format!("{z}  ·  ramp {}°", g("ramp_angle")),
-                    "thread" => format!("{z}  ·  {} passes", g("radial_passes")),
+                    "thread" => z,
                     _ if self.unused("cycle_param") => format!("{z}  ·  {}", g("cycle")),
                     _ => format!("{z}  ·  {} {}", g("cycle"), g("cycle_param")),
                 }
             }
             ("tool", ty) => {
-                let t = format!("T{}  ·  {} rpm  ·  {} {u}/min", g("tool_number"), g("spindle_rpm"), g("xy_feed"));
-                if ty == "face" { format!("{t}  ·  step over {}", g("step_over")) } else { t }
+                // Drilling feeds in Z; everything else is described by its XY feed.
+                let feed = if matches!(ty, "xy" | "grid" | "circle") { g("z_feed") } else { g("xy_feed") };
+                let t = format!("T{}  ·  {} rpm  ·  {feed} {u}/min", g("tool_number"), g("spindle_rpm"));
+                match ty {
+                    "face" => format!("{t}  ·  step over {}", g("step_over")),
+                    "thread" => format!("{t}  ·  {} radial passes", g("radial_passes")),
+                    _ => t,
+                }
             }
-            _ => format!("{}  ·  {}  ·  coolant {}  ·  {}  ·  clear Z {}", g("wcs"), g("units"), g("coolant").to_lowercase(), g("spindle_dir"), g("z_clear")),
+            _ => format!("{}  ·  {}  ·  coolant {}  ·  spindle {}", g("wcs"), g("units"), g("coolant").to_lowercase(), g("spindle_dir")),
         }
     }
 
