@@ -7,6 +7,8 @@ component Cell inherits Rectangle {
     in property <string> text;
     in property <bool> tag;
     in property <bool> editable;
+    // A wear adjustment included in the value, shown small at the left.
+    in property <string> wear;
     callback tapped();
     Rectangle {
         x: 6px;
@@ -26,6 +28,15 @@ component Cell inherits Rectangle {
             font-family: tag ? Theme.display : Theme.body;
             font-size: tag ? 19px : 24px;
             color: tag ? Theme.warn : Theme.ink;
+        }
+        if root.wear != "" && !tag: Text {
+            x: 10px;
+            vertical-alignment: center;
+            text: root.wear;
+            font-family: Theme.body;
+            font-weight: 500;
+            font-size: 17px;
+            color: Theme.warn;
         }
     }
     ta := TouchArea { enabled: editable; clicked => { root.tapped(); } }
@@ -54,7 +65,6 @@ export component ToolsScreen inherits Rectangle {
                     Rectangle { width: 18px; }
                     Label { width: 122px; horizontal-alignment: right; text: "DIA"; }
                     Rectangle { width: 18px; }
-                    Label { width: 150px; text: "   WEAR ADJ"; }
                     Label { horizontal-stretch: 1; text: "   COMMENT"; }
                 }
                 Rectangle {
@@ -82,6 +92,7 @@ export component ToolsScreen inherits Rectangle {
                                 }
                                 Cell {
                                     width: 170px;
+                                    wear: t.wear-len;
                                     text: t.len;
                                     tag: t.needs-len;
                                     editable: !locked;
@@ -89,20 +100,10 @@ export component ToolsScreen inherits Rectangle {
                                 }
                                 Cell {
                                     width: 140px;
+                                    wear: t.wear-dia;
                                     text: t.dia;
                                     editable: !locked;
                                     tapped => { Actions.tools-select(i); Actions.edit("tool-d"); }
-                                }
-                                // The wear adjustment since the value was last measured or typed.
-                                Text {
-                                    width: 150px;
-                                    vertical-alignment: center;
-                                    text: "   " + t.wear;
-                                    font-family: Theme.body;
-                                    font-weight: 500;
-                                    font-size: 20px;
-                                    color: Theme.warn;
-                                    overflow: elide;
                                 }
                                 Text {
                                     horizontal-stretch: 1;
@@ -141,7 +142,7 @@ export component ToolsScreen inherits Rectangle {
                     Label { width: 150px; vertical-alignment: center; text: "WEAR " + Live.tools-sel-label; }
                     Btn { width: 220px; font-size: 22px; text: "ADJUST LENGTH"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-z"); } }
                     Btn { width: 200px; font-size: 22px; text: "ADJUST DIA"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-d"); } }
-                    Note { horizontal-stretch: 1; vertical-alignment: center; font-size: 18px; text: "Adds to the table value. Length +: cuts shallower. Undo it on OFFSETS, TIMELINE."; }
+                    Note { horizontal-stretch: 1; vertical-alignment: center; font-size: 18px; text: "Adds to the table value; the total shows in amber beside it. Length +: cuts shallower. Dia matters only with G41/G42. Undo on OFFSETS, TIMELINE."; }
                 }
                 HorizontalLayout {
                     spacing: 12px;

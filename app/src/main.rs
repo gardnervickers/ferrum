@@ -914,13 +914,17 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
             "timeline" => {
                 live.set_offsets_view("timeline".into());
                 use history::Target::{Tool, Wcs};
-                history::record(Wcs(0), &[0.0; 5], &[215.638, -94.431, -322.444, 0.0, 0.0], "MDI or probe routine", [0.0; 2]);
-                history::record(Tool(7), &[0.0, 4.0], &[109.232, 4.0], "Touch off or G10 (machine)", [0.0; 2]);
+                history::record(Wcs(0), &[0.0; 5], &[215.638, -94.431, -322.444, 0.0, 0.0], "During MDI or a probe routine", [0.0; 2]);
+                history::record(Tool(7), &[0.0, 4.0], &[109.232, 4.0], "Tool table changed outside millgui", [0.0; 2]);
                 history::record(Wcs(0), &[215.638, -94.431, -322.444, 0.0, 0.0], &[215.638, -94.431, -322.394, 0.0, 0.0], "Zero Z here", [0.0; 2]);
                 history::record(Tool(7), &[109.232, 4.0], &[109.212, 4.0], "Wear adjust -0.020 length", [-0.02, 0.0]);
-                history::record(Wcs(1), &[0.0; 5], &[120.0, -40.0, -300.0, 0.0, 1.5], "Program bracket-sample.ngc", [0.0; 2]);
+                history::record(Wcs(1), &[0.0; 5], &[120.0, -40.0, -300.0, 0.0, 1.5], "During program bracket-sample.ngc", [0.0; 2]);
                 history::record(Wcs(0), &[215.638, -94.431, -322.394, 0.0, 0.0], &[0.0; 5], "Cleared on OFFSETS", [0.0; 2]);
-                actions.invoke_history_select(0);
+                // Show a wear adjustment beside T7's length and T9's diameter.
+                history::set_wear(7, 0, -0.02, 109.232434);
+                history::set_wear(9, 1, 0.015, 5.0);
+                actions.invoke_tools_reload();
+                actions.invoke_history_select(3);
             }
             "load" => {
                 // A cut along the sample part with the load rising and falling.
@@ -947,8 +951,8 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
 fn restore_fn(offsets: &Rc<RefCell<offsets::Offsets>>, tools: &Rc<RefCell<tools::Tools>>) -> history::Restore {
     let (o, t) = (offsets.clone(), tools.clone());
     Box::new(move |e, wear, cause| match e.target {
-        history::Target::Wcs(sys) => offsets::restore(&o, sys, &e.old, cause),
-        history::Target::Tool(n) => tools::restore(&t, n, &e.old, wear, cause),
+        history::Target::Wcs(sys) => offsets::restore(&o, sys, &e.before(), cause),
+        history::Target::Tool(n) => tools::restore(&t, n, &e.before(), wear, cause),
     })
 }
 

@@ -307,6 +307,8 @@ impl Module for Interlock {
 #[derive(Default)]
 struct Load {
     value: Option<FloatPin>,
+    /// Pins were asked for: this is the machine, not the simulator.
+    real: bool,
 }
 
 impl Module for Load {
@@ -314,14 +316,17 @@ impl Module for Load {
         "load"
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
+        self.real = true;
         self.value = Some(comp.float("load.value", Dir::In)?);
         Ok(())
     }
     fn load(&self, s: Option<&Status>) -> Option<f64> {
         match &self.value {
             Some(p) => Some(p.get().clamp(0.0, 1.0)),
-            // No HAL (the simulator): a stand-in that rises with the feed
-            // rate, only so the colouring can be seen and tested.
+            // On the machine with no pin there is no load to show.
+            None if self.real => None,
+            // The simulator: a stand-in that rises with the feed rate,
+            // only so the colouring can be seen and tested.
             None => s.map(|s| if s.busy() { (s.feed_per_min() / 1200.0).clamp(0.0, 1.0) } else { 0.0 }),
         }
     }

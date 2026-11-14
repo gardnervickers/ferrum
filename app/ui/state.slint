@@ -6,7 +6,7 @@ export struct NavItem { id: string, label: string, icon: string }
 export struct MsgRow { time: string, text: string, kind: string }
 export struct MdiCard { label: string, desc: string, fill: string, moves: bool }
 export struct FileRow { name: string, dir: bool, modified: string, size: string }
-export struct ToolRow { t: string, len: string, dia: string, comment: string, needs-len: bool, current: bool, scratch: bool, wear: string }
+export struct ToolRow { t: string, len: string, dia: string, comment: string, needs-len: bool, current: bool, scratch: bool, wear-len: string, wear-dia: string }
 // One line of the offsets timeline (history.rs), newest first.
 export struct HistoryRow { when: string, what: string, tool: bool, change: string, cause: string }
 export struct CheckRow { t: string, status: string, kind: string, action: string }
@@ -187,6 +187,7 @@ export global Live {
     in property <[HistoryRow]> history;
     in property <int> history-selected: -1;
     in property <string> history-restore-label: "RESTORE";
+    in property <string> history-restore-note;
 
     // PROBE screen (probe.rs). Picture paths are SVG data in a 400x300 box.
     in property <string> pr-mode: "find";

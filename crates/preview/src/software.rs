@@ -313,26 +313,25 @@ impl Base {
             draw_cylinder(&mut pm, &fit, c);
         }
         if trail.len() > 1 {
-            // One stroke per run of segments in the same colour step.
+            // One path per colour step, so a noisy signal costs at most
+            // LOAD_STEPS + 1 strokes however long the trail is.
             let step = |i: usize| if loads.len() == trail.len() { load_step(loads[i]) } else { None };
-            let mut i = 1;
-            while i < trail.len() {
-                let s = step(i);
-                let mut pb = PathBuilder::new();
-                let a = fit.map(trail[i - 1]);
-                pb.move_to(a.0, a.1);
-                while i < trail.len() && step(i) == s {
-                    let b = fit.map(trail[i]);
-                    pb.line_to(b.0, b.1);
-                    i += 1;
+            let mut paths: Vec<(PathBuilder, usize)> = (0..=LOAD_STEPS).map(|_| (PathBuilder::new(), usize::MAX)).collect();
+            for i in 1..trail.len() {
+                let slot = step(i).unwrap_or(LOAD_STEPS);
+                let (pb, last) = &mut paths[slot];
+                if *last != i - 1 {
+                    let a = fit.map(trail[i - 1]);
+                    pb.move_to(a.0, a.1);
                 }
-                if let Some(path) = pb.finish() {
-                    let (rgb, alpha, width) = match s {
-                        Some(n) => (load_color(n as f32 / (LOAD_STEPS - 1) as f32), 255, 3.0),
-                        None => ([0xff, 0xff, 0xff], 200, 2.0),
-                    };
-                    pm.stroke_path(&path, &paint(rgb, alpha), &stroke(width), Transform::identity(), None);
-                }
+                let b = fit.map(trail[i]);
+                pb.line_to(b.0, b.1);
+                *last = i;
+            }
+            for (slot, (pb, _)) in paths.into_iter().enumerate() {
+                let Some(path) = pb.finish() else { continue };
+                let (rgb, alpha, width) = if slot < LOAD_STEPS { (load_color(slot as f32 / (LOAD_STEPS - 1) as f32), 255, 3.0) } else { ([0xff, 0xff, 0xff], 200, 2.0) };
+                pm.stroke_path(&path, &paint(rgb, alpha), &stroke(width), Transform::identity(), None);
             }
         }
         if let Some(t) = tool {

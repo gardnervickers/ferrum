@@ -42,7 +42,22 @@ pub fn parse_var(text: &str) -> [[f64; 5]; 9] {
     out
 }
 
+/// An edit to the active system that LinuxCNC has not confirmed yet.
+struct Pending {
+    old: [f64; 5],
+    cause: String,
+    sent: std::time::Instant,
+}
+
+/// How long status may still show the old values after an edit is sent.
+const CONFIRM: std::time::Duration = std::time::Duration::from_secs(3);
+/// "Zero here" predicts the result from the feedback position: close enough.
+const PREDICTED: f64 = 0.01;
+
 pub struct Offsets {
+    /// Edits to the active system waiting for status to show them. They
+    /// are logged then, with the values LinuxCNC really took.
+    pending: [Option<Pending>; 9],
     table: [[f64; 5]; 9],
     selected: usize,
     status: Option<Status>,
@@ -79,8 +94,21 @@ impl Offsets {
         for &(c, v) in vals {
             self.table[sys][c] = v;
         }
-        history::record(Target::Wcs(sys), &old, &self.table[sys], cause, [0.0; 2]);
+        self.sent(sys, old, cause);
         Ok(())
+    }
+
+    /// An edit went to LinuxCNC. Status confirms the active system, so its
+    /// entry waits for that; another system cannot be confirmed and is
+    /// logged as sent.
+    fn sent(&mut self, sys: usize, old: [f64; 5], cause: &str) {
+        if self.active() == Some(sys) {
+            // A second edit before the first is confirmed keeps the first `old`.
+            let old = self.pending[sys].take().map_or(old, |p| p.old);
+            self.pending[sys] = Some(Pending { old, cause: cause.into(), sent: std::time::Instant::now() });
+        } else {
+            history::record(Target::Wcs(sys), &old, &self.table[sys], cause, [0.0; 2]);
+        }
     }
 
     /// G10 L20: make the current position zero on one axis of a system.
@@ -96,7 +124,7 @@ impl Offsets {
         self.mdi(format!("G10 L20 P{} {}0", sys + 1, COLS[axis]))?;
         let old = self.table[sys];
         self.table[sys][axis] = v;
-        history::record(Target::Wcs(sys), &old, &self.table[sys], &format!("Zero {} here", COLS[axis]), [0.0; 2]);
+        self.sent(sys, old, &format!("Zero {} here", COLS[axis]));
         Ok(())
     }
 
@@ -179,7 +207,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> Rc<Re
         let path = cfg.dir().join(cfg.get("RS274NGC", "PARAMETER_FILE").unwrap_or("linuxcnc.var"));
         std::fs::read_to_string(path).map(|t| parse_var(&t)).unwrap_or([[0.0; 5]; 9])
     };
-    let o = Rc::new(RefCell::new(Offsets { table, selected: 0, status: None, machine: machine.clone(), ui: ui.as_weak() }));
+    let o = Rc::new(RefCell::new(Offsets { pending: Default::default(), table, selected: 0, status: None, machine: machine.clone(), ui: ui.as_weak() }));
     crate::manual::add_keypad_target(Rc::new(Keys(o.clone())));
     let actions = ui.global::<Actions>();
     let t = o.clone();
@@ -227,16 +255,19 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> Rc<Re
     o
 }
 
-/// Timeline restore: put a system's earlier values back (one G10 L2).
-pub fn restore(o: &Rc<RefCell<Offsets>>, sys: usize, row: &[f64], cause: &str) -> Result<(), String> {
-    if sys >= 9 || row.len() != 5 {
+/// Timeline restore: put earlier values back in a system (one G10 L2).
+pub fn restore(o: &Rc<RefCell<Offsets>>, sys: usize, vals: &[(usize, f64)], cause: &str) -> Result<(), String> {
+    if sys >= 9 || vals.is_empty() || vals.iter().any(|(c, _)| *c >= 5) {
         return Err("That entry is not a work offset".into());
     }
     let mut o = o.borrow_mut();
-    let vals: Vec<(usize, f64)> = row.iter().copied().enumerate().collect();
-    let r = o.set(sys, &vals, cause);
+    let r = o.set(sys, vals, cause);
     o.refresh();
     r
+}
+
+fn differs_by(a: &[f64; 5], b: &[f64; 5], tol: f64) -> bool {
+    a.iter().zip(b).any(|(x, y)| (x - y).abs() > tol)
 }
 
 /// Who changed the active system, as far as status can tell.
@@ -246,13 +277,14 @@ fn observed_cause(s: &Status, switched: bool) -> String {
         // probe routine); this is the first time its real values are seen.
         return "Found when it became active (changed earlier)".into();
     }
+    // Status says what mode the machine was in, not what wrote the offset.
     match s.mode {
         linuxcnc::Mode::Auto => {
             let name = std::path::Path::new(&s.file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            if name.is_empty() { "Program".into() } else { format!("Program {name}") }
+            if name.is_empty() { "During a program".into() } else { format!("During program {name}") }
         }
-        linuxcnc::Mode::Mdi => "MDI or probe routine".into(),
-        _ => "Machine".into(),
+        linuxcnc::Mode::Mdi => "During MDI or a probe routine".into(),
+        _ => "Outside millgui".into(),
     }
 }
 
@@ -274,10 +306,23 @@ pub fn apply_status(ui: &MainWindow, o: &Rc<RefCell<Offsets>>, s: &Status) {
     }
     let changed = first || st.table[a] != row || st.status.as_ref().is_some_and(|o| o.g5x_index != s.g5x_index || o.g92_offset != s.g92_offset);
     if !first {
-        // A change this screen did not make itself (those are logged, and
-        // already in the table, when they are sent).
         let switched = st.status.as_ref().is_some_and(|o| o.g5x_index != s.g5x_index);
-        history::record(Target::Wcs(a), &st.table[a], &row, &observed_cause(s, switched), [0.0; 2]);
+        match st.pending[a].take() {
+            // Our own edit, now in effect: log what LinuxCNC really holds.
+            Some(p) if !differs_by(&row, &st.table[a], PREDICTED) => {
+                history::record(Target::Wcs(a), &p.old, &row, &p.cause, [0.0; 2]);
+            }
+            // Sent but not executed yet: status still has the old values.
+            // Keep showing the edit and wait.
+            Some(p) if !history::differs(&row, &p.old) && p.sent.elapsed() < CONFIRM => {
+                st.pending[a] = Some(p);
+                st.status = Some(s.clone());
+                return;
+            }
+            // Refused, or something else changed it: log what is seen.
+            Some(p) => history::record(Target::Wcs(a), &p.old, &row, &observed_cause(s, switched), [0.0; 2]),
+            None => history::record(Target::Wcs(a), &st.table[a], &row, &observed_cause(s, switched), [0.0; 2]),
+        }
     }
     st.table[a] = row;
     if first {

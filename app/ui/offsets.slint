@@ -20,8 +20,8 @@ component HistoryLine inherits Rectangle {
         spacing: 16px;
         Text { width: 150px; vertical-alignment: center; text: r.when; font-family: Theme.body; font-size: 21px; color: Theme.muted; }
         Text { width: 84px; vertical-alignment: center; text: r.what; font-family: Theme.display; font-size: 26px; letter-spacing: 1px; color: r.tool ? Theme.info : Theme.ink; }
-        Text { horizontal-stretch: 1; vertical-alignment: center; text: r.change; font-family: Theme.body; font-weight: 500; font-size: 23px; color: Theme.ink; overflow: elide; }
-        Text { width: 360px; vertical-alignment: center; horizontal-alignment: right; text: r.cause; font-family: Theme.body; font-size: 20px; color: Theme.muted; overflow: elide; }
+        Text { horizontal-stretch: 1; vertical-alignment: center; text: r.change; font-family: Theme.body; font-weight: 500; font-size: 22px; color: Theme.ink; overflow: elide; }
+        Text { width: 300px; vertical-alignment: center; horizontal-alignment: right; text: r.cause; font-family: Theme.body; font-size: 20px; color: Theme.muted; overflow: elide; }
     }
 }
 
@@ -79,7 +79,7 @@ export component OffsetsScreen inherits Rectangle {
                     Rectangle { horizontal-stretch: 1; }
                     if Live.offsets-g92 != "": Pill { text: Live.offsets-g92 + " ACTIVE"; kind: "warn"; }
                     if Live.offsets-g92 != "": Btn { width: 180px; height: 44px; font-size: 20px; text: "CLEAR G92"; enabled: !locked; clicked => { Actions.offsets-clear-g92(); } }
-                    Label { vertical-alignment: center; text: Live.offsets-view == "timeline" ? "NEWEST FIRST · TAP A CHANGE TO SELECT IT" : "TAP A ROW · TAP A VALUE TO EDIT"; }
+                    Label { width: 420px; horizontal-alignment: right; vertical-alignment: center; text: Live.offsets-view == "timeline" ? "NEWEST FIRST · TAP A CHANGE TO SELECT IT" : "TAP A ROW · TAP A VALUE TO EDIT"; }
                 }
                 if Live.offsets-view == "timeline": Rectangle {
                     vertical-stretch: 1;
@@ -96,8 +96,8 @@ export component OffsetsScreen inherits Rectangle {
                 if Live.offsets-view == "timeline": HorizontalLayout {
                     height: 64px;
                     spacing: 12px;
-                    Note { horizontal-stretch: 1; vertical-alignment: center; text: "RESTORE puts back the values from just before the selected change, and is listed as a change itself."; }
-                    Btn { width: 420px; text: Live.history-restore-label; sub: "HOLD"; hold: true; enabled: !locked && Live.history-selected >= 0; clicked => { Actions.history-restore(); } }
+                    Note { horizontal-stretch: 1; vertical-alignment: center; text: Live.history-restore-note; }
+                    Btn { width: 300px; text: Live.history-restore-label; sub: "HOLD"; hold: true; enabled: !locked && Live.history-selected >= 0; clicked => { Actions.history-restore(); } }
                 }
                 if Live.offsets-view != "timeline": HorizontalLayout {
                     padding-left: 12px;

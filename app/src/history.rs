@@ -41,8 +41,8 @@ pub struct Entry {
     pub new: Vec<f64>,
     pub cause: String,
     /// Tools: the wear adjustment (length, diameter) in effect after this
-    /// change. An adjustment adds to it; any other change of the value
-    /// (a touch off, an edit) starts it again from zero.
+    /// change, kept so a restore can reinstate the one from before. What
+    /// is in effect now lives in the wear store below, not here.
     #[serde(default)]
     pub wear: [f64; 2],
 }
@@ -55,8 +55,66 @@ struct History {
     ui: Option<slint::Weak<MainWindow>>,
 }
 
+/// Wear adjustments in effect, per tool and per value (0 length, 1
+/// diameter): the adjustment and the table value it was made to. It
+/// counts only while the table still holds that value, so a touch off, a
+/// hand edit of the file or a change made while millgui was closed ends it
+/// without anyone having to notice the change.
+#[derive(Default)]
+struct WearStore {
+    path: Option<PathBuf>,
+    tools: std::collections::BTreeMap<i32, [Option<(f64, f64)>; 2]>,
+}
+
+impl WearStore {
+    fn save(&self) {
+        let Some(path) = &self.path else { return };
+        let tmp = path.with_extension("tmp");
+        let text = serde_json::to_string(&self.tools).unwrap_or_default();
+        let ok = path.parent().map_or(Ok(()), std::fs::create_dir_all).is_ok() && std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, path)).is_ok();
+        if !ok {
+            eprintln!("millgui: could not save {}", path.display());
+        }
+    }
+}
+
 thread_local! {
     static HISTORY: RefCell<History> = RefCell::new(History::default());
+    static WEAR: RefCell<WearStore> = RefCell::new(WearStore::default());
+}
+
+/// The wear adjustment (length, diameter) in effect for a tool whose table
+/// values are `now`.
+pub fn wear(tool: i32, now: [f64; 2]) -> [f64; 2] {
+    WEAR.with(|w| {
+        let w = w.borrow();
+        let slots = w.tools.get(&tool).copied().unwrap_or_default();
+        [0, 1].map(|i| slots[i].filter(|(_, at)| (at - now[i]).abs() <= EPS).map_or(0.0, |(v, _)| v))
+    })
+}
+
+/// Set a tool's wear adjustment on one value (0 length, 1 diameter), made
+/// to the table value `at`. Zero wear forgets it.
+pub fn set_wear(tool: i32, axis: usize, wear: f64, at: f64) {
+    WEAR.with(|w| {
+        let mut w = w.borrow_mut();
+        let slots = w.tools.entry(tool).or_default();
+        slots[axis] = (wear.abs() > EPS).then_some((wear, at));
+        if slots.iter().all(Option::is_none) {
+            w.tools.remove(&tool);
+        }
+        w.save();
+    });
+}
+
+/// A tool left the table.
+pub fn forget_wear(tool: i32) {
+    WEAR.with(|w| {
+        let mut w = w.borrow_mut();
+        if w.tools.remove(&tool).is_some() {
+            w.save();
+        }
+    });
 }
 
 const WCS: [&str; 9] = ["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"];
@@ -95,6 +153,21 @@ impl Entry {
         parts.join("   ")
     }
 
+    /// The columns this entry changed, with the values from before it.
+    pub fn before(&self) -> Vec<(usize, f64)> {
+        self.old.iter().zip(&self.new).enumerate().filter(|(_, (a, b))| (*a - *b).abs() > EPS).map(|(i, (a, _))| (i, *a)).collect()
+    }
+
+    /// What a restore of this entry writes: "G54 X 120.000, Z -212.400".
+    fn restores(&self) -> String {
+        let cols: &[&str] = match self.target {
+            Target::Wcs(_) => &WCS_COLS,
+            Target::Tool(_) => &TOOL_COLS,
+        };
+        let vals: Vec<String> = self.before().iter().map(|(i, v)| format!("{} {v:.3}", cols[*i])).collect();
+        format!("{} {}", self.name(), vals.join(", "))
+    }
+
     fn when(&self, now: i64) -> String {
         let Some(t) = Local.timestamp_opt(self.time, 0).single() else { return String::new() };
         let today = Local.timestamp_opt(now, 0).single().is_some_and(|n| n.date_naive() == t.date_naive());
@@ -110,12 +183,16 @@ impl History {
     fn load(&mut self) {
         let Some(text) = self.path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()) else { return };
         let mut entries: Vec<Entry> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
-        if entries.len() > MAX {
+        // A line cut short by a power loss would swallow the next entry
+        // appended to it: rewrite the file from what parsed.
+        let torn = !text.is_empty() && !text.ends_with('\n');
+        let long = entries.len() > MAX;
+        if long {
             entries.drain(..entries.len() - MAX);
-            self.entries = entries;
+        }
+        self.entries = entries;
+        if torn || long {
             self.rewrite();
-        } else {
-            self.entries = entries;
         }
     }
 
@@ -158,8 +235,14 @@ impl History {
         live.set_history(ModelRc::new(VecModel::from(rows)));
         let sel = self.selected.and_then(|id| self.entries.iter().rev().position(|e| e.id == id));
         live.set_history_selected(sel.map_or(-1, |i| i as i32));
-        let label = self.selected.and_then(|id| self.entries.iter().find(|e| e.id == id)).map(|e| format!("RESTORE {} TO BEFORE THIS", e.name()));
-        live.set_history_restore_label(label.unwrap_or_else(|| "RESTORE".into()).into());
+        let picked = self.selected.and_then(|id| self.entries.iter().find(|e| e.id == id));
+        live.set_history_restore_label(picked.map_or_else(|| "RESTORE".into(), |e| format!("RESTORE {}", e.name())).into());
+        // Say exactly what will be written.
+        let note = match picked {
+            Some(e) => format!("Sets {}: the values from before this change. Other values are left alone. It is listed as a change itself.", e.restores()),
+            None => "Select a change to put its earlier values back.".into(),
+        };
+        live.set_history_restore_note(note.into());
     }
 }
 
@@ -185,24 +268,25 @@ pub fn record(target: Target, old: &[f64], new: &[f64], cause: &str, wear: [f64;
     });
 }
 
-/// The wear adjustment (length, diameter) now in effect for a tool.
-pub fn wear(tool: i32) -> [f64; 2] {
-    HISTORY.with(|h| h.borrow().entries.iter().rev().find(|e| e.target == Target::Tool(tool)).map_or([0.0; 2], |e| e.wear))
-}
-
 /// The wear adjustment in effect just before an entry was made.
 fn wear_before(entries: &[Entry], e: &Entry) -> [f64; 2] {
     entries.iter().rev().find(|x| x.target == e.target && x.id < e.id).map_or([0.0; 2], |x| x.wear)
 }
 
-/// Puts an entry's earlier values back: the owning screen makes the edit.
-/// Arguments: the entry, the wear to reinstate (tools), the log's cause text.
+/// Puts back the values an entry changed (`Entry::before`): the owning
+/// screen makes the edit. Arguments: the entry, the wear to reinstate on
+/// those values (tools), the log's cause text.
 pub type Restore = Box<dyn Fn(&Entry, [f64; 2], &str) -> Result<(), String>>;
 
 /// `path`: where the log is kept; `None` keeps it in memory (simulator).
 pub fn wire(ui: &MainWindow, path: Option<PathBuf>, restore: Restore) {
     HISTORY.with(|h| {
         let mut h = h.borrow_mut();
+        WEAR.with(|w| {
+            let mut w = w.borrow_mut();
+            w.path = path.as_ref().map(|p| p.with_file_name("wear.json"));
+            w.tools = w.path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        });
         h.path = path;
         h.ui = Some(ui.as_weak());
         h.load();
@@ -265,6 +349,28 @@ mod tests {
         assert_eq!(e.name(), "G54");
         let t = entry(2, Target::Tool(7), &[100.0, 6.0], &[99.98, 6.0], [0.0; 2]);
         assert_eq!(t.change(), "LENGTH 100.000 → 99.980");
+    }
+
+    #[test]
+    fn restore_writes_only_what_the_entry_changed() {
+        let e = entry(1, Target::Wcs(0), &[1.0, 2.0, 3.0, 0.0, 0.0], &[1.0, 2.5, 3.0, 0.0, 15.0], [0.0; 2]);
+        assert_eq!(e.before(), [(1, 2.0), (4, 0.0)]);
+        assert_eq!(e.restores(), "G54 Y 2.000, ROT 0.000");
+    }
+
+    #[test]
+    fn wear_counts_only_while_the_table_holds_its_value() {
+        set_wear(7, 0, -0.02, 99.98);
+        assert_eq!(wear(7, [99.98, 6.0]), [-0.02, 0.0]);
+        // Re-measured (or edited behind our back): the adjustment is over.
+        assert_eq!(wear(7, [100.013, 6.0]), [0.0, 0.0]);
+        // A misread that later reads right again does not lose it.
+        assert_eq!(wear(7, [99.98, 6.0]), [-0.02, 0.0]);
+        set_wear(7, 0, 0.0, 99.98);
+        assert_eq!(wear(7, [99.98, 6.0]), [0.0, 0.0]);
+        set_wear(8, 1, 0.01, 3.01);
+        forget_wear(8);
+        assert_eq!(wear(8, [50.0, 3.01]), [0.0, 0.0]);
     }
 
     #[test]
