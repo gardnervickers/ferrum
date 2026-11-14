@@ -288,6 +288,10 @@ export global Live {
     in property <string> keypad-value;
     // The value is still the old one: the first digit replaces it.
     in property <bool> keypad-fresh;
+    // Under the value: "= 1.75" while an expression is typed, or why ENTER
+    // was refused (keypad-error).
+    in property <string> keypad-result;
+    in property <bool> keypad-error;
 }
 
 export global Actions {
