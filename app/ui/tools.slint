@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, ToolRow, CheckRow } from "state.slint";
 import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
@@ -139,31 +139,31 @@ export component ToolsScreen inherits Rectangle {
                 HorizontalLayout {
                     height: 56px;
                     spacing: 12px;
-                    Label { width: 150px; vertical-alignment: center; text: "WEAR " + Live.tools-sel-label; }
-                    Btn { width: 220px; font-size: 22px; text: "ADJUST LENGTH"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-z"); } }
-                    Btn { width: 200px; font-size: 22px; text: "ADJUST DIA"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-d"); } }
-                    Note { horizontal-stretch: 1; vertical-alignment: center; font-size: 18px; text: "Adds to the table value; the total shows in amber beside it. Length +: cuts shallower. Dia matters only with G41/G42. Undo on OFFSETS, TIMELINE."; }
+                    Label { width: Layout.compact ? 110px : 150px; vertical-alignment: center; text: "WEAR " + Live.tools-sel-label; }
+                    Btn { max-width: 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1; font-size: Layout.compact ? 19px : 22px; text: Layout.compact ? "ADJ LENGTH" : "ADJUST LENGTH"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-z"); } }
+                    Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; font-size: Layout.compact ? 19px : 22px; text: Layout.compact ? "ADJ DIA" : "ADJUST DIA"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-d"); } }
+                    if !Layout.compact: Note { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; vertical-alignment: center; font-size: 18px; text: "Adds to the table value; the total shows in amber beside it. Length +: cuts shallower. Dia matters only with G41/G42. Undo on OFFSETS, TIMELINE."; }
                 }
                 HorizontalLayout {
                     spacing: 12px;
                     Btn {
                         horizontal-stretch: 3; preferred-width: 0px; min-width: 0px;
                         kind: "go";
-                        font-size: 22px;
-                        text: Live.tools-sel-label == "" ? "M6 SELECTED" : "M6 " + Live.tools-sel-label;
+                        font-size: Layout.compact ? 18px : 22px;
+                        text: Live.tools-sel-label == "" ? Layout.compact ? "M6" : "M6 SELECTED" : "M6 " + Live.tools-sel-label;
                         enabled: Live.tools-sel-label != "" && !locked && Live.power;
                         clicked => { Actions.tools-m6(); }
                     }
-                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: 22px; text: "UNLOAD SPINDLE"; sub: "HOLD"; hold: true; enabled: !locked && Live.power && Live.tool != "T0"; clicked => { Actions.tools-unload(); } }
-                    Rectangle { width: 16px; }
-                    Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: 22px; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
-                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: 22px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
-                    Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: 22px; text: "DELETE"; hold: true; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.tools-delete(); } }
+                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "UNLOAD SPINDLE"; sub: "HOLD"; hold: true; enabled: !locked && Live.power && Live.tool != "T0"; clicked => { Actions.tools-unload(); } }
+                    Rectangle { width: Layout.compact ? 4px : 16px; }
+                    Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
+                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
+                    Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "DELETE"; hold: true; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.tools-delete(); } }
                 }
             }
         }
         VerticalLayout {
-            width: 420px;
+            width: Layout.compact ? 340px : 420px;
             spacing: 14px;
             Card {
                 vertical-stretch: 1;
@@ -188,7 +188,7 @@ export component ToolsScreen inherits Rectangle {
                                         alignment: center;
                                         Pill { text: c.status; kind: c.kind; }
                                     }
-                                    Text { horizontal-stretch: 1; vertical-alignment: center; text: c.action; font-family: Theme.body; font-size: 20px; color: Theme.muted; wrap: word-wrap; }
+                                    Text { horizontal-stretch: 1; vertical-alignment: center; text: c.action; font-family: Theme.body; font-size: 20px; color: Theme.muted; wrap: Layout.compact ? no-wrap : word-wrap; overflow: elide; }
                                 }
                             }
                         }

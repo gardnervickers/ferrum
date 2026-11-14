@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, OffsetRow, HistoryRow } from "state.slint";
 import { Btn, Seg, Card, Label, H3, Note, Pill } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
@@ -78,7 +78,7 @@ export component OffsetsScreen inherits Rectangle {
                     }
                     Rectangle { horizontal-stretch: 1; }
                     if Live.offsets-g92 != "": Pill { text: Live.offsets-g92 + " ACTIVE"; kind: "warn"; }
-                    if Live.offsets-g92 != "": Btn { width: 180px; height: 44px; font-size: 20px; text: "CLEAR G92"; enabled: !locked; clicked => { Actions.offsets-clear-g92(); } }
+                    if Live.offsets-g92 != "": Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; height: 44px; font-size: 20px; text: "CLEAR G92"; enabled: !locked; clicked => { Actions.offsets-clear-g92(); } }
                     Label { width: 420px; horizontal-alignment: right; vertical-alignment: center; text: Live.offsets-view == "timeline" ? "NEWEST FIRST · TAP A CHANGE TO SELECT IT" : "TAP A ROW · TAP A VALUE TO EDIT"; }
                 }
                 if Live.offsets-view == "timeline": Rectangle {
@@ -97,7 +97,7 @@ export component OffsetsScreen inherits Rectangle {
                     height: 64px;
                     spacing: 12px;
                     Note { horizontal-stretch: 1; vertical-alignment: center; text: Live.history-restore-note; }
-                    Btn { width: 300px; text: Live.history-restore-label; sub: "HOLD"; hold: true; enabled: !locked && Live.history-selected >= 0; clicked => { Actions.history-restore(); } }
+                    Btn { max-width: 300px; preferred-width: 300px; min-width: 180px; horizontal-stretch: 1; text: Live.history-restore-label; sub: "HOLD"; hold: true; enabled: !locked && Live.history-selected >= 0; clicked => { Actions.history-restore(); } }
                 }
                 if Live.offsets-view != "timeline": HorizontalLayout {
                     padding-left: 12px;
@@ -142,13 +142,13 @@ export component OffsetsScreen inherits Rectangle {
                 }
                 if Live.offsets-view != "timeline": HorizontalLayout {
                     spacing: 12px;
-                    Btn { width: 240px; text: "MAKE " + Live.offsets-sel-label + " ACTIVE"; enabled: !locked && !Live.offsets[Live.offsets-selected].active; clicked => { Actions.offsets-activate(); } }
-                    Btn { width: 180px; text: "ZERO X HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(0); } }
-                    Btn { width: 180px; text: "ZERO Y HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(1); } }
-                    Btn { width: 180px; text: "ZERO Z HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(2); } }
-                    Btn { width: 200px; text: "CLEAR " + Live.offsets-sel-label; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear(); } }
+                    Btn { max-width: 240px; preferred-width: 240px; min-width: 144px; horizontal-stretch: 1; text: "MAKE " + Live.offsets-sel-label + " ACTIVE"; enabled: !locked && !Live.offsets[Live.offsets-selected].active; clicked => { Actions.offsets-activate(); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO X HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(0); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Y HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(1); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Z HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(2); } }
+                    Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; text: "CLEAR " + Live.offsets-sel-label; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear(); } }
                     Rectangle { horizontal-stretch: 1; }
-                    Btn { width: 190px; text: "CLEAR ALL"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear-all(); } }
+                    Btn { max-width: 190px; preferred-width: 190px; min-width: 114px; horizontal-stretch: 1; text: "CLEAR ALL"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear-all(); } }
                 }
             }
         }

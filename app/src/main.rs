@@ -797,11 +797,16 @@ fn set_nav(ui: &MainWindow, modules: &[Box<dyn Module>], screen: Option<&str>) {
 }
 
 /// Scale for a desktop window of `w` x `h` pixels. The layout is designed
-/// at 1920x1080 and needs that much width; a window of another shape gets
-/// the extra room as taller or wider screens.
+/// at 1920x1080. Height decides the scale, so text keeps its size: a wider
+/// window gets wider screens, a narrower one narrower screens (they
+/// rearrange down to `MIN_LAYOUT_WIDTH`), and only below that does the
+/// whole layout shrink.
 fn layout_scale(w: u32, h: u32) -> f32 {
-    (w as f32 / 1920.0).min(h as f32 / 1080.0)
+    (w as f32 / MIN_LAYOUT_WIDTH).min(h as f32 / 1080.0)
 }
+
+/// The narrowest the screens are laid out, in layout pixels.
+const MIN_LAYOUT_WIDTH: f32 = 1440.0;
 
 /// Fit the 1920x1080 layout to a desktop window of any size.
 ///

@@ -70,3 +70,15 @@ export global Theme {
     out property <length> radius-ctl: 10px;
     out property <length> radius-sm: 7px;
 }
+
+// The window's layout width, for screens that rearrange in a narrower
+// window (a desktop window narrower than 16:9; the Pi is always 1920).
+// Layouts go down to 1440 wide; below that the whole UI shrinks.
+export global Layout {
+    in-out property <length> width: 1920px;
+    // Narrower than the design: side columns and fixed controls tighten.
+    out property <bool> compact: width < 1800px;
+    // The DRO column and the Run screen's side panel.
+    out property <length> left: compact ? 420px : 520px;
+    out property <length> side: compact ? 440px : 545px;
+}

@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, JobOp } from "state.slint";
 import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
@@ -117,20 +117,20 @@ export component JobScreen inherits Rectangle {
             }
             HorizontalLayout {
                 spacing: 12px;
-                Btn { width: 150px; text: "NEW"; enabled: !locked; clicked => { Actions.job-new(); } }
-                Btn { width: 150px; text: "OPEN"; enabled: !locked; clicked => { Actions.job-open(); } }
-                Btn { width: 190px; text: "ADD STEP"; enabled: !locked; clicked => { Actions.job-add-step(); } }
-                Btn { width: 96px; text: "▲"; enabled: !locked && has-sel; clicked => { Actions.job-move(-1); } }
-                Btn { width: 96px; text: "▼"; enabled: !locked && has-sel; clicked => { Actions.job-move(1); } }
+                Btn { max-width: 150px; preferred-width: 150px; min-width: 90px; horizontal-stretch: 1; text: "NEW"; enabled: !locked; clicked => { Actions.job-new(); } }
+                Btn { max-width: 150px; preferred-width: 150px; min-width: 90px; horizontal-stretch: 1; text: "OPEN"; enabled: !locked; clicked => { Actions.job-open(); } }
+                Btn { max-width: 190px; preferred-width: 190px; min-width: 114px; horizontal-stretch: 1; text: "ADD STEP"; enabled: !locked; clicked => { Actions.job-add-step(); } }
+                Btn { max-width: 96px; preferred-width: 96px; min-width: 58px; horizontal-stretch: 1; text: "▲"; enabled: !locked && has-sel; clicked => { Actions.job-move(-1); } }
+                Btn { max-width: 96px; preferred-width: 96px; min-width: 58px; horizontal-stretch: 1; text: "▼"; enabled: !locked && has-sel; clicked => { Actions.job-move(1); } }
                 Rectangle { horizontal-stretch: 1; }
-                Btn { width: 190px; text: "DELETE OP"; hold: true; enabled: !locked && has-sel; clicked => { Actions.job-delete(); } }
+                Btn { max-width: 190px; preferred-width: 190px; min-width: 114px; horizontal-stretch: 1; text: "DELETE OP"; hold: true; enabled: !locked && has-sel; clicked => { Actions.job-delete(); } }
             }
             HorizontalLayout {
                 spacing: 12px;
-                Btn { width: 260px; text: "START AT OP"; enabled: !locked && has-sel; clicked => { Actions.job-start-at(); } }
-                Btn { width: 320px; text: "STOP AFTER THIS OP"; on: Live.job-stop-requested; enabled: Live.job-running; clicked => { Actions.job-stop-after(); } }
+                Btn { max-width: 260px; preferred-width: 260px; min-width: 156px; horizontal-stretch: 1; text: "START AT OP"; enabled: !locked && has-sel; clicked => { Actions.job-start-at(); } }
+                Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "STOP AFTER THIS OP"; on: Live.job-stop-requested; enabled: Live.job-running; clicked => { Actions.job-stop-after(); } }
                 Rectangle { horizontal-stretch: 1; }
-                Btn { width: 460px; hold: true; text: "BUILD AND LOAD"; enabled: !locked && Live.job-ops.length > 0; clicked => { Actions.job-build(); } }
+                Btn { max-width: 460px; preferred-width: 460px; min-width: 276px; horizontal-stretch: 1; hold: true; text: "BUILD AND LOAD"; enabled: !locked && Live.job-ops.length > 0; clicked => { Actions.job-build(); } }
             }
         }
     }

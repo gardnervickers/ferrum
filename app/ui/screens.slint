@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, MdiCard } from "state.slint";
 import { Card, Label, Btn, Seg, Note, H3 } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
@@ -488,7 +488,7 @@ export component RunScreen inherits Rectangle {
         spacing: Theme.gap;
         ProgramCard { horizontal-stretch: 1; }
         Card {
-            width: 545px;
+            width: Layout.side;
             VerticalLayout {
                 padding: Theme.pad;
                 spacing: 12px;

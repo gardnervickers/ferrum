@@ -1,5 +1,5 @@
 // The fixed machine frame: status bar, DRO column, nav and cycle bar.
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, DroRow } from "state.slint";
 import { Btn, Pill, Label, Card } from "widgets.slint";
 
@@ -317,18 +317,21 @@ export component LeftColumn inherits Rectangle {
 }
 
 export component BottomBar inherits Rectangle {
+    // The cycle buttons narrow in a compact window; their text shrinks to fit.
+    property <length> cycle-w: Layout.compact ? 150px : 180px;
+    property <length> cycle-font: Layout.compact ? 27px : 32px;
     background: Theme.bar;
     Rectangle { y: 0; height: 1px; background: Theme.line; }
     HorizontalLayout {
-        padding-left: 14px;
+        padding-left: Layout.compact ? 8px : 14px;
         padding-right: 8px;
-        spacing: 8px;
+        spacing: Layout.compact ? 4px : 8px;
         for n in Live.nav: VerticalLayout {
             alignment: center;
             Btn {
-                width: 104px;
+                width: Layout.compact ? 80px : 104px;
                 height: 96px;
-                font-size: 24px;
+                font-size: Layout.compact ? 20px : 24px;
                 flat: true;
                 icon: n.icon;
                 text: n.label;
@@ -341,48 +344,48 @@ export component BottomBar inherits Rectangle {
             alignment: center;
             spacing: 8px;
             Btn {
-                width: 150px; height: 44px; font-size: 20px;
+                width: Layout.compact ? 136px : 150px; height: 44px; font-size: Layout.compact ? 18px : 20px;
                 text: "SINGLE BLOCK"; on: Live.single-block;
                 clicked => { Actions.single-block(); }
             }
             Btn {
-                width: 150px; height: 44px; font-size: 20px;
+                width: Layout.compact ? 136px : 150px; height: 44px; font-size: Layout.compact ? 18px : 20px;
                 text: "M01 STOP"; on: Live.optional-stop;
                 enabled: Live.connected;
                 clicked => { Actions.optional-stop(); }
             }
         }
-        Rectangle { width: 24px; }
+        Rectangle { width: Layout.compact ? 12px : 24px; }
         VerticalLayout {
             alignment: center;
             Btn {
-                width: 180px; height: 100px; font-size: 32px; kind: "hold"; text: "FEED HOLD";
+                width: cycle-w; height: 100px; font-size: cycle-font; kind: "hold"; text: "FEED HOLD";
                 enabled: Live.running && !Live.paused;
                 clicked => { Actions.feed-hold(); }
             }
         }
-        Rectangle { width: 24px; }
+        Rectangle { width: Layout.compact ? 12px : 24px; }
         VerticalLayout {
             alignment: center;
             Btn {
-                width: 180px; height: 100px; font-size: 32px; kind: "stop"; text: "STOP";
+                width: cycle-w; height: 100px; font-size: cycle-font; kind: "stop"; text: "STOP";
                 enabled: Live.connected;
                 clicked => { Actions.stop(); }
             }
         }
-        Rectangle { width: 18px; }
+        Rectangle { width: Layout.compact ? 8px : 18px; }
         VerticalLayout {
             alignment: center;
             // A static ring (no flashing) says CYCLE START will resume.
             Rectangle {
-                width: 192px; height: 112px;
+                width: cycle-w + 12px; height: 112px;
                 border-radius: 15px;
                 border-width: 4px;
                 border-color: Live.paused ? Theme.good : transparent;
                 animate border-color { duration: Theme.settle; }
                 Btn {
                     x: 6px; y: 6px;
-                    width: 180px; height: 100px; font-size: 32px; kind: "go";
+                    width: cycle-w; height: 100px; font-size: cycle-font; kind: "go";
                     text: Live.paused ? "RESUME" : "CYCLE START";
                     enabled: Live.can-start;
                     clicked => { Actions.cycle-start(); }

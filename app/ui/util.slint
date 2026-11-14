@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, WarmStage, StatusRow } from "state.slint";
 import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
 
@@ -29,7 +29,7 @@ export component UtilScreen inherits Rectangle {
         padding: 14px;
         spacing: 14px;
         Card {
-            width: 680px;
+            width: Layout.compact ? 560px : 680px;
             VerticalLayout {
                 padding: 14px;
                 spacing: 12px;
@@ -42,11 +42,12 @@ export component UtilScreen inherits Rectangle {
                     enabled: !Live.wu-running;
                     clicked => { Actions.wu-secure(); }
                 }
-                // Fixed widths (the card is 680 px): every row splits at the same x.
+                // Same widths as the rows below (the card is 680 px, 560 compact), so
+                // every row splits at the same x.
                 HorizontalLayout {
                     spacing: 12px;
                     for st[i] in Live.wu-stages: Rectangle {
-                        width: 154px;
+                        max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1;
                         height: 124px;
                         border-radius: Theme.radius-ctl;
                         background: st.state == "run" ? Theme.good-soft : Theme.panel2;
@@ -84,13 +85,13 @@ export component UtilScreen inherits Rectangle {
                 Text { height: 26px; overflow: elide; font-family: Theme.body; font-size: 19px; color: Theme.warn; text: !Live.wu-running ? Live.wu-ready : ""; }
                 HorizontalLayout {
                     spacing: 12px;
-                    Btn { width: 320px; kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
-                    Btn { width: 320px; kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
+                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
+                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
                 }
                 H3 { text: "SPINDLE AND TOOL SETTER"; }
                 HorizontalLayout {
                     spacing: 12px;
-                    Btn { width: 320px; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
+                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
                     Btn {
                         width: 320px;
                         text: "PROBE SPINDLE NOSE";
@@ -103,14 +104,14 @@ export component UtilScreen inherits Rectangle {
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    Btn { width: 320px; text: "GO TO G30"; sub: "TOOL SETTER"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-go-g30(); } }
-                    Btn { width: 320px; text: "SET G30 HERE"; hold: true; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-set-g30(); } }
+                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "GO TO G30"; sub: "TOOL SETTER"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-go-g30(); } }
+                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "SET G30 HERE"; hold: true; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-set-g30(); } }
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    Cell { width: 154px; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
-                    Cell { width: 154px; key: "SETTER"; value: Live.ut-setter; }
-                    Cell { width: 320px; key: "G30 POSITION"; value: Live.ut-g30; }
+                    Cell { max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
+                    Cell { max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1; key: "SETTER"; value: Live.ut-setter; }
+                    Cell { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; key: "G30 POSITION"; value: Live.ut-g30; }
                 }
                 Rectangle { vertical-stretch: 1; }
             }

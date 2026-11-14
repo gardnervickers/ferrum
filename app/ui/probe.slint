@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, ProbeItem, ProbeMove, ProbeOpt, ProbeSpot, ProbeParam } from "state.slint";
 import { Btn, Seg, Card, Label, H3, Note, Pill } from "widgets.slint";
 
@@ -122,7 +122,7 @@ export component ProbeScreen inherits Rectangle {
         spacing: 14px;
         // 1 · What: mode and shape
         Card {
-            width: 290px;
+            width: Layout.compact ? 250px : 290px;
             VerticalLayout {
                 padding: 14px;
                 spacing: 10px;
@@ -237,7 +237,7 @@ export component ProbeScreen inherits Rectangle {
         }
         // 3 · Settings and 4 · Start
         Card {
-            width: 420px;
+            width: Layout.compact ? 380px : 420px;
             VerticalLayout {
                 padding: 14px;
                 spacing: 10px;

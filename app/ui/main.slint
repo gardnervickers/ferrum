@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow, JobOp, ConvField, HistoryRow } from "state.slint";
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
 import { Placeholder, RunScreen } from "screens.slint";
@@ -24,13 +24,15 @@ export component MainWindow inherits Window {
     preferred-height: 1080px;
     background: Theme.frame;
     default-font-family: Theme.body;
+    init => { Layout.width = self.width; }
+    changed width => { Layout.width = self.width; }
 
     StatusBar { x: 0; y: 0; width: parent.width; height: 64px; }
-    LeftColumn { x: 0; y: 64px; width: 520px; height: parent.height - 64px - 128px; }
+    LeftColumn { x: 0; y: 64px; width: Layout.left; height: parent.height - 64px - 128px; }
     Rectangle {
-        x: 520px;
+        x: Layout.left;
         y: 64px;
-        width: parent.width - 520px;
+        width: parent.width - Layout.left;
         height: parent.height - 64px - 128px;
         if Live.screen == "run": RunScreen {}
         if Live.screen == "job": JobScreen {}

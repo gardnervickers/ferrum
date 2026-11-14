@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, GotoRow } from "state.slint";
 import { Btn, Seg, Card, Label, NumField, H3, Note } from "widgets.slint";
 
@@ -151,11 +151,11 @@ component PowerFeedPanel inherits VerticalLayout {
     }
     HorizontalLayout {
         spacing: 10px;
-        Label { width: 150px; vertical-alignment: center; text: "FEED MM/MIN"; }
-        NumField { width: 170px; value: Live.pf-feed; edit => { Actions.edit("pf-feed"); } }
-        Rectangle { width: 30px; }
-        Label { width: 150px; vertical-alignment: center; text: "DISTANCE MM"; }
-        NumField { width: 170px; value: Live.pf-dist; enabled: Live.pf-mode == "dist"; edit => { Actions.edit("pf-dist"); } }
+        Label { width: Layout.compact ? 130px : 150px; vertical-alignment: center; text: "FEED MM/MIN"; }
+        NumField { width: Layout.compact ? 140px : 170px; value: Live.pf-feed; edit => { Actions.edit("pf-feed"); } }
+        Rectangle { width: Layout.compact ? 12px : 30px; }
+        Label { width: Layout.compact ? 130px : 150px; vertical-alignment: center; text: "DISTANCE MM"; }
+        NumField { width: Layout.compact ? 140px : 170px; value: Live.pf-dist; enabled: Live.pf-mode == "dist"; edit => { Actions.edit("pf-dist"); } }
         Rectangle { horizontal-stretch: 1; }
     }
     HorizontalLayout {
@@ -341,12 +341,12 @@ component SpindleCard inherits Card {
         HorizontalLayout {
             spacing: 10px;
             Btn {
-                text: "Z TO WORK Z0"; hold: true;
+                text: "Z TO WORK Z0"; hold: true; font-size: Layout.compact ? 19px : 24px;
                 enabled: Live.power && Live.homed && !Live.manual-locked;
                 clicked => { Actions.z-to-work-zero(); }
             }
             Btn {
-                text: "RETRACT 10, XY TO WORK 0"; hold: true; font-size: 21px;
+                text: "RETRACT 10, XY TO WORK 0"; hold: true; font-size: Layout.compact ? 17px : 21px;
                 enabled: Live.power && Live.homed && !Live.manual-locked;
                 clicked => { Actions.retract-xy-to-zero(); }
             }
@@ -369,7 +369,7 @@ export component ManualScreen inherits Rectangle {
         HorizontalLayout {
             spacing: 14px;
             Card {
-                width: 800px;
+                width: Layout.compact ? 640px : 800px;
                 if Live.jog-tab != "goto": PowerFeedPanel { x: 14px; y: 14px; width: parent.width - 28px; height: parent.height - 28px; }
                 if Live.jog-tab == "goto": GotoPanel { x: 14px; y: 14px; width: parent.width - 28px; height: parent.height - 28px; }
             }

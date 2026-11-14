@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, FileRow } from "state.slint";
 import { Btn, Card, Label, H3, Note } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
@@ -49,8 +49,8 @@ export component FilesScreen inherits Rectangle {
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    Btn { width: 220px; text: "FOLDER UP"; enabled: Live.files-can-up; clicked => { Actions.files-up(); } }
-                    Btn { width: 180px; text: "REFRESH"; clicked => { Actions.files-refresh(); } }
+                    Btn { max-width: 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1; text: "FOLDER UP"; enabled: Live.files-can-up; clicked => { Actions.files-up(); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "REFRESH"; clicked => { Actions.files-refresh(); } }
                     Rectangle { horizontal-stretch: 1; }
                     Btn {
                         width: 240px;
@@ -63,7 +63,7 @@ export component FilesScreen inherits Rectangle {
         }
         // Fixed width: a long file name elides instead of resizing the screen.
         Card {
-            width: 540px;
+            width: Layout.compact ? 400px : 540px;
             VerticalLayout {
                 padding: 14px;
                 spacing: 12px;
