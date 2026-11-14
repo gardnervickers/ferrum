@@ -44,7 +44,7 @@ moves = true
 [[entry]]
 category = "MOVE"
 label = "G28"
-description = "Go to the stored G28 spot (park)"
+description = "All axes at once to the stored G28 spot; raise Z first"
 fill = "G28"
 moves = true
 

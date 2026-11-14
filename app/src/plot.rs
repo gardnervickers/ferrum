@@ -268,8 +268,21 @@ pub fn op_summary(tp: &Toolpath) -> String {
 
 /// Follow the tool (work coordinates) and extend the trail.
 pub fn tool_moved(plot: &Rc<RefCell<Plot>>, p: P4) {
+    tool_moved_homed(plot, p, true);
+}
+
+/// As `tool_moved`, but positions from before homing (and the jump homing
+/// makes) leave no trail: they are not where the tool really was.
+pub fn tool_moved_homed(plot: &Rc<RefCell<Plot>>, p: P4, homed: bool) {
     let mut st = plot.borrow_mut();
     if st.tool == Some(p) {
+        return;
+    }
+    if !homed {
+        st.trail.clear();
+        st.trail_load.clear();
+        st.tool = Some(p);
+        st.dirty = true;
         return;
     }
     let far = st.trail.last().is_none_or(|l| (0..3).map(|i| (l[i] - p[i]).abs()).fold(0.0, f64::max) > 0.05);

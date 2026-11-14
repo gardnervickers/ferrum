@@ -1,22 +1,28 @@
 //! RUN FROM SELECTED: start a plain program part way through.
 //!
-//! LinuxCNC's own run-from-line (EMC_TASK_PLAN_RUN with a line) reads the
-//! lines before the start so the interpreter's modes, offsets and tool
-//! length offset are right, but it throws away what those lines would have
-//! done to the machine: tool changes, spindle and coolant never happen. So
-//! before starting, millgui:
+//! LinuxCNC's own run-from-line (EMC_TASK_PLAN_RUN with a line) is not used.
+//! It only throws away what the skipped lines do at the program's top level:
+//! a remapped M6 before the start line runs its subroutine for real (the
+//! tool change dialog, M5, M61...), and the spindle ends up off when the
+//! program starts moving. Instead millgui writes a restart copy of the
+//! program and runs that from its first line:
 //!
-//! - works out from the skipped lines which tool, spindle and coolant the
-//!   start line expects (`plan`);
-//! - refuses when the wrong tool is in the spindle, when the line is inside
-//!   an o-word block or with cutter compensation on, or for a JOB program
-//!   (jobs start at an op on the JOB screen instead);
-//! - raises Z to machine top (G53 G0 Z0), then starts the spindle and
-//!   coolant the line expects, then runs from the line. The first move of
-//!   the program then starts from the top of Z.
+//! - the lines before the start line are replaced by a short preamble that
+//!   sets what they left behind (units, plane, work offset, tool length
+//!   offset, feed, spindle, coolant) and moves to where the start line
+//!   begins: Z to machine top, X and Y over the spot, rapid down to the last
+//!   rapid height above it, then feed down at the program's feed;
+//! - the rest is padded with blank lines so every line keeps its number, and
+//!   the screen keeps showing the original program;
+//! - the original is loaded again when the run ends or stops.
+//!
+//! It refuses when the wrong tool is in the spindle, when the line is in or
+//! after o-word code or parameters, inside a drilling cycle, with cutter
+//! compensation or incremental moves on, or for a JOB program (jobs start at
+//! an op on the JOB screen instead).
 
 use linuxcnc::{Command, Handle, Interp, Status};
-use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// What the program expects at the start line.
@@ -37,6 +43,21 @@ pub struct Plan {
     pub op: Option<String>,
     /// Why this line cannot be a start line.
     pub problem: Option<String>,
+    /// Modal words in force at the start line: units, plane, feed mode, arc
+    /// distance, work offset ("G21", "G17"...), in that order.
+    modal: Vec<String>,
+    /// "G43 H3", "G43" or "G49" (None: never set).
+    tlo: Option<String>,
+    feed: Option<f64>,
+    /// Motion mode in force: 0, 1, 2, 3.
+    motion: Option<u8>,
+    /// Program position before the start line, per axis (None: unknown,
+    /// e.g. after a G53 move).
+    pos: [Option<f64>; 3],
+    /// Height of the last rapid that only moved Z: the retract plane.
+    rapid_z: Option<f64>,
+    /// The first line starts with "%", so the copy must too.
+    percent: bool,
 }
 
 /// Code words of one line, comments removed: ('G', 0.0), ('X', 1.5)...
@@ -79,12 +100,22 @@ fn words(line: &str) -> Vec<(char, f64)> {
     out
 }
 
-/// The o-word keyword of a line, lower case ("sub", "while", "endif"...).
-fn oword(line: &str) -> Option<String> {
-    let t = line.trim_start();
-    let t = t.strip_prefix(['o', 'O'])?;
-    let rest = t.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '<' || c == '>' || c == '_' || c == '#');
-    rest.split_whitespace().next().map(|w| w.to_ascii_lowercase())
+/// The line has code that is not a plain number word: o-words, parameters
+/// or expressions.
+fn not_plain(line: &str) -> bool {
+    let mut depth = 0;
+    let mut code = String::new();
+    for c in line.chars() {
+        match c {
+            ';' if depth == 0 => break,
+            '(' => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            _ if depth == 0 => code.push(c),
+            _ => {}
+        }
+    }
+    let t = code.trim_start();
+    t.starts_with(['o', 'O']) || code.contains(['#', '[', '<'])
 }
 
 fn comment_only(line: &str) -> Option<String> {
@@ -93,28 +124,36 @@ fn comment_only(line: &str) -> Option<String> {
     (!inner.contains(['(', ')']) && !inner.trim().is_empty()).then(|| inner.trim().to_string())
 }
 
+fn fmt(v: f64) -> String {
+    let s = format!("{v:.4}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s == "-0" { "0".into() } else { s.into() }
+}
+
 pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
     let mut p = Plan { index, ..Default::default() };
     let mut selected: Option<i32> = None;
-    let mut depth: i32 = 0;
     let mut comp = false;
+    let mut incremental = false;
+    let mut cycle = false;
+    let mut code_before = false;
+    // units, plane, feed mode, arc distance, work offset
+    let mut modal: [Option<String>; 5] = Default::default();
+    p.percent = lines.first().is_some_and(|l| l.as_ref().trim() == "%");
     for raw in lines.iter().take(index) {
         let line = raw.as_ref();
         if let Some(c) = comment_only(line) {
             p.op = Some(c);
             continue;
         }
-        if let Some(k) = oword(line) {
-            match k.as_str() {
-                "sub" | "while" | "if" | "do" | "repeat" => depth += 1,
-                "endsub" | "endwhile" | "endif" | "endrepeat" => depth -= 1,
-                // `do ... while`: the closing while ends the block.
-                _ => {}
-            }
+        if not_plain(line) {
+            code_before = true;
             continue;
         }
         let w = words(line);
         let has = |l: char, v: f64| w.iter().any(|&(a, b)| a == l && (b - v).abs() < 1e-6);
+        let gs: Vec<f64> = w.iter().filter(|(a, _)| *a == 'G').map(|&(_, v)| v).collect();
+        let g = |v: f64| gs.iter().any(|&b| (b - v).abs() < 1e-6);
         if let Some(&(_, t)) = w.iter().find(|(a, _)| *a == 'T') {
             selected = Some(t as i32);
         }
@@ -126,6 +165,9 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
         }
         if let Some(&(_, s)) = w.iter().find(|(a, _)| *a == 'S') {
             p.rpm = s;
+        }
+        if let Some(&(_, f)) = w.iter().find(|(a, _)| *a == 'F') {
+            p.feed = Some(f);
         }
         if has('M', 3.0) {
             p.spindle = 1;
@@ -146,30 +188,104 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
             p.mist = false;
             p.flood = false;
         }
-        if has('G', 40.0) {
+        for &v in &gs {
+            let slot = match v {
+                _ if v == 20.0 || v == 21.0 => Some(0),
+                _ if v == 17.0 || v == 18.0 || v == 19.0 => Some(1),
+                _ if v == 93.0 || v == 94.0 || v == 95.0 => Some(2),
+                _ if (v - 90.1).abs() < 1e-6 || (v - 91.1).abs() < 1e-6 => Some(3),
+                _ if (54.0..=59.3).contains(&v) => Some(4),
+                _ => None,
+            };
+            if let Some(i) = slot {
+                modal[i] = Some(format!("G{}", fmt(v)));
+            }
+        }
+        if g(90.0) {
+            incremental = false;
+        }
+        if g(91.0) {
+            incremental = true;
+        }
+        if g(40.0) {
             comp = false;
         }
-        if has('G', 41.0) || has('G', 42.0) || has('G', 41.1) || has('G', 42.1) {
+        if g(41.0) || g(42.0) || g(41.1) || g(42.1) {
             comp = true;
         }
+        if g(49.0) {
+            p.tlo = Some("G49".into());
+        }
+        if g(43.0) {
+            p.tlo = Some(match w.iter().find(|(a, _)| *a == 'H') {
+                Some(&(_, h)) => format!("G43 H{}", h as i32),
+                None => "G43".into(),
+            });
+        }
+        if g(80.0) {
+            cycle = false;
+        }
+        if gs.iter().any(|&v| (81.0..=89.0).contains(&v)) {
+            cycle = true;
+        }
+        for &v in &gs {
+            if v == 0.0 || v == 1.0 || v == 2.0 || v == 3.0 {
+                p.motion = Some(v as u8);
+            }
+        }
+        let axes = ['X', 'Y', 'Z'];
+        let moved: Vec<(usize, f64)> =
+            w.iter().filter_map(|&(a, v)| axes.iter().position(|&x| x == a).map(|i| (i, v))).collect();
+        if g(53.0) || g(28.0) || g(30.0) || g(10.0) || g(92.0) {
+            // Machine-coordinate moves and offset changes: the program
+            // position afterwards is not known from the text.
+            if g(28.0) || g(30.0) || g(92.0) {
+                p.pos = [None; 3];
+            }
+            for (i, _) in &moved {
+                p.pos[*i] = None;
+            }
+        } else if !moved.is_empty() && !cycle {
+            for &(i, v) in &moved {
+                p.pos[i] = Some(v);
+            }
+            if p.motion == Some(0) && moved.len() == 1 && moved[0].0 == 2 {
+                p.rapid_z = Some(moved[0].1);
+            }
+        }
     }
-    if let Some(at) = lines.get(index).map(AsRef::as_ref) {
+    p.modal = modal.into_iter().flatten().collect();
+    let at = lines.get(index).map(AsRef::as_ref);
+    if let Some(at) = at {
         if let Some(c) = comment_only(at) {
             p.op = Some(c);
         }
         let w = words(at);
         p.changes_tool = w.iter().any(|&(a, b)| a == 'M' && (b == 6.0 || b == 61.0));
-        if oword(at).is_some() {
-            p.problem = Some("Pick a line outside o-word blocks".into());
-        }
-    } else {
-        p.problem = Some("Pick a line of the program".into());
     }
-    if depth > 0 {
-        p.problem = Some("This line is inside a subroutine, loop or if block".into());
+    let arc_without_g = at.is_some_and(|at| {
+        let w = words(at);
+        matches!(p.motion, Some(2 | 3))
+            && w.iter().any(|(a, _)| "XYZIJKR".contains(*a))
+            && !w.iter().any(|&(a, v)| a == 'G' && v <= 3.0)
+    });
+    p.problem = if at.is_none() {
+        Some("Pick a line of the program".into())
+    } else if code_before || at.is_some_and(not_plain) {
+        Some("This program uses o-words or parameters before here; run it from the start".into())
     } else if comp {
-        p.problem = Some("Cutter compensation is on at this line; pick a line before the G41/G42".into());
-    }
+        Some("Cutter compensation is on at this line; pick a line before the G41/G42".into())
+    } else if incremental {
+        Some("Incremental moves (G91) are on at this line; pick another line".into())
+    } else if cycle {
+        Some("A drilling cycle is on at this line; pick the G8x line or one before it".into())
+    } else if arc_without_g {
+        Some("This line continues an arc; pick the line that starts it".into())
+    } else if index < p.preamble().len() + usize::from(p.percent) {
+        Some("Too near the top of the program; run it from the start".into())
+    } else {
+        None
+    };
     p
 }
 
@@ -200,7 +316,11 @@ impl Plan {
         if self.flood {
             parts.push("flood".into());
         }
-        format!("Line {}: {}. Z goes to the top first.", self.index + 1, parts.join(", "))
+        let how = match (self.approach().is_empty(), self.changes_tool) {
+            (_, true) | (true, _) => "Z goes to the top first",
+            (false, false) => "Z goes to the top, then over the start and down",
+        };
+        format!("Line {}: {}. {how}.", self.index + 1, parts.join(", "))
     }
 
     /// Why the start must be refused with this status, if it must.
@@ -221,61 +341,137 @@ impl Plan {
                 }
             }
         }
-        if self.spindle != 0 && self.rpm <= 0.0 {
+        if self.spindle != 0 && self.rpm <= 0.0 && !self.changes_tool {
             return Some("No spindle speed (S) before this line".into());
         }
         None
     }
 
-    /// The MDI lines to send before the run, in order.
-    pub fn prelude(&self) -> Vec<String> {
-        let mut v = vec!["G53 G0 Z0".to_string()];
-        if self.spindle != 0 && !self.changes_tool {
-            v.push(format!("{} S{:.0}", if self.spindle > 0 { "M3" } else { "M4" }, self.rpm));
+    /// Moves from machine top to where the start line begins: over the
+    /// spot, rapid down to the retract plane, feed down to the height.
+    fn approach(&self) -> Vec<String> {
+        let [Some(x), Some(y), Some(z)] = self.pos else { return Vec::new() };
+        if self.changes_tool {
+            return Vec::new();
         }
+        let mut v = vec![format!("G0 X{} Y{}", fmt(x), fmt(y))];
+        let rapid = self.rapid_z.unwrap_or(z).max(z);
+        v.push(format!("G0 Z{}", fmt(rapid)));
+        if rapid > z {
+            match self.feed {
+                Some(f) if f > 0.0 => v.push(format!("G1 Z{} F{}", fmt(z), fmt(f))),
+                _ => v.push(format!("G1 Z{}", fmt(z))),
+            }
+        }
+        v
+    }
+
+    /// The lines that stand in for everything before the start line, kept
+    /// short so lines near the top can still be start lines. Within a line
+    /// LinuxCNC does F, S, M3/M4, M7/M8, then the G4 dwell.
+    pub fn preamble(&self) -> Vec<String> {
+        let mut v = vec!["G53 G0 Z0 (millgui restart: Z to the top)".to_string()];
+        let mut modal = self.modal.clone();
+        modal.extend(["G90".into(), "G40".into(), "G80".into()]);
+        if !self.changes_tool {
+            modal.extend(self.tlo.clone());
+        }
+        v.push(modal.join(" "));
+        let mut setup = Vec::new();
+        if let Some(f) = self.feed {
+            setup.push(format!("F{}", fmt(f)));
+        }
+        let spin = self.spindle != 0 && !self.changes_tool;
+        if spin {
+            setup.push(format!("{} S{}", if self.spindle > 0 { "M3" } else { "M4" }, fmt(self.rpm)));
+        }
+        // M7 and M8 share a modal group: one per line.
         if self.mist {
-            v.push("M7".into());
+            setup.push("M7".into());
+        }
+        if spin {
+            setup.push("G4 P2".into());
+        }
+        if !setup.is_empty() {
+            v.push(setup.join(" "));
         }
         if self.flood {
             v.push("M8".into());
         }
+        let approach = self.approach();
+        let last = approach.last().map(|l| if l.starts_with("G1") { 1 } else { 0 });
+        v.extend(approach);
+        // Leave the program's motion mode in force for lines that move
+        // without a G word. (Arcs are refused unless the line has its G.)
+        if let Some(m @ (0 | 1)) = self.motion {
+            if last != Some(m) {
+                v.push(format!("G{m}"));
+            }
+        }
         v
+    }
+
+    /// The restart copy: preamble, blank lines, then the program from the
+    /// start line on, each at its original line number.
+    pub fn file_lines<S: AsRef<str>>(&self, lines: &[S]) -> Vec<String> {
+        let mut out = Vec::with_capacity(lines.len());
+        if self.percent {
+            out.push("%".to_string());
+        }
+        out.extend(self.preamble());
+        while out.len() < self.index {
+            out.push(String::new());
+        }
+        out.extend(lines.iter().skip(self.index).map(|l| l.as_ref().to_string()));
+        out
     }
 }
 
-/// Sends the prelude one MDI line at a time, each once the previous one
-/// finished, then runs from the line. Any error or STOP ends it.
+/// Where the restart copy of `program` goes.
+pub fn copy_path(program: &str) -> PathBuf {
+    let name = Path::new(program).file_name().map(|n| n.to_os_string()).unwrap_or_else(|| "program.ngc".into());
+    std::env::temp_dir().join("millgui-restart").join(name)
+}
+
+/// A restart under way: runs the copy, then loads the original again once
+/// the run ends (or never starts).
 pub struct Restart {
-    steps: VecDeque<String>,
-    line: i32,
-    sent: Option<(Instant, i32, bool)>,
+    pub copy: String,
+    pub original: String,
+    started: Option<Instant>,
+    seen_running: bool,
 }
 
 impl Restart {
-    pub fn new(plan: &Plan) -> Self {
-        Self { steps: plan.prelude().into(), line: plan.index as i32 + 1, sent: None }
+    /// Writes the copy. Err is the reason to show.
+    pub fn new<S: AsRef<str>>(plan: &Plan, lines: &[S], original: &str) -> Result<Self, String> {
+        let path = copy_path(original);
+        let write = || -> std::io::Result<()> {
+            std::fs::create_dir_all(path.parent().unwrap_or(Path::new("/tmp")))?;
+            let mut text = plan.file_lines(lines).join("\n");
+            text.push('\n');
+            std::fs::write(&path, text)
+        };
+        write().map_err(|e| format!("Could not write the restart copy: {e}"))?;
+        Ok(Self { copy: path.to_string_lossy().into_owned(), original: original.to_string(), started: None, seen_running: false })
     }
 
-    /// Advance on each status. Returns false once finished (started or failed).
+    /// Advance on each status (or clock tick). Returns false once finished.
     pub fn pump(&mut self, s: &Status, m: &Handle) -> bool {
-        if let Some((at, serial, seen_busy)) = &mut self.sent {
-            if s.busy() {
-                *seen_busy = true;
-                return true;
-            }
-            let echoed = s.echo_serial > *serial;
-            if !(echoed && (*seen_busy || at.elapsed() > Duration::from_millis(300))) {
-                return at.elapsed() < Duration::from_secs(5);
-            }
-            self.sent = None;
-        }
-        if let Some(line) = self.steps.pop_front() {
-            m.send(Command::Mdi(line));
-            self.sent = Some((Instant::now(), s.echo_serial, false));
+        let Some(at) = self.started else {
+            m.send(Command::ProgramOpen(self.copy.clone()));
+            m.send(Command::ProgramRun(0));
+            self.started = Some(Instant::now());
+            return true;
+        };
+        if s.interp != Interp::Idle {
+            self.seen_running = true;
             return true;
         }
-        m.send(Command::SetMode(linuxcnc::Mode::Auto));
-        m.send(Command::ProgramRun(self.line));
+        if !self.seen_running && at.elapsed() < Duration::from_secs(3) {
+            return true;
+        }
+        m.send(Command::ProgramOpen(self.original.clone()));
         false
     }
 }
@@ -314,26 +510,74 @@ mod tests {
         assert_eq!(p.tool, Some(3));
         assert_eq!((p.spindle, p.rpm, p.mist, p.flood), (1, 8000.0, true, false));
         assert_eq!(p.op.as_deref(), Some("2D CONTOUR1"));
-        assert!(!p.changes_tool && p.problem.is_none());
-        assert_eq!(p.prelude(), vec!["G53 G0 Z0", "M3 S8000", "M7"]);
-        // At the T5 M6 line: the line changes the tool, no spindle start.
+        assert!(!p.changes_tool && p.problem.is_none(), "{:?}", p.problem);
+        assert_eq!(
+            p.preamble(),
+            vec![
+                "G53 G0 Z0 (millgui restart: Z to the top)",
+                "G21 G17 G94 G91.1 G54 G90 G40 G80 G43 H3",
+                "F300 M3 S8000 M7 G4 P2",
+                "G0 X10 Y10",
+                "G0 Z15",
+                "G1 Z-1 F300",
+            ]
+        );
+        // At the T5 M6 line: the line changes the tool, so no tool length,
+        // spindle or approach; the program does those after the change.
         let p = plan(FUSION, 18);
         assert!(p.changes_tool);
         assert_eq!((p.tool, p.spindle, p.mist), (Some(3), 0, false));
-        assert_eq!(p.prelude(), vec!["G53 G0 Z0"]);
+        assert_eq!(p.preamble(), vec!["G53 G0 Z0 (millgui restart: Z to the top)", "G21 G17 G94 G91.1 G54 G90 G40 G80", "F300", "G0"]);
         let p = plan(FUSION, 20);
         assert_eq!((p.tool, p.rpm, p.spindle), (Some(5), 2000.0, 1));
         assert_eq!(p.op.as_deref(), Some("DRILL1"));
     }
 
     #[test]
-    fn plan_refuses_blocks_and_comp() {
-        let g = ["o100 sub", "G0 X1", "o100 endsub", "o200 while [#1 LT 3]", "G1 X2", "o200 endwhile", "G41 D3", "G1 X3", "G40", "G1 X4"];
-        assert!(plan(&g, 1).problem.is_some());
-        assert!(plan(&g, 3).problem.is_some(), "o-word line itself");
-        assert!(plan(&g, 4).problem.is_some());
-        assert!(plan(&g, 7).problem.is_some(), "comp on");
-        assert!(plan(&g, 9).problem.is_none());
+    fn restart_copy_keeps_line_numbers() {
+        let p = plan(FUSION, 13);
+        let f = p.file_lines(FUSION);
+        assert_eq!(f.len(), FUSION.len());
+        assert_eq!(f[0], "%");
+        assert_eq!(f[1], "G53 G0 Z0 (millgui restart: Z to the top)");
+        assert_eq!(f[12], "");
+        assert_eq!(&f[13..], &FUSION[13..]);
+        // Before the preamble fits: refused.
+        assert!(plan(FUSION, 2).problem.is_some());
+    }
+
+    #[test]
+    fn approach_uses_retract_plane() {
+        let g = ["%", "G21 G90", "G54", "T1 M6", "S3000 M3", "G0 X0 Y0", "G43 Z15 H1", "G0 Z5", "G1 Z-0.5 F600", "X50", "Y10", "X0", "G0 Z15", "%"];
+        assert!(plan(&g, 2).problem.unwrap().contains("Too near"));
+        let p = plan(&g, 10);
+        assert!(p.problem.is_none(), "{:?}", p.problem);
+        let pre = p.preamble();
+        let at = pre.iter().position(|l| l == "G0 X50 Y0").expect("over the start");
+        assert_eq!(&pre[at + 1..], &["G0 Z5", "G1 Z-0.5 F600"]);
+        assert!(p.summary(1).ends_with("Z goes to the top, then over the start and down."));
+    }
+
+    #[test]
+    fn plan_refuses_code_comp_cycles_and_arcs() {
+        let g = ["o100 sub", "G0 X1", "o100 endsub", "G1 X2", "G1 X2", "G1 X2", "G1 X2", "G1 X2", "G1 X2", "G1 X2", "G1 X2", "G1 X2", "G1 X2", "G1 X2"];
+        assert!(plan(&g, 13).problem.is_some(), "o-word code before");
+        let mut g: Vec<String> = (0..14).map(|_| "G0 X0 Y0 Z5".to_string()).collect();
+        assert!(plan(&g, 13).problem.is_none());
+        g[11] = "G41 D3".into();
+        assert!(plan(&g, 13).problem.unwrap().contains("Cutter"));
+        g[11] = "G81 X1 Y1 Z-3 R2".into();
+        assert!(plan(&g, 13).problem.unwrap().contains("drilling"));
+        g[12] = "G80".into();
+        assert!(plan(&g, 13).problem.is_none());
+        g[11] = "G2 X1 Y1 I1 J0".into();
+        g[12] = "G0 X0".into();
+        g[13] = "X2 Y2 I1 J0".into();
+        assert!(plan(&g, 13).problem.is_none(), "motion mode is G0 again");
+        g[12] = "X3 Y3 I1 J0".into();
+        assert!(plan(&g, 13).problem.unwrap().contains("arc"));
+        g[12] = "G91".into();
+        assert!(plan(&g, 13).problem.unwrap().contains("Incremental"));
     }
 
     #[test]
@@ -346,7 +590,7 @@ mod tests {
     #[test]
     fn summary_reads_well() {
         let p = plan(FUSION, 13);
-        assert_eq!(p.summary(3), "Line 14: 2D CONTOUR1, T3, spindle CW 8000, mist. Z goes to the top first.");
+        assert_eq!(p.summary(3), "Line 14: 2D CONTOUR1, T3, spindle CW 8000, mist. Z goes to the top, then over the start and down.");
         assert!(p.summary(1).contains("needs T3 (T1 loaded)"));
     }
 }

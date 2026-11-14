@@ -1,4 +1,5 @@
 // See lcnc_shim.h. Modeled on LinuxCNC's emcmodule.cc and shcom.cc.
+#include <unistd.h>
 #include "lcnc_shim.h"
 
 #include <emc.hh>
@@ -172,9 +173,22 @@ extern "C" int lcnc_next_error(lcnc_t *c, char *buf, size_t len) {
     }
 }
 
+// Wait (up to a second) until task has taken the command off the channel.
+// The command buffer holds one message, so a second write before task reads
+// the first would replace it; linuxcnc.command waits the same way.
+static void wait_received(lcnc_t *c, int serial) {
+    for (int i = 0; i < 1000; i++) {
+        NMLTYPE type = c->stat->peek();
+        if (type == EMC_STAT_TYPE) c->have_status = true;
+        if (c->have_status && ((EMC_STAT *)c->stat->get_address())->echo_serial_number >= serial) return;
+        usleep(1000);
+    }
+}
+
 template <typename M> static int send(lcnc_t *c, M &m) {
     m.serial_number = ++c->serial;
     if (c->cmd->write(&m) != 0) return -1;
+    wait_received(c, m.serial_number);
     return m.serial_number;
 }
 
@@ -189,6 +203,10 @@ extern "C" int lcnc_mdi(lcnc_t *c, const char *line) {
     EMC_TASK_PLAN_EXECUTE m; copy_str(m.command, sizeof(m.command), line); return send(c, m);
 }
 extern "C" int lcnc_program_open(lcnc_t *c, const char *path) {
+    // As linuxcnc.command.program_open does: close first, or task refuses
+    // with "A file is already open" while one is.
+    EMC_TASK_PLAN_CLOSE close_msg;
+    if (send(c, close_msg) < 0) return -1;
     EMC_TASK_PLAN_OPEN m; copy_str(m.file, sizeof(m.file), path); return send(c, m);
 }
 extern "C" int lcnc_program_run(lcnc_t *c, int line) {

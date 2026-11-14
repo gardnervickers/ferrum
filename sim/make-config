@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""Build a LinuxCNC *simulator* config for millgui from the mill's own files.
+
+    millgui/sim/make-config OUT_DIR [--probe-basic DIR]
+
+OUT_DIR gets mymill.ini and mymill.hal rewritten for the simulator, the
+repo's millgui.ini, and links to subroutines, python, scripts and millgui.
+What changes from the real config:
+- The 7i76E is replaced by sim_card.py (same pin names) and each joint's
+  position command is looped straight back as its feedback (no stepgens, no
+  PID). Every other line of mymill.hal runs as written: the drawbar and
+  spindle interlocks, HLFB arming, probe manager, touch-off latches.
+- Homing is immediate (no switch search), the pendant HAL file is left out,
+  and PROGRAM_PREFIX points at OUT_DIR/nc_files.
+Then: `linuxcnc OUT_DIR/millgui.ini` with LinuxCNC's rip-environment sourced.
+It never talks to the mill; it is for the cloud/dev simulator only.
+"""
+import argparse
+import os
+import re
+import shutil
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+
+
+def ini(text: str, out: Path) -> str:
+    lines, section = [], ""
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("["):
+            section = s
+        key = s.split("=", 1)[0].strip()
+        if section == "[HAL]" and key in ("HALFILE", "POSTGUI_HALFILE"):
+            if key == "HALFILE" and "mymill.hal" in s:
+                lines.append("HALFILE = mymill.hal")
+            continue
+        if section == "[HMOT]":
+            continue
+        if section.startswith("[JOINT_") and key in ("HOME_SEARCH_VEL", "HOME_LATCH_VEL", "HOME_FINAL_VEL"):
+            lines.append(f"{key} = 0")
+            continue
+        if key == "PROGRAM_PREFIX":
+            lines.append(f"PROGRAM_PREFIX = {out / 'nc_files'}")
+            continue
+        lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
+def hal(text: str) -> str:
+    out = []
+    for line in text.splitlines():
+        s = line.strip()
+        if re.match(r"loadrt (hostmot2|hm2_eth|pid)\b", s) or s.startswith("addf hm2_7i76e") or "pid." in s:
+            continue
+        if re.match(r"setp\s+hm2_7i76e\.0\.(watchdog|dpll|stepgen)", s) or "stepgen" in s:
+            continue
+        m = re.match(r"net (\w)-pos-cmd\s+<=\s+joint\.(\d)\.motor-pos-cmd", s)
+        if m:
+            a, j = m.groups()
+            out.append(f"net {a}-pos-cmd <= joint.{j}.motor-pos-cmd => joint.{j}.motor-pos-fb")
+            if a in "xyz":
+                out.append(f"net {a}-pos-cmd => hm2_7i76e.0.sim.{a}")
+            continue
+        if re.match(r"net \w-(pos-fb|output)\b", s):
+            continue
+        out.append(line)
+        if s.startswith("loadrt [EMCMOT]EMCMOT"):
+            out.append("loadusr -Wn sim_card ./sim_card.py")
+    return "\n".join(out) + "\n"
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("out", type=Path)
+    ap.add_argument("--probe-basic", type=Path, help="probe_basic checkout, if vendor/probe_basic is empty")
+    a = ap.parse_args()
+    out = a.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "nc_files").mkdir(exist_ok=True)
+    (out / "mymill.ini").write_text(ini((REPO / "mymill.ini").read_text(), out))
+    (out / "mymill.hal").write_text(hal((REPO / "mymill.hal").read_text()))
+    # The display is whatever millgui build MILLGUI_BIN names (NML backend).
+    gui = (REPO / "millgui.ini").read_text().replace("DISPLAY = ./millgui/run", "DISPLAY = ./display")
+    gui = re.sub(r"(?m)^PROGRAM_PREFIX = .*$", f"PROGRAM_PREFIX = {out / 'nc_files'}", gui)
+    (out / "millgui.ini").write_text(gui)
+    disp = out / "display"
+    disp.write_text('#!/bin/sh\nexport SLINT_SCALE_FACTOR="${SLINT_SCALE_FACTOR:-1}"\n'
+                    f'exec "${{MILLGUI_BIN:-{REPO}/millgui/target/release/millgui}}" "$@"\n')
+    disp.chmod(0o755)
+    for f in (REPO / "millgui" / "testdata" / "nc_files").glob("*.ngc"):
+        shutil.copy(f, out / "nc_files" / f.name)
+    shutil.copy(HERE / "sim_card.py", out / "sim_card.py")
+    for f in ("tool.tbl", "probe_basic.var"):
+        if not (out / f).exists():
+            shutil.copy(REPO / f, out / f)
+    links = ["subroutines", "python", "scripts", "millgui", "hal_components", "mymill_vcp", "mymill_job"]
+    for name in links:
+        p = out / name
+        if not p.exists():
+            p.symlink_to(REPO / name)
+    vendor = REPO / "vendor" / "probe_basic"
+    pb = a.probe_basic or vendor
+    (out / "vendor").mkdir(exist_ok=True)
+    if not (out / "vendor" / "probe_basic").exists():
+        (out / "vendor" / "probe_basic").symlink_to(pb.resolve())
+    print(f"simulator config in {out}; run: linuxcnc {out / 'millgui.ini'}")
+
+
+if __name__ == "__main__":
+    main()

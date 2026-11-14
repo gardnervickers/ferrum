@@ -55,8 +55,12 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [ ] Files: top-view preview of the selected file (the RUN backplot covers the loaded one).
 - [x] Run: G-code view follows the executing line; NEXT M6 finds the next tool change.
 - [x] CYCLE START has a static outline when it can resume.
-- [ ] Run from line: refused inside a job (job_session.cycle_start_problem); design restoring
-      tool/spindle/offsets properly or drop it (it is not LinuxCNC behavior).
+- [x] Run from line (RUN FROM SELECTED, hold): refused inside a job, after o-word code or
+  parameters, with cutter comp, G91 or a drilling cycle on, mid-arc, or with a different tool
+  loaded than the line expects. Runs a restart copy whose skipped lines are replaced by a preamble
+  (modes, work offset, G43, feed, spindle, coolant, then Z top, over the start, down), keeping line
+  numbers; the original loads again after. LinuxCNC's own run-from-line is not used: it runs the
+  M6 remap of a skipped tool change and leaves the spindle off (`restart.rs`).
 - [ ] Decide whether [FILTER] keeps .py.
 
 ## M4 Tooling
@@ -80,7 +84,8 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       zero G52/G92; check #3031 before offering.
 - [x] spindle-nose-reference-valid resets on any unhome; probe_spindle_nose.ngc needs T0 and an
       invalid reference; show VALID/NEEDS PROBE in Util and tool change; gate CAL → SPINDLE NOSE on T0.
-- [x] Tool setter is G30 (#5181–5183) via set_g30_position.ngc; go-to G30 and park.
+- [x] Tool setter is G30 (#5181–5183) via set_g30_position.ngc; go-to G30 (Util) and PARK (MANUAL, o<go_to_home>).
+- [x] Probe Z on a top face: PROBE › FIND › TOP FACE Z runs probe_z_minus_wco.
 - [x] Probe screen per mockup (steppers, MORE, DEFAULTS, mode-matched label,
       Write-to only in FIND); probe wired as T99.
 - [x] Probe screen redone (Gardner, 2026-11-13: "do I click START HERE or the edge?"): columns

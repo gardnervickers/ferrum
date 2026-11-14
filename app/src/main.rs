@@ -347,11 +347,19 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     live.set_feed_pct((s.feed_scale * 100.0).round() as i32);
     live.set_rapid_pct((s.rapid_scale * 100.0).round() as i32);
     live.set_spindle_pct((s.spindle_scale * 100.0).round() as i32);
-    live.set_program(
-        Path::new(&s.file).file_name().map(|f| f.to_string_lossy().to_uppercase()).unwrap_or_default().into(),
-    );
+    // In MDI, the file is a subroutine the command called (the M6 remap,
+    // a probe macro), not the loaded program.
+    let mdi = s.mode == linuxcnc::Mode::Mdi;
+    if !mdi {
+        live.set_program(
+            Path::new(&s.file).file_name().map(|f| f.to_string_lossy().to_uppercase()).unwrap_or_default().into(),
+        );
+    }
     // LinuxCNC keeps the last run's lines after it ends; idle shows none.
-    live.set_line(if s.interp == Interp::Idle { 0 } else { s.current_line.max(s.motion_line) });
+    // The line motion is executing; current_line runs ahead with the
+    // interpreter's read-ahead (to the next M6, say) while moves queue.
+    let line = if s.motion_line > 0 { s.motion_line } else { s.current_line };
+    live.set_line(if s.interp == Interp::Idle || mdi { 0 } else { line });
     live.set_running(s.busy());
     live.set_paused(s.interp == Interp::Paused);
     live.set_optional_stop(s.optional_stop);
@@ -467,10 +475,9 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     let m = machine.clone();
     actions.on_feed_hold(move || m.send(Command::Pause));
     let m = machine.clone();
-    actions.on_stop(move || {
-        RESTART.with(|r| r.borrow_mut().take());
-        m.send(Command::Abort)
-    });
+    // A restart under way loads the original program again once the abort
+    // leaves the interpreter idle.
+    actions.on_stop(move || m.send(Command::Abort));
     let (m, st, weak) = (machine.clone(), state.clone(), ui.as_weak());
     actions.on_gcode_run_from_selected(move || {
         let Some(ui) = weak.upgrade() else { return };
@@ -497,7 +504,17 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             toast(&ui, format!("RUN FROM SELECTED refused: {p}"));
             return;
         }
-        let mut run = restart::Restart::new(&plan);
+        let mut run = match restart::Restart::new(&plan, &gcode_lines(&ui), &s.file) {
+            Ok(run) => run,
+            Err(e) => {
+                live.set_message(e.clone().into());
+                live.set_message_error(true);
+                toast(&ui, e);
+                return;
+            }
+        };
+        RESTART_COPY.with(|c| *c.borrow_mut() = Some((run.copy.clone(), run.original.clone())));
+        PROGRAM_FILE.with(|p| p.borrow_mut().0.clear());
         if run.pump(&s, &m) {
             RESTART.with(|r| *r.borrow_mut() = Some(run));
         }
@@ -604,12 +621,13 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let state = state.clone();
         let axes = axes.clone();
-        let handle_ev = handle.clone();
+        let sub_dirs = subroutine_dirs(&cfg);
         UI_EVENT.with(|f| {
             *f.borrow_mut() = Some(Box::new(move |ui: &MainWindow, ev: Event| {
                 let live = ui.global::<Live>();
                 match ev {
-                    Event::Status(s) => {
+                    Event::Status(mut s) => {
+                        program_file(&mut s, &sub_dirs);
                         let mut st = state.borrow_mut();
                         if st.lost {
                             st.lost = false;
@@ -620,14 +638,21 @@ fn main() -> Result<(), slint::PlatformError> {
                         live.set_connected(true);
                         apply_status(ui, &mut st, &s, &axes);
                         with_manual(|mm| manual::apply_status(ui, mm, &s));
-                        program::sync(ui, &s.file);
-                        restart_status(ui, &s, &handle_ev);
+                        // An MDI command that calls a subroutine (the M6
+                        // remap, probing) shows that file as the open one
+                        // while it runs; the loaded program is unchanged.
+                        let mdi_sub = s.mode == linuxcnc::Mode::Mdi;
+                        if !mdi_sub {
+                            program::sync(ui, &s.file);
+                        }
                         SIM_TC.with(|t| {
                             if let Some(t) = t.borrow().as_ref() {
                                 t.status(&s);
                             }
                         });
-                        plot::sync(ui, &s.file);
+                        if !mdi_sub {
+                            plot::sync(ui, &s.file);
+                        }
                         // After the tools, which know the loaded tool's size.
                         TOOLS.with(|t| {
                             if let Some(t) = t.borrow().as_ref() {
@@ -635,7 +660,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             }
                         });
                         plot::with(|p| {
-                            plot::tool_moved(p, tool_tip(&s));
+                            plot::tool_moved_homed(p, tool_tip(&s), s.all_homed());
                             plot::machine_pose(p, machine_pose(ui, &s));
                         });
                         OFFSETS.with(|o| {
@@ -660,8 +685,8 @@ fn main() -> Result<(), slint::PlatformError> {
                         });
                     }
                     Event::Message(m) => {
-                        if m.kind == MessageKind::Error && RESTART.with(|r| r.borrow_mut().take()).is_some() {
-                            toast(ui, "RUN FROM SELECTED stopped: an MDI step failed".into());
+                        if std::env::var_os("MILLGUI_LOG_MESSAGES").is_some() {
+                            eprintln!("millgui: message {:?}: {:?}", m.kind, m.text);
                         }
                         // Macros report results as DEBUG lines.
                         if UTIL.with(|u| u.borrow().as_ref().is_some_and(|u| util::message(u, &m))) {
@@ -783,6 +808,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let modules = modules.clone();
         let last_message = RefCell::new(SharedString::default());
+        let handle = handle.clone();
         tick.start(slint::TimerMode::Repeated, Duration::from_millis(200), move || {
             let Some(ui) = weak.upgrade() else { return };
             // Messages the screens raise go to the log too (LinuxCNC's are
@@ -797,6 +823,11 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             let st = state.borrow();
             refresh_pills(&ui, &st, &modules, &axes);
+            // On the clock, not on status: status is only sent when it
+            // changes, and an idle machine sends none after a line is picked.
+            if let Some(s) = st.status.as_ref() {
+                restart_status(&ui, s, &handle);
+            }
             let load = modules.iter().find_map(|m| m.load(st.status.as_ref()));
             plot::with(|p| plot::set_load(&ui, p, load));
             let live = ui.global::<Live>();
@@ -1114,8 +1145,57 @@ thread_local! {
     static MANUAL: RefCell<Option<Rc<RefCell<manual::Manual>>>> = RefCell::new(None);
     /// RUN FROM SELECTED in progress (its MDI prelude), if any.
     static RESTART: RefCell<Option<restart::Restart>> = const { RefCell::new(None) };
+    /// (restart copy, original): status naming the copy is shown as the
+    /// original, so the program view, plot and line numbers stay put.
+    static RESTART_COPY: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
     /// (selected line, loaded tool, program) the restart summary was made for.
     static RESTART_SHOWN: RefCell<(i32, i32, String)> = RefCell::new((-2, -1, String::new()));
+}
+
+/// Folders the interpreter finds subroutines and remaps in
+/// ([RS274NGC] SUBROUTINE_PATH and USER_M_PATH), resolved.
+fn subroutine_dirs(cfg: &Config) -> Vec<PathBuf> {
+    ["SUBROUTINE_PATH", "USER_M_PATH"]
+        .iter()
+        .filter_map(|k| cfg.get("RS274NGC", k))
+        .flat_map(|v| v.split(':').map(str::trim).filter(|d| !d.is_empty()).map(|d| cfg.dir().join(d)).collect::<Vec<_>>())
+        .filter_map(|d| d.canonicalize().ok())
+        .collect()
+}
+
+thread_local! {
+    /// (file LinuxCNC reported, file to show) for the last status.
+    static PROGRAM_FILE: RefCell<(String, String)> = RefCell::new(Default::default());
+}
+
+/// LinuxCNC's status names the file the interpreter is reading, which is
+/// the M6 remap or another subroutine whenever it reads ahead into one (or
+/// an MDI command calls one). Show the loaded program instead: a file in a
+/// subroutine folder keeps the program shown before it, and the restart
+/// copy shows as the program it was made from.
+fn program_file(s: &mut Status, sub_dirs: &[PathBuf]) {
+    PROGRAM_FILE.with(|pf| {
+        let mut pf = pf.borrow_mut();
+        if s.file == pf.0 {
+            s.file = pf.1.clone();
+            return;
+        }
+        let raw = std::mem::take(&mut s.file);
+        let in_subs = Path::new(&raw)
+            .parent()
+            .and_then(|d| d.canonicalize().ok())
+            .is_some_and(|d| sub_dirs.contains(&d));
+        let shown = if in_subs {
+            pf.1.clone()
+        } else {
+            RESTART_COPY.with(|c| match c.borrow().as_ref() {
+                Some((copy, original)) if raw == *copy => original.clone(),
+                _ => raw.clone(),
+            })
+        };
+        s.file = shown.clone();
+        *pf = (raw, shown);
+    });
 }
 
 fn gcode_lines(ui: &MainWindow) -> Vec<SharedString> {

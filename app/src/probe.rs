@@ -205,7 +205,13 @@ struct Run {
     what: String,
     kind: &'static str,
     flow_step: Option<&'static str>,
+    /// When the last line finished. The macro's result lines come over
+    /// LinuxCNC's error channel and can arrive just after the status shows
+    /// it idle, so the run ends a moment later (`RESULT_GRACE`).
+    done_at: Option<Instant>,
 }
+
+const RESULT_GRACE: Duration = Duration::from_millis(400);
 
 pub struct Probe {
     mode: &'static str,
@@ -233,6 +239,8 @@ pub struct Probe {
     io: Option<Rc<dyn Io>>,
     ui: slint::Weak<MainWindow>,
     rotation: Box<dyn Fn(usize) -> f64>,
+    /// This probe's own Rc, for timers.
+    me: std::rc::Weak<RefCell<Probe>>,
 }
 
 impl Probe {
@@ -522,7 +530,7 @@ impl Probe {
         self.results.clear();
         let what = self.selected().label;
         self.result_text = format!("Running: {what}");
-        self.run = Some(Run { steps, restore, sent: None, failed: None, restoring: false, what, kind: t.kind, flow_step });
+        self.run = Some(Run { steps, restore, sent: None, failed: None, restoring: false, what, kind: t.kind, flow_step, done_at: None });
         self.pump();
         Ok(())
     }
@@ -567,6 +575,19 @@ impl Probe {
             run.steps = std::mem::take(&mut run.restore);
         }
         if run.steps.is_empty() {
+            let done = *run.done_at.get_or_insert_with(Instant::now);
+            if done.elapsed() < RESULT_GRACE {
+                // Status only arrives on a change, so come back by timer.
+                let me = self.me.clone();
+                slint::Timer::single_shot(RESULT_GRACE, move || {
+                    if let Some(p) = me.upgrade() {
+                        let mut p = p.borrow_mut();
+                        p.pump();
+                        p.refresh();
+                    }
+                });
+                return;
+            }
             let run = self.run.take().unwrap();
             self.finish(run);
             return;
@@ -1282,7 +1303,9 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         io,
         ui: ui.as_weak(),
         rotation,
+        me: std::rc::Weak::new(),
     }));
+    probe.borrow_mut().me = Rc::downgrade(&probe);
     probe.borrow_mut().save_defaults();
     crate::manual::add_keypad_target(Rc::new(Keys(probe.clone())));
     let actions = ui.global::<Actions>();
@@ -1391,7 +1414,7 @@ pub fn apply_status(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, s: &Status) {
     // A run that never restored its defaults (crash): restore them now.
     if p.restore_pending && p.run.is_none() && s.power_on() && !s.busy() {
         let lines = Probe::assign_lines(p.defaults.iter().map(|(n, v)| (*n, *v)));
-        p.run = Some(Run { steps: Vec::new(), restore: lines, sent: None, failed: None, restoring: false, what: "Restore probe defaults".into(), kind: "", flow_step: None });
+        p.run = Some(Run { steps: Vec::new(), restore: lines, sent: None, failed: None, restoring: false, what: "Restore probe defaults".into(), kind: "", flow_step: None, done_at: None });
         p.restore_pending = false;
     }
     p.pump();
@@ -1494,6 +1517,7 @@ mod tests {
             io: None,
             ui: slint::Weak::default(),
             rotation: Box::new(|_| 0.0),
+            me: std::rc::Weak::new(),
         }
     }
 

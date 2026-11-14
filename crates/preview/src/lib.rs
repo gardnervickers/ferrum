@@ -87,6 +87,10 @@ pub struct Builder {
     /// Comment waiting to name the next op that moves.
     pending: Option<String>,
     op_has_motion: bool,
+    /// The current op has cut (fed) already. Before that, a tool change
+    /// belongs to the op: CAM posts name the op, then retract (G53 G0 Z0)
+    /// and stop the spindle, and only then call T.. M6.
+    op_cut: bool,
     /// The JOB page's `(MYMILL-OP n/N ID=... name)` markers were seen: ops
     /// follow them exactly (manual steps included) and other comments,
     /// such as `(MSG, ...)`, don't name or split ops.
@@ -105,6 +109,7 @@ impl Builder {
             rapid: rapid_mm_s.max(1.0) * 60.0,
             pending: None,
             op_has_motion: false,
+            op_cut: false,
             marked: false,
             line: 0,
         }
@@ -150,7 +155,10 @@ impl Builder {
             return;
         }
         if t != self.tool && self.op_has_motion {
-            self.op_has_motion = false;
+            match self.tp.ops.last_mut() {
+                Some(op) if !self.op_cut => op.tool = t,
+                _ => self.op_has_motion = false,
+            }
         }
         self.tool = t;
     }
@@ -164,6 +172,7 @@ impl Builder {
             let name = self.pending.take().unwrap_or_else(|| format!("OP {}", self.tp.ops.len() + 1));
             self.tp.ops.push(Op { name, tool: self.tool, seconds: 0.0 });
             self.op_has_motion = true;
+            self.op_cut = false;
         }
         self.tp.ops.len() - 1
     }
@@ -173,6 +182,9 @@ impl Builder {
             return;
         }
         let op = self.current_op();
+        if kind != Kind::Rapid {
+            self.op_cut = true;
+        }
         let d = dist(self.pos, to);
         let rate = if kind == Kind::Rapid || self.feed <= 0.0 { self.rapid } else { self.feed };
         self.tp.ops[op].seconds += d / rate * 60.0;
@@ -257,8 +269,27 @@ mod tests {
         b.line(Kind::Feed, [60.0, 10.0, 10.0, 0.0]);
         let tp = b.finish();
         let names: Vec<_> = tp.ops.iter().map(|o| (o.name.as_str(), o.tool)).collect();
-        assert_eq!(names, [("FACE1", 1), ("CONTOUR1", 1), ("OP 3", 2)]);
+        // CONTOUR1 has not cut when T2 is loaded, so T2 is its tool.
+        assert_eq!(names, [("FACE1", 1), ("CONTOUR1", 2)]);
         assert!((tp.ops[0].seconds - 6.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn op_named_before_its_retract_and_tool_change_keeps_the_new_tool() {
+        // Fusion: (DRILL1) M9 M5 G53 G0 Z0 T5 M6 ... after a T1 op.
+        let mut b = Builder::new([0.0; 4], 100.0);
+        b.comment("FACE1");
+        b.tool(1);
+        b.feed_rate(600.0);
+        b.line(Kind::Feed, [60.0, 0.0, 0.0, 0.0]);
+        b.comment("DRILL1");
+        b.line(Kind::Rapid, [60.0, 0.0, 50.0, 0.0]);
+        b.tool(5);
+        b.line(Kind::Rapid, [10.0, 10.0, 50.0, 0.0]);
+        b.line(Kind::Feed, [10.0, 10.0, -3.0, 0.0]);
+        let tp = b.finish();
+        let names: Vec<_> = tp.ops.iter().map(|o| (o.name.as_str(), o.tool)).collect();
+        assert_eq!(names, [("FACE1", 1), ("DRILL1", 5)]);
     }
 
     #[test]

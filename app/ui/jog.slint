@@ -352,7 +352,7 @@ component SpindleCard inherits Card {
             }
         }
         Btn {
-            text: "PARK"; sub: "Z UP, THEN X Y A TO MACHINE HOME"; hold: true;
+            text: "PARK AT MACHINE HOME"; hold: true; font-size: Layout.compact ? 19px : 24px;
             enabled: Live.power && Live.homed && !Live.manual-locked;
             clicked => { Actions.park(); }
         }

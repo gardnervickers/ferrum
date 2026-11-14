@@ -446,7 +446,13 @@ component GcodeView inherits VerticalLayout {
     property <int> picked: Live.gcode-selected;
     // Keep the executing (or found) line in view, a third of the way down.
     changed cur => { if Live.running { list.content-y = -max(0px, (cur - 6) * line-h); } }
-    changed picked => { if picked >= 0 { list.content-y = -max(0px, (picked - 6) * line-h); } }
+    // Only scroll to a picked line that is out of view (NEXT M6, a search):
+    // a tapped line stays under the finger.
+    changed picked => {
+        if picked >= 0 && (picked * line-h < -list.content-y || (picked + 1) * line-h > -list.content-y + list.height) {
+            list.content-y = -max(0px, (picked - 6) * line-h);
+        }
+    }
     Rectangle {
         vertical-stretch: 1;
         background: Theme.well;
@@ -466,10 +472,19 @@ component GcodeView inherits VerticalLayout {
         }
         if Live.gcode-count == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
     }
+    // What a restart from the picked line will set up. Fixed height so the
+    // buttons never move when a line is picked.
+    Note {
+        height: 48px;
+        font-size: 17px;
+        vertical-alignment: center;
+        overflow: elide;
+        text: Live.gcode-selected >= 0 ? Live.gcode-restart : "Tap a line to run from it.";
+    }
     HorizontalLayout {
         spacing: 12px;
         Btn {
-            text: "RUN FROM SELECTED"; sub: "HOLD"; hold: true;
+            text: "RUN FROM SELECTED"; hold: true;
             enabled: Live.gcode-selected >= 0 && Live.power && Live.homed && !Live.manual-locked;
             clicked => { Actions.gcode-run-from-selected(); }
         }
