@@ -16,10 +16,38 @@ component Dialog inherits Rectangle {
     border-radius: Theme.radius;
 }
 
+component KeypadKey inherits Btn {
+    in property <string> key;
+    height: 84px;
+    text: key;
+    family: Theme.body;
+    font-size: key == "CLR" ? 28px : key == "×" ? 50px : 38px;
+    // Operators read as a separate column.
+    on: key == "÷" || key == "×" || key == "−" || key == "+";
+    clicked => { Actions.keypad-key(key); }
+}
+
+// Numbers and simple arithmetic (+ − × ÷, brackets), worked out on ENTER.
 export component Keypad inherits Scrim {
+    // A hardware keyboard types too (the desktop sim, a USB keyboard).
+    keys := FocusScope {
+        init => { self.focus(); }
+        key-pressed(e) => {
+            if e.text == Key.Return || e.text == "=" { Actions.keypad-done(true); return accept; }
+            if e.text == Key.Escape { Actions.keypad-done(false); return accept; }
+            if e.text == Key.Backspace { Actions.keypad-key("⌫"); return accept; }
+            if e.text == Key.Delete { Actions.keypad-key("CLR"); return accept; }
+            // Digits, operators and brackets; Rust ignores anything else.
+            if e.text.character-count == 1 && !e.modifiers.control && !e.modifiers.meta {
+                Actions.keypad-key(e.text);
+                return accept;
+            }
+            reject
+        }
+    }
     Dialog {
-        width: 500px;
-        height: 640px;
+        width: 600px;
+        height: 700px;
         VerticalLayout {
             padding: 20px;
             spacing: 14px;
@@ -28,8 +56,9 @@ export component Keypad inherits Scrim {
                 height: 76px;
                 background: Theme.well;
                 border-width: 1px;
-                border-color: Theme.sel;
+                border-color: Live.keypad-error ? Theme.stop-border : Theme.sel;
                 border-radius: Theme.radius-ctl;
+                clip: true;
                 // Shown selected until the first key replaces it.
                 if Live.keypad-fresh: Rectangle {
                     x: parent.width - 16px - self.width + 6px;
@@ -38,23 +67,33 @@ export component Keypad inherits Scrim {
                     border-radius: Theme.radius-sm;
                     background: Theme.sel.with-alpha(0.45);
                 }
+                // A long expression slides left so its end stays in view.
                 fresh-text := Text {
-                    x: 16px;
-                    width: parent.width - 32px;
+                    x: min(16px, parent.width - 16px - self.preferred-width);
+                    width: max(parent.width - 32px, self.preferred-width);
                     horizontal-alignment: right;
                     text: Live.keypad-value == "" ? "0" : Live.keypad-value;
                     font-family: Theme.body; font-weight: 600; font-size: 46px; color: Theme.ink;
                 }
             }
+            // Fixed height, so the keys don't move as it appears.
+            Text {
+                height: 34px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                overflow: elide;
+                text: Live.keypad-result;
+                font-family: Theme.body;
+                font-weight: Live.keypad-error ? 600 : 500;
+                font-size: 30px;
+                color: Live.keypad-error ? Theme.bad : Theme.muted;
+            }
             GridLayout {
                 spacing: 10px;
-                Row { for k in ["7", "8", "9", "⌫"]: Btn { height: 84px; font-size: 36px; text: k; clicked => { Actions.keypad-key(k); } } }
-                Row { for k in ["4", "5", "6", "±"]: Btn { height: 84px; font-size: 36px; text: k; clicked => { Actions.keypad-key(k); } } }
-                Row { for k in ["1", "2", "3", "CLR"]: Btn { height: 84px; font-size: k == "CLR" ? 28px : 36px; text: k; clicked => { Actions.keypad-key(k); } } }
-                Row {
-                    Btn { height: 84px; font-size: 36px; text: "0"; clicked => { Actions.keypad-key("0"); } }
-                    Btn { height: 84px; font-size: 36px; text: "."; clicked => { Actions.keypad-key("."); } }
-                }
+                Row { for k in ["7", "8", "9", "÷", "⌫"]: KeypadKey { key: k; } }
+                Row { for k in ["4", "5", "6", "×", "CLR"]: KeypadKey { key: k; } }
+                Row { for k in ["1", "2", "3", "−", "("]: KeypadKey { key: k; } }
+                Row { for k in ["±", "0", ".", "+", ")"]: KeypadKey { key: k; } }
             }
             HorizontalLayout {
                 spacing: 20px;

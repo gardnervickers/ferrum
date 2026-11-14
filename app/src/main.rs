@@ -3,6 +3,7 @@
 //! LinuxCNC starts it as `millgui -ini <file>`. `--sim` runs against the
 //! simulated machine instead (the default on builds without NML, e.g. the Mac).
 
+mod calc;
 mod config;
 mod conv;
 mod files;
@@ -44,7 +45,7 @@ struct Args {
     windowed: bool,
     screenshot: Option<PathBuf>,
     screen: Option<String>,
-    /// Screenshot extras: "keypad", "messages", "mdi".
+    /// Screenshot extras: "keypad", "keys:<value>:<typed>[=]", "messages", "mdi".
     show: Vec<String>,
     /// Simulator: program to load at start.
     open: Option<PathBuf>,
@@ -922,6 +923,19 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                 actions.invoke_keypad_key("CLR".into());
                 for k in ["2", "5"] {
                     actions.invoke_keypad_key(k.into());
+                }
+            }
+            // "keys:<value>:<typed>" opens the keypad on a value and types
+            // into it as a keyboard would; a trailing '=' presses ENTER.
+            w if w.starts_with("keys:") => {
+                let mut p = w.splitn(3, ':').skip(1);
+                let (Some(target), Some(typed)) = (p.next(), p.next()) else { continue };
+                actions.invoke_edit(target.into());
+                for k in typed.trim_end_matches('=').chars() {
+                    actions.invoke_keypad_key(k.to_string().into());
+                }
+                if typed.ends_with('=') {
+                    actions.invoke_keypad_done(true);
                 }
             }
             "mdi" => {
