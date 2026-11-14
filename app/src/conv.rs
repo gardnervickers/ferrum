@@ -1,6 +1,10 @@
 //! CONV screen (milestone 6): conversational facing, drilling, helical bore
 //! and thread milling.
 //!
+//! The inputs are grouped into four sections (SHAPE, DEPTH, TOOL, SETUP);
+//! one is open at a time beside the sketch, and a recap lists all four in
+//! a line each, so the whole operation reads at a glance.
+//!
 //! The screen only collects numbers. The G-code comes from the mill_ops
 //! generators in the jobcore crate (through the job session), so ADD TO JOB and LOAD AS
 //! PROGRAM cut exactly what the Probe Basic pages did. Every change is checked
@@ -123,6 +127,29 @@ fn op_fields(ty: &str) -> Vec<&'static F> {
     }
 }
 
+/// Section id, tab label.
+const SECTIONS: [(&str, &str); 4] = [("shape", "SHAPE"), ("depth", "DEPTH"), ("tool", "TOOL"), ("setup", "SETUP")];
+
+/// The fields a section shows, in order. Every field of the operation is
+/// in exactly one section.
+fn section_keys(ty: &str, section: &str) -> &'static [&'static str] {
+    match (section, ty) {
+        ("shape", "face") => &["x_start", "x_end", "y_start", "y_end"],
+        ("shape", "xy") => &["hole_x", "hole_y"],
+        ("shape", "grid") => &["x0", "y0", "cols", "rows", "dx", "dy"],
+        ("shape", "circle") => &["cx", "cy", "circle_d", "count", "start_angle"],
+        ("shape", "bore") => &["cx", "cy", "diameter"],
+        ("shape", _) => &["preset", "hand", "cx", "cy", "diameter", "pitch"],
+        ("depth", "face") => &["z_start", "z_end", "step_down"],
+        ("depth", "xy" | "grid" | "circle") => &["z_start", "z_end", "cycle", "cycle_param", "retract_mode"],
+        ("depth", "bore") => &["z_start", "z_end", "ramp_angle"],
+        ("depth", _) => &["z_start", "z_end", "radial_passes"],
+        ("tool", "face") => &["tool_number", "spindle_rpm", "xy_feed", "z_feed", "step_over"],
+        ("tool", _) => &["tool_number", "spindle_rpm", "xy_feed", "z_feed"],
+        _ => &["wcs", "units", "coolant", "spindle_dir", "z_clear", "retract"],
+    }
+}
+
 fn gen_type(ty: &str) -> &'static str {
     TYPES.iter().find(|t| t.0 == ty).map_or("face", |t| t.2)
 }
@@ -185,6 +212,8 @@ fn fmt(v: f64) -> String {
 
 pub struct Conv {
     ty: String,
+    /// The open section.
+    section: String,
     settings: Settings,
     hole_sel: Option<usize>,
     /// The choice field the picker is open for.
@@ -293,6 +322,41 @@ impl Conv {
 
     fn find(&self, key: &str) -> Option<&'static F> {
         SETUP.iter().chain(op_fields(&self.ty)).find(|f| f.key == key)
+    }
+
+    /// One line saying what a section is set to.
+    fn recap(&self, section: &str) -> String {
+        let g = |k: &str| self.get(k);
+        let u = g("units").to_lowercase();
+        match (section, self.ty.as_str()) {
+            ("shape", "face") => format!("X {} to {}  ·  Y {} to {}", g("x_start"), g("x_end"), g("y_start"), g("y_end")),
+            ("shape", "xy") => {
+                let n = self.holes().len();
+                format!("{n} hole{}", if n == 1 { "" } else { "s" })
+            }
+            ("shape", "grid") => format!("{} x {} holes from X {} Y {}  ·  pitch {} / {}", g("cols"), g("rows"), g("x0"), g("y0"), g("dx"), g("dy")),
+            ("shape", "circle") => format!("{} holes on Ø{} at X {} Y {}", g("count"), g("circle_d"), g("cx"), g("cy")),
+            ("shape", "bore") => format!("Ø{} at X {} Y {}", g("diameter"), g("cx"), g("cy")),
+            ("shape", _) => {
+                let what = if g("preset") == "CUSTOM" { format!("Ø{} x {}", g("diameter"), g("pitch")) } else { g("preset") };
+                format!("{what} {} at X {} Y {}", g("hand"), g("cx"), g("cy"))
+            }
+            ("depth", ty) => {
+                let z = format!("Z {} to {}", g("z_start"), g("z_end"));
+                match ty {
+                    "face" => format!("{z}  ·  step down {}", g("step_down")),
+                    "bore" => format!("{z}  ·  ramp {}°", g("ramp_angle")),
+                    "thread" => format!("{z}  ·  {} passes", g("radial_passes")),
+                    _ if self.unused("cycle_param") => format!("{z}  ·  {}", g("cycle")),
+                    _ => format!("{z}  ·  {} {}", g("cycle"), g("cycle_param")),
+                }
+            }
+            ("tool", ty) => {
+                let t = format!("T{}  ·  {} rpm  ·  {} {u}/min", g("tool_number"), g("spindle_rpm"), g("xy_feed"));
+                if ty == "face" { format!("{t}  ·  step over {}", g("step_over")) } else { t }
+            }
+            _ => format!("{}  ·  {}  ·  coolant {}  ·  {}  ·  clear Z {}", g("wcs"), g("units"), g("coolant").to_lowercase(), g("spindle_dir"), g("z_clear")),
+        }
     }
 
     /// The generator's inputs, as the job session expects them.
@@ -486,11 +550,22 @@ impl Conv {
         live.set_conv_types(ModelRc::new(VecModel::from(types)));
         live.set_conv_title(TYPES.iter().find(|t| t.0 == self.ty).map_or("", |t| t.1).into());
         live.set_conv_tool(self.tool_label().into());
-        let setup: Vec<ConvField> = SETUP.iter().filter(|f| self.visible(f)).map(|f| self.row(f)).collect();
-        live.set_conv_setup(ModelRc::new(VecModel::from(setup)));
-        let op: Vec<ConvField> = op_fields(&self.ty).into_iter().filter(|f| self.visible(f)).map(|f| self.row(f)).collect();
-        live.set_conv_op(ModelRc::new(VecModel::from(op)));
-        live.set_conv_show_holes(self.ty == "xy");
+        let sections: Vec<ProbeItem> = SECTIONS.iter().map(|(id, label)| ProbeItem { id: (*id).into(), label: (*label).into(), on: *id == self.section }).collect();
+        live.set_conv_sections(ModelRc::new(VecModel::from(sections)));
+        live.set_conv_section(self.section.as_str().into());
+        let fields: Vec<ConvField> = section_keys(&self.ty, &self.section).iter().filter_map(|k| self.find(k)).filter(|f| self.visible(f)).map(|f| self.row(f)).collect();
+        live.set_conv_fields(ModelRc::new(VecModel::from(fields)));
+        let recap: Vec<ConvField> = SECTIONS
+            .iter()
+            .map(|(id, label)| ConvField { key: (*id).into(), label: (*label).into(), value: self.recap(id).into(), unit: "".into(), choice: false })
+            .collect();
+        live.set_conv_recap(ModelRc::new(VecModel::from(recap)));
+        let levels: Vec<ConvField> = [("z_clear", "CLEARANCE Z"), ("retract", "RETRACT ABOVE START"), ("z_start", "Z START"), ("z_end", "Z END")]
+            .iter()
+            .map(|(k, label)| ConvField { key: (*k).into(), label: (*label).into(), value: self.get(k).into(), unit: self.get("units").to_lowercase().into(), choice: false })
+            .collect();
+        live.set_conv_levels(ModelRc::new(VecModel::from(levels)));
+        live.set_conv_show_holes(self.ty == "xy" && self.section == "shape");
         let holes: Vec<SharedString> = if self.ty == "xy" {
             self.holes().iter().enumerate().map(|(i, (x, y))| format!("{}   X {}   Y {}", i + 1, fmt(*x), fmt(*y)).into()).collect()
         } else {
@@ -560,7 +635,7 @@ pub fn wire(ui: &MainWindow, job: Rc<RefCell<Job>>, settings: Settings) -> Rc<Re
         .and_then(|r| r["presets"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()))
         .unwrap_or_default();
     let ty = settings.get("conv.type").unwrap_or("face").to_string();
-    let c = Rc::new(RefCell::new(Conv { ty, settings, hole_sel: None, picking: None, presets, summary: String::new(), error: false, face_moves: Vec::new(), job, ui: ui.as_weak() }));
+    let c = Rc::new(RefCell::new(Conv { ty, section: "shape".into(), settings, hole_sel: None, picking: None, presets, summary: String::new(), error: false, face_moves: Vec::new(), job, ui: ui.as_weak() }));
     crate::manual::add_keypad_target(Rc::new(Keys(c.clone())));
     c.borrow_mut().update();
 
@@ -574,6 +649,14 @@ pub fn wire(ui: &MainWindow, job: Rc<RefCell<Job>>, settings: Settings) -> Rc<Re
             c.settings.set("conv.type", ty);
             c.hole_sel = None;
             c.update();
+        }
+    });
+    let t = c.clone();
+    actions.on_conv_section(move |id| {
+        let mut c = t.borrow_mut();
+        if SECTIONS.iter().any(|x| x.0 == id.as_str()) {
+            c.section = id.to_string();
+            c.refresh();
         }
     });
     let (t, weak) = (c.clone(), ui.as_weak());
@@ -687,4 +770,21 @@ pub fn wire(ui: &MainWindow, job: Rc<RefCell<Job>>, settings: Settings) -> Rc<Re
         }
     });
     c
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regrouping the screen must not drop or duplicate an input.
+    #[test]
+    fn every_field_is_in_exactly_one_section() {
+        for (ty, _, _) in TYPES {
+            let mut shown: Vec<&str> = SECTIONS.iter().flat_map(|(s, _)| section_keys(ty, s).iter().copied()).collect();
+            let mut all: Vec<&str> = SETUP.iter().chain(op_fields(ty)).map(|f| f.key).collect();
+            shown.sort_unstable();
+            all.sort_unstable();
+            assert_eq!(shown, all, "{ty}");
+        }
+    }
 }

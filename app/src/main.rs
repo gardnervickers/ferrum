@@ -894,6 +894,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                 }
             }
             "pick" => actions.invoke_job_add_step(),
+            t if t.starts_with("conv-sec-") => actions.invoke_conv_section(t[9..].into()),
             t if t.starts_with("conv-") => actions.invoke_conv_type(t[5..].into()),
             other => eprintln!("millgui: unknown --show {other}"),
         }
