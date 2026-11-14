@@ -152,7 +152,7 @@ fn center(kind: &'static str, x: f64, y: f64, label: &str) -> Target {
 }
 
 const SHAPES: &[(&str, &[(&str, &str)])] = &[
-    ("find", &[("block", "BLOCK / STOCK"), ("round", "ROUND BOSS"), ("pocket", "POCKET"), ("bore", "BORE"), ("slot", "RIDGE / SLOT"), ("cyl", "ON THE ROTARY")]),
+    ("find", &[("block", "BLOCK / STOCK"), ("top", "TOP FACE Z"), ("round", "ROUND BOSS"), ("pocket", "POCKET"), ("bore", "BORE"), ("slot", "RIDGE / SLOT"), ("cyl", "ON THE ROTARY")]),
     ("meas", &[("dia", "DIAMETER"), ("runout", "RUNOUT"), ("defl", "DEFLECTION")]),
     ("cal", &[("ring", "PROBE TIP"), ("setter", "TOOL LENGTH"), ("nose", "SPINDLE NOSE")]),
 ];
@@ -267,6 +267,7 @@ impl Probe {
                 Target { kind: "icorner", ..corner("i-fr", 290.0, 220.0, "FRONT RIGHT INSIDE CORNER") },
                 center("pocket", 200.0, 150.0, "POCKET CENTER"),
             ],
+            "top" => vec![center("top", 200.0, 150.0, "TOP FACE · SETS Z")],
             "round" => vec![center("boss", 200.0, 150.0, "BOSS CENTER")],
             "bore" => vec![center("bore", 200.0, 150.0, "BORE CENTER")],
             "slot" => {
@@ -304,6 +305,7 @@ impl Probe {
             "edge" => vec![3019, 3018],
             "stock" => vec![3019, 3018],
             "two" => vec![3019, 3018],
+            "top" => vec![3020, 3021],
             "boss" => vec![3025, 3019, 3018],
             "pocket" => vec![3026, 3027, 3018],
             "bore" => vec![3025, 3018],
@@ -321,6 +323,7 @@ impl Probe {
         match kind {
             "cyl" | "flat" | "dia" | "runout" | "defl" => vec![3019, 3021, 3016, 3015],
             "setter" | "nose" => vec![3004, 3005, 3006, 3007, 3009],
+            "top" => vec![3020, 3021, 3016, 3015, 3017],
             "ring" => vec![3033, 3016, 3015, 3017, 3023, 3020, 3021],
             _ => vec![3023, 3019, 3021, 3018, 3020, 3022, 3016, 3015, 3017],
         }
@@ -387,6 +390,7 @@ impl Probe {
                 let m = match t.id { "e-f" => "y_plus", "e-b" => "y_minus", "e-l" => "x_plus", _ => "x_minus" };
                 (format!("o<probe_{m}_wco> call"), None)
             }
+            "top" => ("o<probe_z_minus_wco> call".into(), None),
             "boss" => ("o<probe_round_boss> call".into(), None),
             "pocket" => ("o<probe_rect_pocket_center_start> call".into(), None),
             "bore" => ("o<probe_round_pocket_center_start> call".into(), None),
@@ -809,6 +813,7 @@ impl Probe {
             "edge" => format!("single edge{}", if self.angle { " + edge angle (touches top Z)" } else { "" }),
             "stock" => "Auto Stock: walks the outside, then APPLY".into(),
             "two" => "Two Faces: first face, opposite face, APPLY".into(),
+            "top" => "Z down onto the top face; start above it".into(),
             "boss" => "round boss (touches top Z first)".into(),
             "pocket" => "rectangular pocket from its center".into(),
             "bore" => "round pocket from its center".into(),
@@ -1014,6 +1019,8 @@ fn picture(p: &Probe, sel: &Target) -> (String, String, String) {
     let outline = match p.shape {
         "block" => rect(100.0, 70.0, 200.0, 160.0),
         "pocket" => rect(60.0, 40.0, 280.0, 220.0) + &rect(110.0, 80.0, 180.0, 140.0),
+        // Seen from the front: the stock and the face the probe comes down on.
+        "top" => rect(80.0, 170.0, 240.0, 90.0),
         "round" => circle(200.0, 150.0, 80.0),
         "bore" => rect(60.0, 40.0, 280.0, 220.0) + &circle(200.0, 150.0, 60.0),
         "slot" if p.axes == "Y" => rect(60.0, 110.0, 280.0, 80.0),
@@ -1172,6 +1179,7 @@ fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
         }
         "cyl" | "dia" => vec![[200.0, 40.0, 200.0, 92.0], [60.0, 165.0, 127.0, 165.0], [340.0, 165.0, 273.0, 165.0]],
         "runout" => vec![[200.0, 40.0, 200.0, 92.0]],
+        "top" => vec![[200.0, 50.0, 200.0, 170.0]],
         "flat" => vec![[170.0, 40.0, 170.0, 92.0], [230.0, 40.0, 230.0, 92.0]],
         "defl" => vec![[260.0, 150.0, 186.0, 150.0]],
         "ring" => vec![[200.0, 150.0, 136.0, 150.0], [200.0, 150.0, 264.0, 150.0], [200.0, 150.0, 200.0, 86.0]],
@@ -1592,7 +1600,7 @@ mod tests {
             "o<probe_spindle_nose>", "o<probe_top_back_edge_angle>", "o<probe_top_front_edge_angle>",
             "o<probe_top_left_edge_angle>", "o<probe_top_right_edge_angle>", "o<probe_two_face>",
             "o<probe_valley_x_center_start>", "o<probe_valley_y_center_start>", "o<probe_x_minus_wco>", "o<probe_x_plus_wco>",
-            "o<probe_y_minus_wco>", "o<probe_y_plus_wco>", "o<tool_touch_off>",
+            "o<probe_y_minus_wco>", "o<probe_y_plus_wco>", "o<probe_z_minus_wco>", "o<tool_touch_off>",
         ];
         assert_eq!(macros.iter().map(String::as_str).collect::<Vec<_>>(), want);
     }

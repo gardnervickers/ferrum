@@ -191,6 +191,20 @@ impl Sim {
             }
             n if n.contains("edge_angle") => out.push(set("edge_angle", 0.12)),
             "unload_spindle" => self.s.tool_in_spindle = 0,
+            "probe_z_minus_wco" => {
+                // The top face 12.5 mm below where the probe started; Z0 there.
+                let z = self.s.actual[2] - 12.5;
+                let n = (self.s.g5x_index - 1).clamp(0, 8) as usize;
+                self.wcs[n][2] = z - self.s.tool_offset[2];
+                out.push(set("z_minus_probed_position", z - self.s.g5x_offset[2] - self.s.tool_offset[2]));
+                self.s.g5x_offset[2] = self.wcs[n][2];
+            }
+            "go_to_home" => {
+                self.s.actual[2] = 0.0;
+                self.s.actual[0] = 0.0;
+                self.s.actual[1] = 0.0;
+                self.s.actual[3] = 0.0;
+            }
             _ => {}
         }
         self.msg(MessageKind::Display, format!("(sim) {line}"));

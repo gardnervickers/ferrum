@@ -351,6 +351,11 @@ component SpindleCard inherits Card {
                 clicked => { Actions.retract-xy-to-zero(); }
             }
         }
+        Btn {
+            text: "PARK"; sub: "Z UP, THEN X Y A TO MACHINE HOME"; hold: true;
+            enabled: Live.power && Live.homed && !Live.manual-locked;
+            clicked => { Actions.park(); }
+        }
         Rectangle { vertical-stretch: 1; }
     }
 }

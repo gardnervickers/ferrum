@@ -114,6 +114,8 @@ export global Live {
     in property <[string]> gcode-lines;
     in property <int> gcode-count;
     in-out property <int> gcode-selected: -1;
+    // What starting at the selected line expects and does, or why it can't.
+    in property <string> gcode-restart;
 
     in property <[string]> mdi-categories;
     in property <string> mdi-category;
@@ -320,6 +322,8 @@ export global Actions {
     callback zero-xyz();
     callback z-to-work-zero();
     callback retract-xy-to-zero();
+    // o<go_to_home>: G53 Z0, then X0 Y0, then A0 (Probe Basic's park).
+    callback park();
     // Opens the keypad for a named value ("jog-speed", "spindle-rpm", ...).
     callback edit(what: string);
     callback keypad-key(key: string);
@@ -341,6 +345,8 @@ export global Actions {
     callback files-refresh();
     callback files-load();
     callback gcode-next-m6();
+    // Hold RUN FROM SELECTED: raise Z, restore spindle/coolant, run from the line.
+    callback gcode-run-from-selected();
     callback plot-resize(width: float, height: float);
     callback plot-view(view: string);
     callback plot-clear-trail();

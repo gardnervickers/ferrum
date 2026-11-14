@@ -492,6 +492,16 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         }
     });
 
+    // Park: the same macro Probe Basic's GO TO HOME button ran.
+    let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
+    actions.on_park(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        match mm.borrow().ready(&ui.global::<Live>()) {
+            Ok(()) => mc.send(Command::Mdi("o<go_to_home> call".into())),
+            Err(e) => note(&ui, e, true),
+        }
+    });
+
     wire_powerfeed(ui, machine, &manual);
 
     let (mm, weak) = (manual.clone(), ui.as_weak());

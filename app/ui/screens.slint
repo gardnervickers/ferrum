@@ -468,7 +468,11 @@ component GcodeView inherits VerticalLayout {
     }
     HorizontalLayout {
         spacing: 12px;
-        Btn { text: "RUN FROM SELECTED"; enabled: false; sub: "NOT YET"; }
+        Btn {
+            text: "RUN FROM SELECTED"; sub: "HOLD"; hold: true;
+            enabled: Live.gcode-selected >= 0 && Live.power && Live.homed && !Live.manual-locked;
+            clicked => { Actions.gcode-run-from-selected(); }
+        }
         Btn { text: "NEXT M6"; enabled: Live.gcode-count > 0; clicked => { Actions.gcode-next-m6(); } }
     }
 }

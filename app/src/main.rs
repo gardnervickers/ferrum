@@ -19,6 +19,7 @@ mod plot;
 mod powerfeed;
 mod program;
 mod remote;
+mod restart;
 mod renderer;
 mod settings;
 mod toolchange;
@@ -466,7 +467,41 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     let m = machine.clone();
     actions.on_feed_hold(move || m.send(Command::Pause));
     let m = machine.clone();
-    actions.on_stop(move || m.send(Command::Abort));
+    actions.on_stop(move || {
+        RESTART.with(|r| r.borrow_mut().take());
+        m.send(Command::Abort)
+    });
+    let (m, st, weak) = (machine.clone(), state.clone(), ui.as_weak());
+    actions.on_gcode_run_from_selected(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let Some(s) = st.borrow().status.clone() else { return };
+        let live = ui.global::<Live>();
+        let sel = live.get_gcode_selected();
+        if sel < 0 {
+            return;
+        }
+        let plan = restart::plan(&gcode_lines(&ui), sel as usize);
+        let block = live.get_motion_block();
+        let problem = if s.tool_in_spindle == probe_tool && !plan.changes_tool {
+            Some("Unload the probe first".to_string())
+        } else if !block.is_empty() {
+            Some(block.to_string())
+        } else if let Some(p) = plan.refuse(&s) {
+            Some(p)
+        } else {
+            JOB.with(|j| j.borrow().clone()).and_then(|j| j.borrow_mut().cycle_start_problem(sel + 1))
+        };
+        if let Some(p) = problem {
+            live.set_message(p.clone().into());
+            live.set_message_error(true);
+            toast(&ui, format!("RUN FROM SELECTED refused: {p}"));
+            return;
+        }
+        let mut run = restart::Restart::new(&plan);
+        if run.pump(&s, &m) {
+            RESTART.with(|r| *r.borrow_mut() = Some(run));
+        }
+    });
     let weak = ui.as_weak();
     actions.on_single_block(move || {
         if let Some(ui) = weak.upgrade() {
@@ -569,6 +604,7 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let state = state.clone();
         let axes = axes.clone();
+        let handle_ev = handle.clone();
         UI_EVENT.with(|f| {
             *f.borrow_mut() = Some(Box::new(move |ui: &MainWindow, ev: Event| {
                 let live = ui.global::<Live>();
@@ -585,6 +621,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         apply_status(ui, &mut st, &s, &axes);
                         with_manual(|mm| manual::apply_status(ui, mm, &s));
                         program::sync(ui, &s.file);
+                        restart_status(ui, &s, &handle_ev);
                         SIM_TC.with(|t| {
                             if let Some(t) = t.borrow().as_ref() {
                                 t.status(&s);
@@ -623,6 +660,9 @@ fn main() -> Result<(), slint::PlatformError> {
                         });
                     }
                     Event::Message(m) => {
+                        if m.kind == MessageKind::Error && RESTART.with(|r| r.borrow_mut().take()).is_some() {
+                            toast(ui, "RUN FROM SELECTED stopped: an MDI step failed".into());
+                        }
                         // Macros report results as DEBUG lines.
                         if UTIL.with(|u| u.borrow().as_ref().is_some_and(|u| util::message(u, &m))) {
                             return;
@@ -1072,7 +1112,43 @@ thread_local! {
     /// posts events to it.
     static UI_EVENT: RefCell<Option<UiEventFn>> = RefCell::new(None);
     static MANUAL: RefCell<Option<Rc<RefCell<manual::Manual>>>> = RefCell::new(None);
+    /// RUN FROM SELECTED in progress (its MDI prelude), if any.
+    static RESTART: RefCell<Option<restart::Restart>> = const { RefCell::new(None) };
+    /// (selected line, loaded tool, program) the restart summary was made for.
+    static RESTART_SHOWN: RefCell<(i32, i32, String)> = RefCell::new((-2, -1, String::new()));
 }
+
+fn gcode_lines(ui: &MainWindow) -> Vec<SharedString> {
+    use slint::Model;
+    ui.global::<Live>().get_gcode_lines().iter().collect()
+}
+
+/// Keep the line under the program list saying what RUN FROM SELECTED will
+/// expect, and advance a restart that is under way.
+fn restart_status(ui: &MainWindow, s: &Status, m: &Handle) {
+    let live = ui.global::<Live>();
+    let sel = live.get_gcode_selected();
+    let key = (sel, s.tool_in_spindle, s.file.clone());
+    let stale = RESTART_SHOWN.with(|k| *k.borrow() != key);
+    if stale {
+        let text = if sel < 0 {
+            String::new()
+        } else {
+            restart::plan(&gcode_lines(ui), sel as usize).summary(s.tool_in_spindle)
+        };
+        live.set_gcode_restart(text.into());
+        RESTART_SHOWN.with(|k| *k.borrow_mut() = key);
+    }
+    RESTART.with(|r| {
+        let mut r = r.borrow_mut();
+        if let Some(run) = r.as_mut() {
+            if !run.pump(s, m) {
+                *r = None;
+            }
+        }
+    });
+}
+
 
 thread_local! {
     static TOAST: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
