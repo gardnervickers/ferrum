@@ -54,6 +54,7 @@ export component ToolsScreen inherits Rectangle {
                     Rectangle { width: 18px; }
                     Label { width: 122px; horizontal-alignment: right; text: "DIA"; }
                     Rectangle { width: 18px; }
+                    Label { width: 150px; text: "   WEAR ADJ"; }
                     Label { horizontal-stretch: 1; text: "   COMMENT"; }
                 }
                 Rectangle {
@@ -92,6 +93,17 @@ export component ToolsScreen inherits Rectangle {
                                     editable: !locked;
                                     tapped => { Actions.tools-select(i); Actions.edit("tool-d"); }
                                 }
+                                // The wear adjustment since the value was last measured or typed.
+                                Text {
+                                    width: 150px;
+                                    vertical-alignment: center;
+                                    text: "   " + t.wear;
+                                    font-family: Theme.body;
+                                    font-weight: 500;
+                                    font-size: 20px;
+                                    color: Theme.warn;
+                                    overflow: elide;
+                                }
                                 Text {
                                     horizontal-stretch: 1;
                                     vertical-alignment: center;
@@ -121,6 +133,15 @@ export component ToolsScreen inherits Rectangle {
                             color: Theme.dim;
                         }
                     }
+                }
+                // Wear: add a signed amount to the selected tool.
+                HorizontalLayout {
+                    height: 56px;
+                    spacing: 12px;
+                    Label { width: 150px; vertical-alignment: center; text: "WEAR " + Live.tools-sel-label; }
+                    Btn { width: 220px; font-size: 22px; text: "ADJUST LENGTH"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-z"); } }
+                    Btn { width: 200px; font-size: 22px; text: "ADJUST DIA"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-d"); } }
+                    Note { horizontal-stretch: 1; vertical-alignment: center; font-size: 18px; text: "Adds to the table value. Length +: cuts shallower. Undo it on OFFSETS, TIMELINE."; }
                 }
                 HorizontalLayout {
                     spacing: 12px;

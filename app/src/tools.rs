@@ -5,8 +5,15 @@
 //! whenever it changes tool data (G10 L1/L10, touch off), so edits here
 //! write the file and send LoadToolTable, as Probe Basic's table editor did.
 //! Edits are refused while a program or MDI command runs.
+//!
+//! Wear: LinuxCNC's mill tool table has no wear columns, so the table value
+//! stays the only number the machine uses. A wear adjustment adds a signed
+//! amount to a tool's length or diameter; the timeline (history.rs) keeps
+//! the running total since the value was last measured or typed, and the
+//! table shows it beside the tool.
 
 use crate::config::Config;
+use crate::history::{self, Target};
 use crate::manual::KeypadTarget;
 use crate::toolchange::{Io, SCRATCH};
 use crate::{Actions, CheckRow, Live, MainWindow, ToolRow};
@@ -107,7 +114,44 @@ pub struct Tools {
 
 impl Tools {
     fn load(&mut self) {
+        let old = std::mem::take(&mut self.tools);
         self.tools = std::fs::read_to_string(&self.path).map(|t| parse(&t)).unwrap_or_default();
+        // LinuxCNC rewrote a tool this screen knew (touch off, G10 L1):
+        // a new measurement, so its wear adjustment starts again.
+        for o in &old {
+            if let Some(n) = self.tools.iter().find(|n| n.t == o.t) {
+                let mut wear = history::wear(o.t);
+                if (o.z - n.z).abs() > history::EPS { wear[0] = 0.0 }
+                if (o.d - n.d).abs() > history::EPS { wear[1] = 0.0 }
+                history::record(Target::Tool(o.t), &[o.z, o.d], &[n.z, n.d], "Touch off or G10 (machine)", wear);
+            }
+        }
+    }
+
+    /// Change the selected tool's length (`axis` 0) or diameter (1): to
+    /// `v`, or by `v` when it is a wear adjustment.
+    fn edit(&mut self, axis: usize, v: f64, adjust: bool) -> Result<(), String> {
+        let sel = self.selected.ok_or("Select a tool first")?;
+        self.idle()?;
+        let t = self.tool_mut(sel).ok_or("Select a tool first")?;
+        let old = [t.z, t.d];
+        let mut new = old;
+        new[axis] = if adjust { old[axis] + v } else { v };
+        if new[1] < 0.0 {
+            return Err("Diameter can't be negative".into());
+        }
+        (t.z, t.d) = (new[0], new[1]);
+        self.save()?;
+        let mut wear = history::wear(sel);
+        wear[axis] = if adjust { wear[axis] + v } else { 0.0 };
+        let what = ["length", "diameter"][axis];
+        let cause = if adjust { format!("Wear adjust {v:+.3} {what}") } else { "Edited on TOOLS".to_string() };
+        history::record(Target::Tool(sel), &old, &new, &cause, wear);
+        // LinuxCNC applies a new length at the next G43, not at once.
+        if axis == 0 && self.status.as_ref().is_some_and(|s| s.tool_in_spindle == sel) {
+            self.note(format!("T{sel} is in the spindle: its new length applies at the next G43 or tool change"), false);
+        }
+        Ok(())
     }
 
     fn idle(&self) -> Result<(), String> {
@@ -157,6 +201,7 @@ impl Tools {
             .tools
             .iter()
             .map(|t| ToolRow {
+                wear: wear_text(history::wear(t.t)).into(),
                 t: format!("T{}", t.t).into(),
                 len: if t.z == 0.0 { "".into() } else { format!("{:.3}", t.z).into() },
                 dia: format!("{:.3}", t.d).into(),
@@ -236,7 +281,31 @@ impl Tools {
     }
 }
 
-/// Keypad values: "tool-z", "tool-d" (selected tool) and "tool-new".
+/// "L -0.020  D +0.010": the wear adjustment beside a tool, empty for none.
+fn wear_text(w: [f64; 2]) -> String {
+    let part = |name: &str, v: f64| (v.abs() > history::EPS).then(|| format!("{name} {v:+.3}"));
+    [part("L", w[0]), part("D", w[1])].into_iter().flatten().collect::<Vec<_>>().join("  ")
+}
+
+/// Timeline restore: put a tool's earlier length and diameter back, with
+/// the wear adjustment that was in effect then.
+pub fn restore(tools: &Rc<RefCell<Tools>>, t: i32, row: &[f64], wear: [f64; 2], cause: &str) -> Result<(), String> {
+    let mut st = tools.borrow_mut();
+    let &[z, d] = row else { return Err("That entry is not a tool".into()) };
+    st.idle()?;
+    let tool = st.tool_mut(t).ok_or(format!("T{t} is no longer in the tool table"))?;
+    let old = [tool.z, tool.d];
+    (tool.z, tool.d) = (z, d);
+    let r = st.save();
+    if r.is_ok() {
+        history::record(Target::Tool(t), &old, &[z, d], cause, wear);
+    }
+    st.refresh();
+    r
+}
+
+/// Keypad values: "tool-z", "tool-d" (selected tool), their wear
+/// adjustments "tool-adj-z", "tool-adj-d", and "tool-new".
 struct Keys(Rc<RefCell<Tools>>);
 
 impl KeypadTarget for Keys {
@@ -245,6 +314,8 @@ impl KeypadTarget for Keys {
         Some(match what {
             "tool-z" => format!("T{t} LENGTH Z"),
             "tool-d" => format!("T{t} DIAMETER"),
+            "tool-adj-z" => format!("T{t} ADD TO LENGTH (+ CUTS SHALLOWER)"),
+            "tool-adj-d" => format!("T{t} ADD TO DIAMETER"),
             "tool-new" => "NEW TOOL NUMBER".into(),
             _ => return None,
         })
@@ -255,7 +326,7 @@ impl KeypadTarget for Keys {
         match what {
             "tool-z" => Some(tool.map_or(0.0, |t| t.z)),
             "tool-d" => Some(tool.map_or(0.0, |t| t.d)),
-            "tool-new" => Some(0.0),
+            "tool-new" | "tool-adj-z" | "tool-adj-d" => Some(0.0),
             _ => None,
         }
     }
@@ -263,16 +334,10 @@ impl KeypadTarget for Keys {
         let mut st = self.0.borrow_mut();
         let r = match what {
             "tool-new" => st.add(v as i32, ""),
-            "tool-z" | "tool-d" => (|| {
-                if what == "tool-d" && v < 0.0 {
-                    return Err("Diameter can't be negative".into());
-                }
-                let sel = st.selected.ok_or("Select a tool first")?;
-                st.idle()?;
-                let t = st.tool_mut(sel).ok_or("Select a tool first")?;
-                if what == "tool-z" { t.z = v } else { t.d = v }
-                st.save()
-            })(),
+            "tool-z" => st.edit(0, v, false),
+            "tool-d" => st.edit(1, v, false),
+            "tool-adj-z" => st.edit(0, v, true),
+            "tool-adj-d" => st.edit(1, v, true),
             _ => return None,
         };
         st.refresh();
@@ -458,6 +523,13 @@ mod tests {
         assert_eq!(t[0].comment, "Jobber 1.0");
         assert_eq!(t[0].other, ["P1"]);
         assert_eq!(parse(&format(&t)), t);
+    }
+
+    #[test]
+    fn wear_text_names_what_was_adjusted() {
+        assert_eq!(wear_text([0.0, 0.0]), "");
+        assert_eq!(wear_text([-0.02, 0.0]), "L -0.020");
+        assert_eq!(wear_text([0.015, -0.01]), "L +0.015  D -0.010");
     }
 
     #[test]

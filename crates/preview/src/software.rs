@@ -196,6 +196,7 @@ impl Polyline {
 /// The toolpath drawn for one view and size. Drawing it is the slow part
 /// (proportional to the program), so callers can do it off the UI thread and
 /// `compose` the live marker and trail onto it each frame.
+// (see `load_color` for the trail's load colours)
 pub struct Base {
     pm: Pixmap,
     fit: Fit,
@@ -236,7 +237,7 @@ impl Software {
             self.base = Some(Base::draw(tp, view, w, h, highlight, Zoom::default()));
             self.key = Some(key);
         }
-        self.base.as_ref().expect("base").compose(trail, tool, None)
+        self.base.as_ref().expect("base").compose(trail, &[], tool, None)
     }
 }
 
@@ -288,7 +289,10 @@ impl Base {
 
     /// The base over the background, with the machine (if given: the table
     /// under the toolpath, the tool over it), the trail and the tool marker.
-    pub fn compose(&self, trail: &[P4], tool: Option<P4>, machine: Option<&Scene>) -> Pixmap {
+    ///
+    /// `loads` colours the trail: one value per trail point, 0 (idle) to 1
+    /// (full load), NaN where none was measured. Empty draws it plain.
+    pub fn compose(&self, trail: &[P4], loads: &[f32], tool: Option<P4>, machine: Option<&Scene>) -> Pixmap {
         let mut pm = Pixmap::new(self.pm.width(), self.pm.height()).expect("pixmap size");
         pm.fill(Color::from_rgba8(BG[0], BG[1], BG[2], 255));
         let fit = self.fit;
@@ -309,15 +313,26 @@ impl Base {
             draw_cylinder(&mut pm, &fit, c);
         }
         if trail.len() > 1 {
-            let mut pb = PathBuilder::new();
-            let a = fit.map(trail[0]);
-            pb.move_to(a.0, a.1);
-            for p in &trail[1..] {
-                let b = fit.map(*p);
-                pb.line_to(b.0, b.1);
-            }
-            if let Some(path) = pb.finish() {
-                pm.stroke_path(&path, &paint([0xff, 0xff, 0xff], 200), &stroke(2.0), Transform::identity(), None);
+            // One stroke per run of segments in the same colour step.
+            let step = |i: usize| if loads.len() == trail.len() { load_step(loads[i]) } else { None };
+            let mut i = 1;
+            while i < trail.len() {
+                let s = step(i);
+                let mut pb = PathBuilder::new();
+                let a = fit.map(trail[i - 1]);
+                pb.move_to(a.0, a.1);
+                while i < trail.len() && step(i) == s {
+                    let b = fit.map(trail[i]);
+                    pb.line_to(b.0, b.1);
+                    i += 1;
+                }
+                if let Some(path) = pb.finish() {
+                    let (rgb, alpha, width) = match s {
+                        Some(n) => (load_color(n as f32 / (LOAD_STEPS - 1) as f32), 255, 3.0),
+                        None => ([0xff, 0xff, 0xff], 200, 2.0),
+                    };
+                    pm.stroke_path(&path, &paint(rgb, alpha), &stroke(width), Transform::identity(), None);
+                }
             }
         }
         if let Some(t) = tool {
@@ -468,9 +483,47 @@ mod bench {
         for with in [false, true] {
             let t = std::time::Instant::now();
             for _ in 0..20 {
-                base.compose(&[], Some([50.0, 30.0, 5.0, 0.0]), if with { Some(&scene) } else { None });
+                base.compose(&[], &[], Some([50.0, 30.0, 5.0, 0.0]), if with { Some(&scene) } else { None });
             }
             eprintln!("machine={with}: {:?}/frame", t.elapsed() / 20);
         }
+    }
+}
+
+/// Colour steps for the load-coloured trail: few enough that a long cut is
+/// a handful of strokes.
+const LOAD_STEPS: usize = 8;
+
+fn load_step(load: f32) -> Option<usize> {
+    load.is_finite().then(|| (load.clamp(0.0, 1.0) * (LOAD_STEPS - 1) as f32).round() as usize)
+}
+
+/// Green at no load, amber at half, red at full (the theme's status tones).
+pub fn load_color(load: f32) -> [u8; 3] {
+    const LOW: [f32; 3] = [0x6f as f32, 0xdc as f32, 0x9c as f32];
+    const MID: [f32; 3] = [0xf3 as f32, 0xc4 as f32, 0x63 as f32];
+    const HIGH: [f32; 3] = [0xee as f32, 0x5a as f32, 0x54 as f32];
+    let t = load.clamp(0.0, 1.0);
+    let (a, b, k) = if t < 0.5 { (LOW, MID, t * 2.0) } else { (MID, HIGH, t * 2.0 - 1.0) };
+    [0, 1, 2].map(|i| (a[i] + (b[i] - a[i]) * k).round() as u8)
+}
+
+#[cfg(test)]
+mod load_tests {
+    use super::*;
+
+    #[test]
+    fn load_colours_run_green_amber_red() {
+        assert_eq!(load_color(0.0), [0x6f, 0xdc, 0x9c]);
+        assert_eq!(load_color(0.5), [0xf3, 0xc4, 0x63]);
+        assert_eq!(load_color(1.0), [0xee, 0x5a, 0x54]);
+        assert_eq!(load_color(7.0), load_color(1.0));
+    }
+
+    #[test]
+    fn unmeasured_points_have_no_step() {
+        assert_eq!(load_step(f32::NAN), None);
+        assert_eq!(load_step(0.0), Some(0));
+        assert_eq!(load_step(1.0), Some(LOAD_STEPS - 1));
     }
 }

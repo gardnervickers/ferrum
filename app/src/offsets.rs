@@ -9,6 +9,7 @@
 //! that changes an inactive system shows here only once it is made active.
 
 use crate::config::Config;
+use crate::history::{self, Target};
 use crate::manual::KeypadTarget;
 use crate::{Actions, Live, MainWindow, OffsetRow};
 use linuxcnc::{Command, Handle, Status};
@@ -70,13 +71,15 @@ impl Offsets {
         Ok(())
     }
 
-    /// G10 L2: set values in a system directly.
-    fn set(&mut self, sys: usize, vals: &[(usize, f64)]) -> Result<(), String> {
+    /// G10 L2: set values in a system directly. `cause` goes in the timeline.
+    fn set(&mut self, sys: usize, vals: &[(usize, f64)], cause: &str) -> Result<(), String> {
         let words: Vec<String> = vals.iter().map(|(c, v)| format!("{}{v:.6}", COLS[*c])).collect();
         self.mdi(format!("G10 L2 P{} {}", sys + 1, words.join(" ")))?;
+        let old = self.table[sys];
         for &(c, v) in vals {
             self.table[sys][c] = v;
         }
+        history::record(Target::Wcs(sys), &old, &self.table[sys], cause, [0.0; 2]);
         Ok(())
     }
 
@@ -91,7 +94,9 @@ impl Offsets {
         }
         let v = s.actual[axis] - s.tool_offset[axis] - s.g92_offset[axis];
         self.mdi(format!("G10 L20 P{} {}0", sys + 1, COLS[axis]))?;
+        let old = self.table[sys];
         self.table[sys][axis] = v;
+        history::record(Target::Wcs(sys), &old, &self.table[sys], &format!("Zero {} here", COLS[axis]), [0.0; 2]);
         Ok(())
     }
 
@@ -160,7 +165,7 @@ impl KeypadTarget for Keys {
         let c = col(what)?;
         let mut o = self.0.borrow_mut();
         let sel = o.selected;
-        let r = o.set(sel, &[(c, v)]);
+        let r = o.set(sel, &[(c, v)], "Edited on OFFSETS");
         o.refresh();
         Some(r)
     }
@@ -202,14 +207,14 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> Rc<Re
     actions.on_offsets_clear(move || {
         let mut o = t.borrow_mut();
         let sel = o.selected;
-        let r = o.set(sel, &[(0, 0.0), (1, 0.0), (2, 0.0), (3, 0.0), (4, 0.0)]);
+        let r = o.set(sel, &[(0, 0.0), (1, 0.0), (2, 0.0), (3, 0.0), (4, 0.0)], "Cleared on OFFSETS");
         o.note(r);
         o.refresh();
     });
     let t = o.clone();
     actions.on_offsets_clear_all(move || {
         let mut o = t.borrow_mut();
-        let r = (0..9).try_for_each(|i| o.set(i, &[(0, 0.0), (1, 0.0), (2, 0.0), (3, 0.0), (4, 0.0)]));
+        let r = (0..9).try_for_each(|i| o.set(i, &[(0, 0.0), (1, 0.0), (2, 0.0), (3, 0.0), (4, 0.0)], "Clear all on OFFSETS"));
         o.note(r);
         o.refresh();
     });
@@ -220,6 +225,35 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> Rc<Re
         o.note(r);
     });
     o
+}
+
+/// Timeline restore: put a system's earlier values back (one G10 L2).
+pub fn restore(o: &Rc<RefCell<Offsets>>, sys: usize, row: &[f64], cause: &str) -> Result<(), String> {
+    if sys >= 9 || row.len() != 5 {
+        return Err("That entry is not a work offset".into());
+    }
+    let mut o = o.borrow_mut();
+    let vals: Vec<(usize, f64)> = row.iter().copied().enumerate().collect();
+    let r = o.set(sys, &vals, cause);
+    o.refresh();
+    r
+}
+
+/// Who changed the active system, as far as status can tell.
+fn observed_cause(s: &Status, switched: bool) -> String {
+    if switched {
+        // The system was changed while another was active (a program or a
+        // probe routine); this is the first time its real values are seen.
+        return "Found when it became active (changed earlier)".into();
+    }
+    match s.mode {
+        linuxcnc::Mode::Auto => {
+            let name = std::path::Path::new(&s.file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if name.is_empty() { "Program".into() } else { format!("Program {name}") }
+        }
+        linuxcnc::Mode::Mdi => "MDI or probe routine".into(),
+        _ => "Machine".into(),
+    }
 }
 
 /// The XY rotation of a work system, as far as this screen knows it.
@@ -239,6 +273,12 @@ pub fn apply_status(ui: &MainWindow, o: &Rc<RefCell<Offsets>>, s: &Status) {
         }
     }
     let changed = first || st.table[a] != row || st.status.as_ref().is_some_and(|o| o.g5x_index != s.g5x_index || o.g92_offset != s.g92_offset);
+    if !first {
+        // A change this screen did not make itself (those are logged, and
+        // already in the table, when they are sent).
+        let switched = st.status.as_ref().is_some_and(|o| o.g5x_index != s.g5x_index);
+        history::record(Target::Wcs(a), &st.table[a], &row, &observed_cause(s, switched), [0.0; 2]);
+    }
     st.table[a] = row;
     if first {
         st.selected = a;

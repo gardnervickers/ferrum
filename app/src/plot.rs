@@ -27,6 +27,9 @@ pub struct Plot {
     pan_seq: i32,
     size: (u32, u32),
     trail: Vec<P4>,
+    /// Cutting load at each trail point (NaN: none), and the latest reading.
+    trail_load: Vec<f32>,
+    load: Option<f32>,
     tool: Option<P4>,
     /// The machine model drawn around the toolpath, and where it is.
     machine: Machine,
@@ -114,7 +117,7 @@ impl Plot {
         }
         let Some((drawn, base)) = &self.base else { return };
         let scene = self.pose.filter(|_| self.show_machine).map(|p| self.machine.scene(&p));
-        let pm = base.compose(&self.trail, self.tool, scene.as_ref());
+        let pm = base.compose(&self.trail, &self.trail_load, self.tool, scene.as_ref());
         let buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(pm.data(), pm.width(), pm.height());
         let live = ui.global::<Live>();
         live.set_plot(Image::from_rgba8(buf));
@@ -184,6 +187,7 @@ pub fn load(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
     {
         let mut p = plot.borrow_mut();
         p.trail.clear();
+        p.trail_load.clear();
         p.set_toolpath(ui, Toolpath::default());
     }
     if file.is_empty() {
@@ -238,11 +242,29 @@ pub fn tool_moved(plot: &Rc<RefCell<Plot>>, p: P4) {
     if far {
         if st.trail.len() >= TRAIL_MAX {
             st.trail.drain(..TRAIL_MAX / 10);
+            st.trail_load.drain(..TRAIL_MAX / 10);
         }
         st.trail.push(p);
+        let load = st.load.unwrap_or(f32::NAN);
+        st.trail_load.push(load);
     }
     st.tool = Some(p);
     st.dirty = true;
+}
+
+/// The cutting load now (0 to 1), from the module that measures it; `None`
+/// when there is none. Trail points made from here on carry it.
+pub fn set_load(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, load: Option<f64>) {
+    let load = load.map(|l| l as f32);
+    let mut st = plot.borrow_mut();
+    if st.load != load {
+        st.load = load;
+        let text = load.map(|l| format!("{:.0}%", l * 100.0)).unwrap_or_default();
+        let live = ui.global::<Live>();
+        if live.get_plot_load() != text.as_str() {
+            live.set_plot_load(text.into());
+        }
+    }
 }
 
 /// Where the machine model is (tool length and diameter, work offset).
@@ -288,6 +310,8 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         pan_seq: 0,
         size: (0, 0),
         trail: Vec::new(),
+        trail_load: Vec::new(),
+        load: None,
         tool: None,
         machine: model.machine(),
         pose: None,
@@ -409,6 +433,7 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         let Some(ui) = weak.upgrade() else { return };
         let mut st = p.borrow_mut();
         st.trail.clear();
+        st.trail_load.clear();
         st.redraw(&ui);
     });
     plot

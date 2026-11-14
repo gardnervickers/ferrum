@@ -27,11 +27,20 @@ type HalMalloc = unsafe extern "C" fn(c_long) -> *mut c_void;
 // int hal_pin_bit_new(const char *name, hal_pin_dir_t dir, hal_bit_t **data_ptr_addr, int comp_id)
 type HalPinBitNew = unsafe extern "C" fn(*const c_char, c_int, *mut *mut u8, c_int) -> c_int;
 type HalPinS32New = unsafe extern "C" fn(*const c_char, c_int, *mut *mut i32, c_int) -> c_int;
+type HalPinFloatNew = unsafe extern "C" fn(*const c_char, c_int, *mut *mut f64, c_int) -> c_int;
 
 /// A HAL `bit` pin. The pointed-to storage lives in HAL shared memory and is
 /// shared with the realtime threads, so every access is volatile.
 pub struct BitPin(*mut *mut u8);
 pub struct S32Pin(*mut *mut i32);
+/// A HAL `float` pin (a double).
+pub struct FloatPin(*mut *mut f64);
+
+impl FloatPin {
+    pub fn get(&self) -> f64 {
+        unsafe { ptr::read_volatile(*self.0) }
+    }
+}
 
 impl BitPin {
     pub fn get(&self) -> bool {
@@ -111,6 +120,19 @@ impl Component {
             return Err(format!("hal_pin_s32_new({name:?}) failed: {rc}"));
         }
         Ok(S32Pin(slot))
+    }
+
+    pub fn float(&self, pin: &str, dir: Dir) -> Result<FloatPin, String> {
+        let slot = self.slot::<f64>()?;
+        let name = self.full_name(pin);
+        let rc = unsafe {
+            let f: Symbol<HalPinFloatNew> = self.lib.get(b"hal_pin_float_new\0").map_err(|e| e.to_string())?;
+            f(name.as_ptr(), dir as c_int, slot, self.comp_id)
+        };
+        if rc != 0 {
+            return Err(format!("hal_pin_float_new({name:?}) failed: {rc}"));
+        }
+        Ok(FloatPin(slot))
     }
 
     pub fn ready(&self) -> Result<(), String> {

@@ -7,6 +7,7 @@ mod config;
 mod conv;
 mod files;
 mod headless;
+mod history;
 mod job;
 mod machine_cfg;
 mod manual;
@@ -670,8 +671,11 @@ fn main() -> Result<(), slint::PlatformError> {
     };
     let tools = tools::wire(&ui, &handle, &cfg, tc_io.clone(), args.sim);
     let _tools_timer = tools::start_timer(&ui, &tools);
-    TOOLS.with(|t| *t.borrow_mut() = Some(tools));
+    TOOLS.with(|t| *t.borrow_mut() = Some(tools.clone()));
     let offsets = offsets::wire(&ui, &handle, &cfg, args.sim);
+    // The simulator keeps its own timeline, beside its own tool table.
+    let history_path = if args.sim { Some(job::cache_dir().join("sim-history.jsonl")) } else { settings::Settings::dir().map(|d| d.join("history.jsonl")) };
+    history::wire(&ui, history_path, restore_fn(&offsets, &tools));
     let rot = offsets.clone();
     OFFSETS.with(|o| *o.borrow_mut() = Some(offsets));
     let probe = probe::wire(&ui, &handle, &cfg, tc_io.clone(), args.sim, Box::new(move |w| offsets::rotation(&rot, w)));
@@ -742,6 +746,8 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             let st = state.borrow();
             refresh_pills(&ui, &st, &modules, &axes);
+            let load = modules.iter().find_map(|m| m.load(st.status.as_ref()));
+            plot::with(|p| plot::set_load(&ui, p, load));
             let live = ui.global::<Live>();
             let block: SharedString = modules.iter().find_map(|m| m.motion_block()).unwrap_or_default().into();
             if live.get_motion_block() != block {
@@ -827,6 +833,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     tools::apply_status(&ui, &tools, &s);
     let offsets = offsets::wire(&ui, &handle, cfg, true);
     offsets::apply_status(&ui, &offsets, &s);
+    history::wire(&ui, None, restore_fn(&offsets, &tools));
     let rot = offsets.clone();
     let probe = probe::wire(&ui, &handle, cfg, Some(tc_io.clone() as Rc<dyn toolchange::Io>), true, Box::new(move |w| offsets::rotation(&rot, w)));
     probe::apply_status(&ui, &probe, &s);
@@ -904,6 +911,25 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                     manual::log_message(&ui, &manual, &linuxcnc::Message { kind, text: text.into() });
                 }
             }
+            "timeline" => {
+                live.set_offsets_view("timeline".into());
+                use history::Target::{Tool, Wcs};
+                history::record(Wcs(0), &[0.0; 5], &[215.638, -94.431, -322.444, 0.0, 0.0], "MDI or probe routine", [0.0; 2]);
+                history::record(Tool(7), &[0.0, 4.0], &[109.232, 4.0], "Touch off or G10 (machine)", [0.0; 2]);
+                history::record(Wcs(0), &[215.638, -94.431, -322.444, 0.0, 0.0], &[215.638, -94.431, -322.394, 0.0, 0.0], "Zero Z here", [0.0; 2]);
+                history::record(Tool(7), &[109.232, 4.0], &[109.212, 4.0], "Wear adjust -0.020 length", [-0.02, 0.0]);
+                history::record(Wcs(1), &[0.0; 5], &[120.0, -40.0, -300.0, 0.0, 1.5], "Program bracket-sample.ngc", [0.0; 2]);
+                history::record(Wcs(0), &[215.638, -94.431, -322.394, 0.0, 0.0], &[0.0; 5], "Cleared on OFFSETS", [0.0; 2]);
+                actions.invoke_history_select(0);
+            }
+            "load" => {
+                // A cut along the sample part with the load rising and falling.
+                for i in 0..=120 {
+                    let t = i as f64 / 120.0;
+                    plot::set_load(&ui, &plot, Some((t * std::f64::consts::PI * 3.0).sin().abs() * (0.35 + 0.65 * t)));
+                    plot::tool_moved(&plot, [-30.0 + 160.0 * t, 15.0 + 25.0 * (t * 9.0).sin(), 0.0, 0.0]);
+                }
+            }
             "pick" => actions.invoke_job_add_step(),
             t if t.starts_with("conv-sec-") => actions.invoke_conv_section(t[9..].into()),
             t if t.starts_with("conv-") => actions.invoke_conv_type(t[5..].into()),
@@ -915,6 +941,15 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     headless::save(&window, out).map_err(slint::PlatformError::Other)?;
     eprintln!("millgui: wrote {}", out.display());
     Ok(())
+}
+
+/// The timeline's restore: the screen that owns the values makes the edit.
+fn restore_fn(offsets: &Rc<RefCell<offsets::Offsets>>, tools: &Rc<RefCell<tools::Tools>>) -> history::Restore {
+    let (o, t) = (offsets.clone(), tools.clone());
+    Box::new(move |e, wear, cause| match e.target {
+        history::Target::Wcs(sys) => offsets::restore(&o, sys, &e.old, cause),
+        history::Target::Tool(n) => tools::restore(&t, n, &e.old, wear, cause),
+    })
 }
 
 /// Sample programs for headless screenshots (millgui/testdata/nc_files).

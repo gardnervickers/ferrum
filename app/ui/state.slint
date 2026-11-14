@@ -6,7 +6,9 @@ export struct NavItem { id: string, label: string, icon: string }
 export struct MsgRow { time: string, text: string, kind: string }
 export struct MdiCard { label: string, desc: string, fill: string, moves: bool }
 export struct FileRow { name: string, dir: bool, modified: string, size: string }
-export struct ToolRow { t: string, len: string, dia: string, comment: string, needs-len: bool, current: bool, scratch: bool }
+export struct ToolRow { t: string, len: string, dia: string, comment: string, needs-len: bool, current: bool, scratch: bool, wear: string }
+// One line of the offsets timeline (history.rs), newest first.
+export struct HistoryRow { when: string, what: string, tool: bool, change: string, cause: string }
 export struct CheckRow { t: string, status: string, kind: string, action: string }
 export struct OffsetRow { wcs: string, x: string, y: string, z: string, a: string, rot: string, active: bool, used: bool }
 export struct ProbeItem { id: string, label: string, on: bool }
@@ -86,6 +88,9 @@ export global Live {
     in property <string> plot-summary;
     // The backplot caption: TOP VIEW, ISO VIEW, ORBIT VIEW...
     in property <string> plot-view: "ISO VIEW";
+    // Cutting load now, e.g. "62%"; empty when nothing measures it (the
+    // trail is then drawn plain).
+    in property <string> plot-load;
     in property <[CubeFace]> cube-faces;
     // Outline of the cube cells a tap would pick, or empty.
     in property <string> cube-hot;
@@ -177,6 +182,11 @@ export global Live {
     in property <int> offsets-selected;
     in property <string> offsets-sel-label: "G54";
     in property <string> offsets-g92;
+    // "table" or "timeline" (per screen, not mirrored).
+    in-out property <string> offsets-view: "table";
+    in property <[HistoryRow]> history;
+    in property <int> history-selected: -1;
+    in property <string> history-restore-label: "RESTORE";
 
     // PROBE screen (probe.rs). Picture paths are SVG data in a 400x300 box.
     in property <string> pr-mode: "find";
@@ -366,6 +376,8 @@ export global Actions {
     callback offsets-clear();
     callback offsets-clear-all();
     callback offsets-clear-g92();
+    callback history-select(index: int);
+    callback history-restore();
     callback probe-mode(mode: string);
     callback probe-shape(shape: string);
     callback probe-target(id: string);

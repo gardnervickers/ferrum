@@ -26,12 +26,16 @@ impl Settings {
         Self { path, values }
     }
 
+    /// The folder the state files live in.
+    pub fn dir() -> Option<PathBuf> {
+        std::env::var_os("MILLGUI_STATE").map(PathBuf::from).and_then(|p| p.parent().map(PathBuf::from)).or_else(|| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state/millgui"))
+        })
+    }
+
     /// Another state file next to the settings one (`probe` → `.../probe`).
     pub fn at(name: &str) -> Self {
-        let dir = std::env::var_os("MILLGUI_STATE").map(PathBuf::from).and_then(|p| p.parent().map(PathBuf::from)).or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state/millgui"))
-        });
-        let mut s = Self { path: dir.map(|d| d.join(name)), values: BTreeMap::new() };
+        let mut s = Self { path: Self::dir().map(|d| d.join(name)), values: BTreeMap::new() };
         if let Some(text) = s.path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()) {
             for line in text.lines() {
                 if let Some((k, v)) = line.split_once('=') {

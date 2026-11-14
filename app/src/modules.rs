@@ -4,7 +4,7 @@
 //! nets (`millgui/hal/<id>.hal`), no status pills.
 
 use crate::config::Config;
-use hal::{BitPin, Component, Dir};
+use hal::{BitPin, Component, Dir, FloatPin};
 use linuxcnc::Status;
 use std::rc::Rc;
 
@@ -69,6 +69,12 @@ pub trait Module {
 
     /// The tool setter and its air blast, from the probe module.
     fn setter(&self) -> Option<Rc<SetterHal>> {
+        None
+    }
+
+    /// Cutting load now, 0 (idle) to 1 (full), from the module that has a
+    /// load signal. The backplot colours the tool's trail by it.
+    fn load(&self, _status: Option<&Status>) -> Option<f64> {
         None
     }
 }
@@ -294,6 +300,33 @@ impl Module for Interlock {
     }
 }
 
+/// Cutting load for the backplot (millgui/hal/load.hal). Opt-in: list
+/// `load` in [MILLGUI]MODULES once a load signal is netted to the pin.
+/// `millgui.load.value` is a float, 0 (idle) to 1 (full load); the HAL file
+/// does the scaling, so any source works (spindle current, drive torque).
+#[derive(Default)]
+struct Load {
+    value: Option<FloatPin>,
+}
+
+impl Module for Load {
+    fn id(&self) -> &'static str {
+        "load"
+    }
+    fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
+        self.value = Some(comp.float("load.value", Dir::In)?);
+        Ok(())
+    }
+    fn load(&self, s: Option<&Status>) -> Option<f64> {
+        match &self.value {
+            Some(p) => Some(p.get().clamp(0.0, 1.0)),
+            // No HAL (the simulator): a stand-in that rises with the feed
+            // rate, only so the colouring can be seen and tested.
+            None => s.map(|s| if s.busy() { (s.feed_per_min() / 1200.0).clamp(0.0, 1.0) } else { 0.0 }),
+        }
+    }
+}
+
 fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
     let screen = |id, label, icon| Some(Box::new(Screen { id, label, icon }) as Box<dyn Module>);
     match id {
@@ -310,6 +343,7 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
         "drives" => Some(Box::new(Drives { axes: cfg.coordinates().chars().collect(), ready: Vec::new(), faults: Vec::new() })),
         "drawbar" => Some(Box::new(Drawbar::default())),
         "interlock" => Some(Box::new(Interlock::default())),
+        "load" => Some(Box::new(Load::default())),
         _ => None,
     }
 }

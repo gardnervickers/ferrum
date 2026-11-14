@@ -334,6 +334,24 @@ component ProgramCard inherits Card {
                 text: Live.plot-view + (Live.plot-summary == "" ? "" : "  ·  " + Live.plot-summary);
                 font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim;
             }
+            // Load legend: only when a load module is fitted.
+            if Live.program != "" && Live.plot-load != "": HorizontalLayout {
+                x: 96px; y: 40px;
+                width: 260px;
+                height: 22px;
+                alignment: start;
+                spacing: 8px;
+                Text { vertical-alignment: center; text: "LOAD"; font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim; }
+                // Fixed width: the reading must not nudge the scale beside it.
+                Text { width: 44px; vertical-alignment: center; horizontal-alignment: right; text: Live.plot-load; font-family: Theme.body; font-weight: 600; font-size: 19px; color: Theme.ink; }
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 2px;
+                        for c in [#6fdc9c, #b1d080, #f3c463, #f18f5c, #ee5a54]: Rectangle { width: 18px; height: 6px; border-radius: 3px; background: c; }
+                    }
+                }
+            }
             // View cube: drag to orbit, tap a face, edge or corner to look
             // from there.
             if Live.program != "": cube := Rectangle {
