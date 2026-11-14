@@ -102,8 +102,10 @@ export component JogPanel inherits VerticalLayout {
 component WcsRow inherits HorizontalLayout {
     spacing: 0px;
     Label { width: 120px; vertical-alignment: center; text: "WCS"; }
-    for c in Live.wcs-codes: Seg {
+    for c[i] in Live.wcs-codes: Seg {
         text: c;
+        first: i == 0;
+        last: i == Live.wcs-codes.length - 1;
         font-size: 20px;
         on: Live.pf-wcs == c;
         enabled: !Live.running;
@@ -144,8 +146,8 @@ component PowerFeedPanel inherits VerticalLayout {
     HorizontalLayout {
         spacing: 0px;
         Label { width: 120px; vertical-alignment: center; text: "MODE"; }
-        Seg { text: "DISTANCE"; on: Live.pf-mode == "dist"; enabled: !Live.running; clicked => { Actions.pf-mode-set("dist"); } }
-        Seg { text: "END OF TRAVEL"; on: Live.pf-mode == "eot"; enabled: !Live.running; clicked => { Actions.pf-mode-set("eot"); } }
+        Seg { first: true; text: "DISTANCE"; on: Live.pf-mode == "dist"; enabled: !Live.running; clicked => { Actions.pf-mode-set("dist"); } }
+        Seg { last: true; text: "END OF TRAVEL"; on: Live.pf-mode == "eot"; enabled: !Live.running; clicked => { Actions.pf-mode-set("eot"); } }
     }
     HorizontalLayout {
         spacing: 10px;
@@ -358,8 +360,8 @@ export component ManualScreen inherits Rectangle {
         HorizontalLayout {
             width: 420px;
             spacing: 0px;
-            Seg { text: "POWER FEED"; on: Live.jog-tab != "goto"; clicked => { Live.jog-tab = "feed"; } }
-            Seg { text: "GO TO"; on: Live.jog-tab == "goto"; clicked => { Live.jog-tab = "goto"; } }
+            Seg { first: true; text: "POWER FEED"; on: Live.jog-tab != "goto"; clicked => { Live.jog-tab = "feed"; } }
+            Seg { last: true; text: "GO TO"; on: Live.jog-tab == "goto"; clicked => { Live.jog-tab = "goto"; } }
         }
         HorizontalLayout {
             spacing: 14px;

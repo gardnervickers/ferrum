@@ -37,6 +37,10 @@ export component Placeholder inherits Rectangle {
 
 component KeyBtn inherits Btn {
     height: 54px;
+    // Equal columns whatever the label.
+    preferred-width: 0;
+    min-width: 0;
+    horizontal-stretch: 1;
     font-size: self.text == "SPACE" || self.text == "CLR" ? 20px : 28px;
     enabled: Live.power && !Live.manual-locked;
     clicked => { Actions.mdi-key(self.text); }
@@ -126,7 +130,7 @@ component MdiPanel inherits VerticalLayout {
                             spacing: 2px;
                             HorizontalLayout {
                                 spacing: 10px;
-                                Text { text: card.label; font-family: Theme.display; font-size: 26px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
+                                Text { text: card.label; font-family: Theme.display; font-size: 24px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
                                 if card.moves: Text { vertical-alignment: center; text: "· MOVES"; font-family: Theme.display; font-size: 18px; color: Theme.warn; }
                             }
                             if card.desc != "": Text { text: card.desc; font-family: Theme.body; font-size: 17px; color: Theme.muted; overflow: elide; }
@@ -177,12 +181,14 @@ component ProgramCard inherits Card {
         spacing: 12px;
         HorizontalLayout {
             height: 34px;
-            spacing: 14px;
             H3 { horizontal-stretch: 1; vertical-alignment: center; text: Live.program == "" ? "NO PROGRAM LOADED" : Live.program; color: Live.program == "" ? Theme.muted : Theme.ink; overflow: elide; }
-            Label { vertical-alignment: center; text: "LINE"; font-size: 16px; color: Theme.dim; }
-            // Fixed width: the count must not nudge the title as it grows.
+            spacing: 10px;
+            // Right-aligned as a pair: a growing count only eats into the title's slack.
+            Rectangle {
+                width: line-cap.preferred-width;
+                line-cap := Label { y: 2px; height: parent.height; vertical-alignment: center; text: "LINE"; font-size: 16px; color: Theme.dim; }
+            }
             Text {
-                width: 130px;
                 vertical-alignment: center;
                 horizontal-alignment: right;
                 text: min(Live.line, Live.gcode-count) + " / " + Live.gcode-count;
@@ -348,7 +354,10 @@ component GcodeView inherits VerticalLayout {
         background: Theme.well;
         border-radius: Theme.radius-ctl;
         clip: true;
+        // A whole number of rows, so the last one is never cut in half.
         list := ListView {
+            y: 6px;
+            height: floor((parent.height - 12px) / root.line-h) * root.line-h;
             for code[i] in Live.gcode-lines: GLine {
                 n: i + 1;
                 code: code;
