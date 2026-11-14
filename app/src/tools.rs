@@ -405,6 +405,15 @@ pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<
     tools
 }
 
+thread_local! {
+    static LOADED: std::cell::Cell<Option<(f64, f64)>> = const { std::cell::Cell::new(None) };
+}
+
+/// The tool in the spindle as (diameter, length) from the tool table.
+pub fn loaded_tool() -> Option<(f64, f64)> {
+    LOADED.with(|l| l.get())
+}
+
 /// Status update: the current tool and the loaded program, plus a reload
 /// when a command finishes (LinuxCNC rewrites the table on G10 L1/L10 and
 /// touch off).
@@ -415,7 +424,9 @@ pub fn apply_status(ui: &MainWindow, tools: &Rc<RefCell<Tools>>, s: &Status) {
     if changed {
         st.load();
         st.show(ui);
-        let dia = st.tools.iter().find(|t| t.t == s.tool_in_spindle && s.tool_in_spindle > 0).map(|t| format!("{:.3}", t.d));
+        let tool = st.tools.iter().find(|t| t.t == s.tool_in_spindle && s.tool_in_spindle > 0);
+        LOADED.with(|l| l.set(tool.map(|t| (t.d, t.z))));
+        let dia = tool.map(|t| format!("{:.3}", t.d));
         ui.global::<Live>().set_tool_dia(dia.unwrap_or_else(|| "-".into()).into());
     }
 }

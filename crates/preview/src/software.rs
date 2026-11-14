@@ -1,7 +1,7 @@
 //! CPU renderer (tiny-skia). Draws the toolpath once into a cached base
 //! image per view and size; the tool marker and live trail go on a copy.
 
-use crate::machine::{Layer, Line, Solid};
+use crate::machine::{Cylinder, Scene, Solid};
 use crate::{Kind, Toolpath, P4};
 use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
@@ -268,16 +268,15 @@ impl Base {
     }
 
     /// The base over the background, with the machine (if given: the table
-    /// under the toolpath, the moving parts see-through over it), the trail
-    /// and the tool marker.
-    pub fn compose(&self, trail: &[P4], tool: Option<P4>, machine: Option<&(Vec<Solid>, Vec<Line>)>) -> Pixmap {
+    /// under the toolpath, the tool over it), the trail and the tool marker.
+    pub fn compose(&self, trail: &[P4], tool: Option<P4>, machine: Option<&Scene>) -> Pixmap {
         let mut pm = Pixmap::new(self.pm.width(), self.pm.height()).expect("pixmap size");
         pm.fill(Color::from_rgba8(BG[0], BG[1], BG[2], 255));
         let fit = self.fit;
-        if let Some((solids, lines)) = machine {
-            draw_solids(&mut pm, &fit, solids, Layer::Under);
+        if let Some(scene) = machine {
+            draw_box(&mut pm, &fit, &scene.table);
             let mut pb = PathBuilder::new();
-            for (a, b) in lines {
+            for (a, b) in &scene.slots {
                 let (a, b) = (fit.map([a[0], a[1], a[2], 0.0]), fit.map([b[0], b[1], b[2], 0.0]));
                 pb.move_to(a.0, a.1);
                 pb.line_to(b.0, b.1);
@@ -287,11 +286,8 @@ impl Base {
             }
         }
         pm.draw_pixmap(0, 0, self.pm.as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), None);
-        if let Some((solids, _)) = machine {
-            if fit.view != View::Top {
-                draw_solids(&mut pm, &fit, solids, Layer::Over);
-            }
-            draw_solids(&mut pm, &fit, solids, Layer::Tool);
+        if let Some(c) = machine.and_then(|m| m.tool.as_ref()) {
+            draw_cylinder(&mut pm, &fit, c);
         }
         if trail.len() > 1 {
             let mut pb = PathBuilder::new();
@@ -332,47 +328,99 @@ fn toward_viewer(v: View) -> [f64; 3] {
     }
 }
 
-/// Boxes as flat-shaded faces, farthest first. The table is solid; the
-/// moving parts are see-through so the toolpath stays readable.
-fn draw_solids(pm: &mut Pixmap, fit: &Fit, solids: &[Solid], layer: Layer) {
+/// A box as flat-shaded faces (the ones facing the viewer).
+fn draw_box(pm: &mut Pixmap, fit: &Fit, s: &Solid) {
     let n = toward_viewer(fit.view);
-    let depth = |s: &Solid| (0..3).map(|i| (s.lo[i] + s.hi[i]) / 2.0 * n[i]).sum::<f64>();
-    let mut list: Vec<&Solid> = solids.iter().filter(|s| s.layer == layer).collect();
-    list.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
-    let (fill, edge) = match layer {
-        Layer::Under | Layer::Tool => (255, 255),
-        Layer::Over => (0, 80),
-    };
-    for s in list {
-        for axis in 0..3 {
-            for side in [-1.0, 1.0] {
-                if n[axis] * side <= 0.0 {
-                    continue;
-                }
-                // The face's four corners, in order around it.
-                let (u, w) = ((axis + 1) % 3, (axis + 2) % 3);
-                let at = if side > 0.0 { s.hi[axis] } else { s.lo[axis] };
-                let mut pb = PathBuilder::new();
-                for (k, (a, b)) in [(0, 0), (1, 0), (1, 1), (0, 1)].into_iter().enumerate() {
-                    let mut p = [0.0; 4];
-                    p[axis] = at;
-                    p[u] = if a == 0 { s.lo[u] } else { s.hi[u] };
-                    p[w] = if b == 0 { s.lo[w] } else { s.hi[w] };
-                    let q = fit.map(p);
-                    if k == 0 { pb.move_to(q.0, q.1) } else { pb.line_to(q.0, q.1) }
-                }
-                pb.close();
-                let Some(path) = pb.finish() else { continue };
-                // Tops lightest, then the sides.
-                let shade = if axis == 2 { 1.0 } else if axis == 0 { 0.78 } else { 0.62 };
-                let rgb = s.rgb.map(|c| (c as f64 * shade) as u8);
-                if fill > 0 {
-                    pm.fill_path(&path, &paint(rgb, fill), tiny_skia::FillRule::Winding, Transform::identity(), None);
-                }
-                pm.stroke_path(&path, &paint(s.rgb.map(|c| c.saturating_add(30)), edge), &stroke(1.0), Transform::identity(), None);
+    for axis in 0..3 {
+        for side in [-1.0, 1.0] {
+            if n[axis] * side <= 0.0 {
+                continue;
             }
+            // The face's four corners, in order around it.
+            let (u, w) = ((axis + 1) % 3, (axis + 2) % 3);
+            let at = if side > 0.0 { s.hi[axis] } else { s.lo[axis] };
+            let mut pb = PathBuilder::new();
+            for (k, (a, b)) in [(0, 0), (1, 0), (1, 1), (0, 1)].into_iter().enumerate() {
+                let mut p = [0.0; 4];
+                p[axis] = at;
+                p[u] = if a == 0 { s.lo[u] } else { s.hi[u] };
+                p[w] = if b == 0 { s.lo[w] } else { s.hi[w] };
+                let q = fit.map(p);
+                if k == 0 { pb.move_to(q.0, q.1) } else { pb.line_to(q.0, q.1) }
+            }
+            pb.close();
+            let Some(path) = pb.finish() else { continue };
+            // Tops lightest, then the sides.
+            let shade = if axis == 2 { 1.0 } else if axis == 0 { 0.78 } else { 0.62 };
+            let rgb = s.rgb.map(|c| (c as f64 * shade) as u8);
+            pm.fill_path(&path, &paint(rgb, 255), tiny_skia::FillRule::Winding, Transform::identity(), None);
+            pm.stroke_path(&path, &paint(s.rgb.map(|c| c.saturating_add(30)), 255), &stroke(1.0), Transform::identity(), None);
         }
     }
+}
+
+/// The tool: a cylinder's outline (the hull of its end circles under the
+/// parallel projection) with the top rim, see-through so the path under a
+/// large cutter stays visible.
+fn draw_cylinder(pm: &mut Pixmap, fit: &Fit, c: &Cylinder) {
+    const N: usize = 32;
+    let ring = |z: f64| -> Vec<(f32, f32)> {
+        (0..N)
+            .map(|i| {
+                let a = i as f64 * std::f64::consts::TAU / N as f64;
+                fit.map([c.center[0] + c.r * a.cos(), c.center[1] + c.r * a.sin(), z, 0.0])
+            })
+            .collect()
+    };
+    let (bottom, top) = (ring(c.z0), ring(c.z1));
+    let hull = convex_hull(bottom.iter().chain(top.iter()).copied().collect());
+    let poly = |pts: &[(f32, f32)]| {
+        let mut pb = PathBuilder::new();
+        for (k, p) in pts.iter().enumerate() {
+            if k == 0 { pb.move_to(p.0, p.1) } else { pb.line_to(p.0, p.1) }
+        }
+        pb.close();
+        pb.finish()
+    };
+    let gold = [0xf2, 0xc1, 0x4e];
+    if let Some(path) = poly(&hull) {
+        pm.fill_path(&path, &paint([0x9a, 0x7a, 0x30], 110), tiny_skia::FillRule::Winding, Transform::identity(), None);
+        pm.stroke_path(&path, &paint(gold, 255), &stroke(1.5), Transform::identity(), None);
+    }
+    if fit.view != View::Front {
+        if let Some(path) = poly(&top) {
+            pm.fill_path(&path, &paint([0xc8, 0x9e, 0x40], 90), tiny_skia::FillRule::Winding, Transform::identity(), None);
+            pm.stroke_path(&path, &paint(gold, 255), &stroke(1.0), Transform::identity(), None);
+        }
+    }
+}
+
+/// Monotone chain; returns the hull counter-clockwise.
+fn convex_hull(mut pts: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    pts.dedup();
+    if pts.len() < 3 {
+        return pts;
+    }
+    let cross = |o: (f32, f32), a: (f32, f32), b: (f32, f32)| (a.0 - o.0) * (b.1 - o.1) - (a.1 - o.1) * (b.0 - o.0);
+    let mut lower: Vec<(f32, f32)> = Vec::new();
+    for &p in &pts {
+        while lower.len() >= 2 && cross(lower[lower.len() - 2], lower[lower.len() - 1], p) <= 0.0 {
+            lower.pop();
+        }
+        lower.push(p);
+    }
+    let mut upper: Vec<(f32, f32)> = Vec::new();
+    for &p in pts.iter().rev() {
+        while upper.len() >= 2 && cross(upper[upper.len() - 2], upper[upper.len() - 1], p) <= 0.0 {
+            upper.pop();
+        }
+        upper.push(p);
+    }
+    lower.pop();
+    upper.pop();
+    lower.extend(upper);
+    lower
 }
 
 #[cfg(test)]

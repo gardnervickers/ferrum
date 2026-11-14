@@ -284,11 +284,13 @@ fn refresh_pills(ui: &MainWindow, st: &UiState, modules: &[Box<dyn Module>], axe
 }
 
 /// The tool tip in work coordinates, the frame the interpreter preview uses.
-/// The backplot's machine model: tool length, the tool's diameter (from the
-/// TOOL DIA readout) and the work offset.
-fn machine_pose(ui: &MainWindow, s: &Status) -> preview::machine::Pose {
-    let dia = ui.global::<Live>().get_tool_dia().trim().parse().unwrap_or(0.0);
-    preview::machine::Pose { tip: tool_tip(s), tool_len: s.tool_offset[2], tool_dia: dia, offset: [s.g5x_offset[0], s.g5x_offset[1], s.g5x_offset[2]] }
+/// The backplot's table and tool: the loaded tool's diameter and length
+/// from the tool table (the applied G43 length if the table has none), and
+/// the work offset.
+fn machine_pose(_ui: &MainWindow, s: &Status) -> preview::machine::Pose {
+    let (dia, len) = tools::loaded_tool().unwrap_or((0.0, 0.0));
+    let len = if len > 0.5 { len } else { s.tool_offset[2] };
+    preview::machine::Pose { tip: tool_tip(s), tool_len: len, tool_dia: dia, offset: [s.g5x_offset[0], s.g5x_offset[1], s.g5x_offset[2]] }
 }
 
 fn tool_tip(s: &Status) -> [f64; 4] {
@@ -582,14 +584,15 @@ fn main() -> Result<(), slint::PlatformError> {
                             }
                         });
                         plot::sync(ui, &s.file);
-                        plot::with(|p| {
-                            plot::tool_moved(p, tool_tip(&s));
-                            plot::machine_pose(p, machine_pose(ui, &s));
-                        });
+                        // After the tools, which know the loaded tool's size.
                         TOOLS.with(|t| {
                             if let Some(t) = t.borrow().as_ref() {
                                 tools::apply_status(ui, t, &s);
                             }
+                        });
+                        plot::with(|p| {
+                            plot::tool_moved(p, tool_tip(&s));
+                            plot::machine_pose(p, machine_pose(ui, &s));
                         });
                         OFFSETS.with(|o| {
                             if let Some(o) = o.borrow().as_ref() {

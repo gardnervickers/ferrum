@@ -11,7 +11,7 @@ flood = true
 drawbar = true
 home_all = true
 
-# The machine drawn in the backplot (mm). Defaults are a PM-728VT with
+# The table and tool drawn in the backplot (mm). Defaults are a PM-728VT with
 # mymill.ini's travel. Machine coordinates are LinuxCNC's: the controlled
 # point is the spindle nose and Z 0 is the top of travel.
 [model]
@@ -24,13 +24,3 @@ table_center = [215, -90]
 slots = 3
 # Spindle nose above the table top at machine Z 0.
 nose_above_table = 380
-# Spindle axis to the column's front face.
-throat = 230
-# Column width (X), depth (Y), height above the table top.
-column = [250, 200, 760]
-# Head width (X), height, reach in front of the spindle axis.
-head = [240, 300, 90]
-# Spindle nose diameter, length below the head.
-nose = [70, 45]
-# Motor diameter, height on top of the head.
-motor = [150, 200]

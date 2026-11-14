@@ -33,11 +33,6 @@ pub struct Model {
     pub table_center: [f64; 2],
     pub slots: u32,
     pub nose_above_table: f64,
-    pub throat: f64,
-    pub column: [f64; 3],
-    pub head: [f64; 3],
-    pub nose: [f64; 2],
-    pub motor: [f64; 2],
 }
 
 impl Default for Model {
@@ -49,11 +44,6 @@ impl Default for Model {
             table_center: m.table_center,
             slots: m.slots,
             nose_above_table: m.nose_above_table,
-            throat: m.throat,
-            column: m.column,
-            head: m.head,
-            nose: m.nose,
-            motor: m.motor,
         }
     }
 }
@@ -65,11 +55,6 @@ impl Model {
             table_center: self.table_center,
             slots: self.slots,
             nose_above_table: self.nose_above_table,
-            throat: self.throat,
-            column: self.column,
-            head: self.head,
-            nose: self.nose,
-            motor: self.motor,
         }
     }
 }

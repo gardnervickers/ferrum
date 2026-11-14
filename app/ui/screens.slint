@@ -287,11 +287,11 @@ component ProgramCard inherits Card {
                 double-clicked => { if !self.cur-drag && !self.last-drag { Actions.plot-fit(); } }
             }
             if Live.program == "": Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
-            // Show or hide the machine model (table, head, column).
+            // Show or hide the table and the tool.
             Seg {
                 x: parent.width - self.width - 10px; y: 10px;
                 width: 130px; height: 48px; font-size: 20px;
-                text: "MACHINE"; on: Live.plot-machine;
+                text: "TABLE"; on: Live.plot-machine;
                 clicked => { Actions.plot-machine(); }
             }
             Text {
