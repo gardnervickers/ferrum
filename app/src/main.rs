@@ -863,6 +863,17 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                 live.set_running(true);
             }
             "file" => actions.invoke_files_tap(1),
+            // PROBE state: probe-mode:<m>, probe-shape:<s>, probe-target:<t>.
+            w if w.starts_with("probe-") => {
+                if let Some((k, v)) = w.split_once(':') {
+                    match k {
+                        "probe-mode" => actions.invoke_probe_mode(v.into()),
+                        "probe-shape" => actions.invoke_probe_shape(v.into()),
+                        "probe-target" => actions.invoke_probe_target(v.into()),
+                        _ => {}
+                    }
+                }
+            }
             "jog" => live.set_run_tab("jog".into()),
             "feed" | "goto" => live.set_jog_tab(what.as_str().into()),
             "gotos" => {

@@ -767,7 +767,31 @@ impl Probe {
                 def: fmt_value(0, l.default).into(),
             });
         }
-        live.set_pr_params(ModelRc::new(VecModel::from(fields)));
+        // Each value keeps its slot across the shape's targets and options,
+        // so picking another target never moves a value that stays.
+        let ids = |kind: &str, angle: bool| -> Vec<String> {
+            let mut v: Vec<String> = if kind == "edge" {
+                if angle { vec![3024, 3023, 3019] } else { vec![3019, 3018] }.iter().map(u16::to_string).collect()
+            } else {
+                self.key_params(kind).iter().map(u16::to_string).collect()
+            };
+            v.extend((0..locals(kind).len()).map(|i| format!("L{i}:{kind}")));
+            v
+        };
+        let mut lists: Vec<Vec<String>> = Vec::new();
+        for t in &targets {
+            lists.push(ids(t.kind, false));
+            if t.kind == "edge" {
+                lists.push(ids(t.kind, true));
+            }
+        }
+        let want = ids(sel.kind, sel.kind == "edge" && self.angle);
+        let slot_of = slots(&lists, &want);
+        let mut placed: Vec<ProbeParam> = (0..3).map(|_| ProbeParam::default()).collect();
+        for (f, slot) in fields.into_iter().zip(slot_of) {
+            placed[slot] = f;
+        }
+        live.set_pr_params(ModelRc::new(VecModel::from(placed)));
         let more: Vec<ProbeParam> = self.used_params(sel.kind).into_iter().filter(|n| !key.contains(n)).map(row).collect();
         live.set_pr_more(ModelRc::new(VecModel::from(more)));
         live.set_pr_changed(!self.runv.is_empty() || !self.locv.is_empty());
@@ -1071,6 +1095,33 @@ fn play_moves(ui: &MainWindow, moves: Vec<[f64; 4]>) {
     });
 }
 
+/// Slots (0–2) for the values `want`, chosen so that across `lists` (the
+/// values each target of the shape shows) a value always gets the same slot
+/// and no two values shown together share one. Falls back to list order if
+/// the values cannot be placed that way.
+fn slots(lists: &[Vec<String>], want: &[String]) -> Vec<usize> {
+    let mut all = lists.to_vec();
+    all.push(want.to_vec());
+    let mut slot: BTreeMap<String, usize> = BTreeMap::new();
+    for l in &all {
+        for id in l {
+            if slot.contains_key(id) {
+                continue;
+            }
+            // Slots taken by values that show alongside this one.
+            let taken: Vec<usize> =
+                all.iter().filter(|m| m.contains(id)).flat_map(|m| m.iter().filter_map(|o| slot.get(o).copied())).collect();
+            let Some(free) = (0..3).find(|s| !taken.contains(s)) else { return (0..want.len()).collect() };
+            slot.insert(id.clone(), free);
+        }
+    }
+    let out: Vec<usize> = want.iter().map(|id| slot[id]).collect();
+    let mut seen = out.clone();
+    seen.sort();
+    seen.dedup();
+    if seen.len() == out.len() { out } else { (0..want.len()).collect() }
+}
+
 /// Probe approach moves in picture units (from the mockup).
 fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
     let k = t.kind;
@@ -1367,6 +1418,16 @@ pub fn message(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, m: &Message) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn values_keep_their_slot() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let lists = vec![v(&["3023", "3019", "3018"]), v(&["3019", "3018"]), v(&["3024", "3023", "3019"]), v(&["3019", "3018", "L0:stock"])];
+        assert_eq!(super::slots(&lists, &lists[0]), [0, 1, 2]);
+        assert_eq!(super::slots(&lists, &lists[1]), [1, 2]);
+        assert_eq!(super::slots(&lists, &lists[2]), [2, 0, 1]);
+        assert_eq!(super::slots(&lists, &lists[3]), [1, 2, 0]);
+    }
 
     #[test]
     fn move_phase_plays_each_move_once() {

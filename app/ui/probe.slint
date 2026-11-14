@@ -253,8 +253,11 @@ export component ProbeScreen inherits Rectangle {
                     if !Live.pr-show-wcs: Note { vertical-alignment: center; text: Live.pr-note; }
                 }
                 // Three fixed value slots (no routine has more key values).
-                for p in Live.pr-params: Stepper { p: p; enabled: !Live.pr-running; }
-                for i in max(0, 3 - Live.pr-params.length): Rectangle { height: 106px; }
+                // Always three slots; an empty one (no id) keeps its place.
+                for p in Live.pr-params: Rectangle {
+                    height: 106px;
+                    if p.id != "": Stepper { width: parent.width; p: p; enabled: !Live.pr-running; }
+                }
                 HorizontalLayout {
                     height: 60px;
                     spacing: 8px;
