@@ -54,6 +54,9 @@ pub struct Toolpath {
     pub ops: Vec<Op>,
     /// Interpreter errors; the path up to the error is still drawn.
     pub error: Option<String>,
+    /// The box to frame when there are no moves (no program loaded): the
+    /// table and the travel above it, so the view still shows the machine.
+    pub frame: Option<(P4, P4)>,
 }
 
 impl Toolpath {
@@ -61,8 +64,12 @@ impl Toolpath {
         self.ops.iter().map(|o| o.seconds).sum()
     }
 
-    /// (min, max) over feed moves, or over all moves when there are none.
+    /// (min, max) over feed moves, or over all moves when there are none,
+    /// or `frame` when there are no moves at all.
     pub fn bounds(&self) -> Option<(P4, P4)> {
+        if self.segs.is_empty() {
+            return self.frame;
+        }
         let feeds = self.segs.iter().any(|s| s.kind == Kind::Feed);
         let mut it = self.segs.iter().filter(|s| !feeds || s.kind == Kind::Feed).flat_map(|s| [s.from, s.to]);
         let first = it.next()?;

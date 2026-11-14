@@ -72,6 +72,17 @@ pub struct Scene {
 }
 
 impl Machine {
+    /// The box to frame with no program loaded, in work coordinates: the
+    /// table and the space above it up to the spindle nose at the top of
+    /// travel.
+    pub fn frame(&self, offset: [f64; 3]) -> (P4, P4) {
+        let o = offset;
+        let top = -self.nose_above_table - o[2];
+        let (cx, cy) = (self.table_center[0] - o[0], self.table_center[1] - o[1]);
+        let [tl, td, tt] = self.table;
+        ([cx - tl / 2.0, cy - td / 2.0, top - tt, 0.0], [cx + tl / 2.0, cy + td / 2.0, -o[2], 0.0])
+    }
+
     /// The table (with `table`) and the tool at `pose`.
     pub fn scene(&self, pose: &Pose, table: bool) -> Scene {
         let o = pose.offset;
@@ -128,6 +139,16 @@ mod tests {
         assert!(m.scene(&pose, true).tool.is_none());
         pose.tool_dia = 6.0;
         assert_eq!(m.scene(&pose, true).tool.unwrap().z1, 24.0);
+    }
+
+    #[test]
+    fn frame_spans_the_table_and_the_travel_above_it() {
+        let m = Machine::pm728vt();
+        let (lo, hi) = m.frame([215.0, -90.0, -200.0]);
+        assert_eq!((lo[0], hi[0]), (-400.0, 400.0));
+        assert_eq!((lo[1], hi[1]), (-90.0, 90.0));
+        // Table bottom 180 + 55 below work Z 0; nose at the top of travel 200 above.
+        assert_eq!((lo[2], hi[2]), (-235.0, 200.0));
     }
 
     #[test]

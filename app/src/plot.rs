@@ -163,7 +163,15 @@ impl Plot {
         }
     }
 
-    fn set_toolpath(&mut self, ui: &MainWindow, tp: Toolpath) {
+    /// With no moves, frame the table so it and the tool still show.
+    fn empty_frame(&self) -> (P4, P4) {
+        self.machine.frame(self.pose.map(|p| p.offset).unwrap_or_default())
+    }
+
+    fn set_toolpath(&mut self, ui: &MainWindow, mut tp: Toolpath) {
+        if tp.segs.is_empty() {
+            tp.frame = Some(self.empty_frame());
+        }
         let live = ui.global::<Live>();
         let secs = tp.seconds();
         let ops = tp.ops.len();
@@ -320,6 +328,14 @@ pub fn machine_pose(plot: &Rc<RefCell<Plot>>, pose: Pose) {
     if st.pose != Some(pose) {
         st.pose = Some(pose);
         st.dirty = true;
+        // No program: keep the table framed as the work offset changes.
+        let frame = Some(st.empty_frame());
+        if st.tp.segs.is_empty() && st.tp.frame != frame {
+            let mut tp = (*st.tp).clone();
+            tp.frame = frame;
+            st.tp = Arc::new(tp);
+            st.id += 1;
+        }
     }
 }
 

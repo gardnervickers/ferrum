@@ -10,6 +10,9 @@ The pretend stock is a block at machine X150..280, Y-140..-40 whose top the
 tool tip reaches at machine Z -250 (the tip is the spindle nose minus the
 tool table length of the tool in the spindle). The tool setter sits at the
 G30 spot with its top where `tool_touch_off.ngc` expects it (#3010).
+Homing runs the INI's real search and latch moves: each home switch closes
+40 mm (`SIM_HOME_TRAVEL`) from where its joint started, in the search
+direction.
 
 ## One-time setup (Debian/Ubuntu dev box or cloud container)
 
