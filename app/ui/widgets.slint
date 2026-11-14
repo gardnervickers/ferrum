@@ -10,6 +10,8 @@ export component Btn inherits Rectangle {
     in property <bool> enabled: true;
     in property <string> kind;
     in property <bool> hold;
+    // Flat: no plate until chosen (the nav tabs).
+    in property <bool> flat;
     in property <length> font-size: 24px;
     in property <string> family: Theme.display;
     callback clicked();
@@ -24,22 +26,27 @@ export component Btn inherits Rectangle {
     // `hold`) can flip under the finger, so the release must not then act.
     property <bool> touch-held;
     preferred-height: 64px;
-    border-radius: 6px;
+    border-radius: Theme.radius-ctl;
+    property <bool> filled: kind == "go" || kind == "hold" || kind == "stop";
     background: kind == "go" ? Theme.go : kind == "hold" ? Theme.hold : kind == "stop" ? Theme.stop
-        : kind == "tripped" ? #3a1414 : on ? Theme.sel : Theme.raised;
+        : kind == "tripped" ? #3a1414 : on ? Theme.sel-soft : flat ? transparent : Theme.raised;
     border-color: kind == "go" ? Theme.go-border : kind == "hold" ? Theme.hold-border : kind == "stop" ? Theme.stop-border
         : kind == "tripped" ? Theme.stop-border : on ? Theme.sel : Theme.raised-border;
-    border-width: kind == "tripped" ? 3px : 1px;
+    border-width: kind == "tripped" ? 3px : on && !filled ? 2px : flat ? 0 : 1px;
     opacity: enabled ? 1.0 : 0.38;
     clip: true;
+    animate background, border-color, opacity { duration: Theme.quick; }
+    property <color> ink: filled || kind == "tripped" ? #ffffff : on ? Theme.sel-ink : flat ? Theme.muted : Theme.ink;
 
     Rectangle {
-        background: touch.pressed && enabled ? #ffffff30 : transparent;
+        background: touch.pressed && enabled ? #ffffff26 : transparent;
+        // Lights at once under the finger, fades when it lifts.
+        animate background { duration: touch.pressed ? 0ms : 200ms; }
     }
     Rectangle {
         x: 0;
         width: arming ? parent.width : 0;
-        background: #ffffff48;
+        background: #ffffff40;
         animate width { duration: root.arming ? 800ms : 0ms; }
     }
     // The label is always centred; a HOLD/sub caption is a small tag in the
@@ -58,7 +65,7 @@ export component Btn inherits Rectangle {
                 commands: icon;
                 viewbox-width: 24;
                 viewbox-height: 24;
-                stroke: Theme.ink;
+                stroke: root.ink;
                 stroke-width: 2px;
                 fill: transparent;
             }
@@ -67,20 +74,21 @@ export component Btn inherits Rectangle {
             text: root.text;
             font-family: root.family;
             font-size: root.font-size;
-            letter-spacing: 0.04 * root.font-size;
-            color: Theme.ink;
+            letter-spacing: 0.05 * root.font-size;
+            color: root.ink;
+            animate color { duration: Theme.quick; }
             horizontal-alignment: center;
             wrap: word-wrap;
         }
     }
     if captioned: Text {
-        x: root.width - self.width - 7px;
-        y: 4px;
+        x: root.width - self.width - 9px;
+        y: 5px;
         text: sub != "" ? sub : "HOLD";
         font-family: Theme.display;
         font-size: 13px;
-        letter-spacing: 1px;
-        color: #e8ebeda0;
+        letter-spacing: 1.4px;
+        color: filled ? #ffffffb0 : Theme.muted;
     }
     hold-timer := Timer {
         interval: 800ms;
@@ -110,23 +118,32 @@ export component Btn inherits Rectangle {
     }
 }
 
+// A status pill: a coloured dot and a label on a quiet capsule.
 export component Pill inherits Rectangle {
     in property <string> text;
     in property <string> kind;
-    height: 40px;
-    border-radius: 20px;
-    background: kind == "good" ? #1f3a2a : kind == "warn" ? #43361a : kind == "bad" ? #4a2120 : kind == "info" ? #1e3346 : Theme.panel2;
+    property <color> tone: kind == "good" ? Theme.good : kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : kind == "info" ? Theme.info : Theme.dim;
+    height: 38px;
+    horizontal-stretch: 0;
+    border-radius: 19px;
+    background: kind == "bad" ? #ff8f8a24 : kind == "warn" ? #f3c4631c : Theme.panel;
+    animate background { duration: Theme.settle; }
     HorizontalLayout {
         padding-left: 14px;
-        padding-right: 14px;
+        padding-right: 16px;
+        spacing: 9px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle { width: 9px; height: 9px; border-radius: 4.5px; background: tone; animate background { duration: Theme.settle; } }
+        }
         Text {
             vertical-alignment: center;
-            horizontal-alignment: center;
             text: root.text;
             font-family: Theme.display;
-            font-size: 21px;
-            letter-spacing: 1px;
-            color: kind == "good" ? #7fd6a0 : kind == "warn" ? #f3c463 : kind == "bad" ? #ff8f8a : kind == "info" ? #8cc4ef : Theme.muted;
+            font-size: 20px;
+            letter-spacing: 1.2px;
+            color: kind == "" ? Theme.muted : tone;
+            animate color { duration: Theme.settle; }
         }
     }
 }
@@ -134,19 +151,59 @@ export component Pill inherits Rectangle {
 export component Label inherits Text {
     font-family: Theme.display;
     font-size: 20px;
-    letter-spacing: 1.2px;
+    letter-spacing: 1.6px;
     color: Theme.muted;
 }
 
 export component Card inherits Rectangle {
     background: Theme.panel;
-    border-radius: 8px;
+    border-radius: Theme.radius;
 }
 
-// Segment of a segmented control (the mockup's .tabs2).
-export component Seg inherits Btn {
+// Segment of a segmented control: segments sit side by side (spacing 0) and
+// share one track; the chosen one is a tinted pill inside it. Mark the outer
+// segments `first` / `last` to round the ends of the track.
+export component Seg inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    in property <bool> first;
+    in property <bool> last;
+    in property <length> font-size: 24px;
+    callback clicked();
     preferred-height: 52px;
-    border-radius: 0px;
+    min-width: 40px;
+    horizontal-stretch: 1;
+    opacity: enabled ? 1.0 : 0.38;
+    border-top-left-radius: first ? Theme.radius-ctl : 0;
+    border-bottom-left-radius: first ? Theme.radius-ctl : 0;
+    border-top-right-radius: last ? Theme.radius-ctl : 0;
+    border-bottom-right-radius: last ? Theme.radius-ctl : 0;
+    background: Theme.well;
+    Rectangle {
+        x: 3px; y: 3px;
+        width: parent.width - 6px;
+        height: parent.height - 6px;
+        border-radius: Theme.radius-sm;
+        // Unchosen segments keep a faint plate so each reads as a target.
+        background: root.on ? Theme.sel-soft : touch.pressed && root.enabled ? #ffffff24 : #ffffff0b;
+        border-width: 2px;
+        border-color: root.on ? Theme.sel : transparent;
+        animate background, border-color { duration: Theme.quick; }
+    }
+    Text {
+        width: parent.width;
+        height: parent.height;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        text: root.text;
+        font-family: Theme.display;
+        font-size: root.font-size;
+        letter-spacing: 0.05 * root.font-size;
+        color: root.on ? Theme.sel-ink : Theme.muted;
+        animate color { duration: Theme.quick; }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
 }
 
 // A value well that opens the keypad when tapped.
@@ -158,8 +215,9 @@ export component NumField inherits Rectangle {
     height: 54px;
     background: Theme.well;
     border-width: 1px;
-    border-color: touch.pressed ? Theme.sel : Theme.line;
-    border-radius: 6px;
+    border-color: touch.pressed ? Theme.sel : Theme.raised-border;
+    border-radius: Theme.radius-ctl;
+    animate border-color { duration: touch.pressed ? 0ms : 200ms; }
     opacity: enabled ? 1 : 0.38;
     HorizontalLayout {
         padding-left: 14px;
@@ -175,7 +233,7 @@ export component NumField inherits Rectangle {
 export component H3 inherits Text {
     font-family: Theme.display;
     font-size: 28px;
-    letter-spacing: 1.4px;
+    letter-spacing: 1.8px;
     color: Theme.ink;
 }
 

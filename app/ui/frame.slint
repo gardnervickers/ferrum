@@ -33,7 +33,7 @@ export component StatusBar inherits Rectangle {
             alignment: center;
             Btn {
                 height: 56px;
-                width: 160px;
+                width: 176px;
                 font-size: 22px;
                 text: Live.power ? "POWER ON" : "POWER OFF";
                 on: Live.power;
@@ -69,7 +69,7 @@ export component StatusBar inherits Rectangle {
             text: Live.message;
             font-family: Theme.body;
             font-size: 21px;
-            color: Live.message-error ? #ff8f8a : Theme.muted;
+            color: Live.message-error ? Theme.bad : Theme.muted;
             // Tapping the latest message opens the full log.
             TouchArea { clicked => { Live.drawer-open = true; } }
         }
@@ -99,22 +99,36 @@ export component StatusBar inherits Rectangle {
     }
 }
 
+// A small caption and its value under the DRO number. Fixed widths, so
+// nothing shifts as the digits change.
+component DroSub inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <length> value-width;
+    width: value-width + 40px;
+    // Bebas caps sit high in their line box; 2px down puts them on the value's baseline.
+    Text { x: 0; y: 2px; height: parent.height; vertical-alignment: center; text: label; font-family: Theme.display; font-size: 14px; letter-spacing: 1.4px; color: Theme.dim; }
+    Text { x: 40px; width: value-width; height: parent.height; vertical-alignment: center; horizontal-alignment: right; text: value; font-family: Theme.body; font-weight: 500; font-size: 19px; color: Theme.muted; }
+}
+
 component DroLine inherits Rectangle {
     in property <DroRow> data;
     in property <bool> last;
-    height: 86px;
-    if !last: Rectangle { y: parent.height - 1px; height: 1px; background: #22282c; }
+    height: 85px;
+    if !last: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+    // The axis letter is amber until the axis is homed.
     Text {
-        x: 0;
-        y: 6px;
+        x: 2px;
+        y: 10px;
         text: data.axis;
         font-family: Theme.display;
-        font-size: 50px;
-        color: data.homed ? Theme.muted : #f3c463;
+        font-size: 46px;
+        color: data.homed ? Theme.sel : Theme.warn;
+        animate color { duration: 400ms; }
     }
     Text {
         x: 52px;
-        y: 4px;
+        y: 1px;
         width: parent.width - 52px;
         horizontal-alignment: right;
         text: data.work;
@@ -123,28 +137,32 @@ component DroLine inherits Rectangle {
         font-size: 60px;
         color: Theme.ink;
     }
-    Text {
+    HorizontalLayout {
         x: 52px;
-        y: 62px;
+        y: 60px;
         width: parent.width - 52px;
-        horizontal-alignment: right;
-        text: "MACH " + data.mach + "      DTG " + data.dtg;
-        font-family: Theme.body;
-        font-size: 19px;
-        color: Theme.dim;
+        height: 22px;
+        alignment: end;
+        spacing: 22px;
+        DroSub { label: "MACH"; value: data.mach; value-width: 74px; }
+        DroSub { label: "DTG"; value: data.dtg; value-width: 62px; }
     }
 }
 
-component Kv inherits Card {
+component Kv inherits Rectangle {
     in property <string> label;
     in property <string> value;
-    height: 66px;
+    height: 64px;
+    background: Theme.panel;
+    border-radius: Theme.radius-ctl;
     VerticalLayout {
-        padding-left: 12px;
+        padding-left: 14px;
         padding-right: 12px;
-        padding-top: 4px;
-        Label { text: label; font-size: 18px; }
-        Text { text: value; font-family: Theme.body; font-weight: 600; font-size: 26px; color: Theme.ink; overflow: elide; }
+        padding-top: 7px;
+        spacing: 1px;
+        alignment: start;
+        Text { text: label; font-family: Theme.display; font-size: 15px; letter-spacing: 1.5px; color: Theme.dim; }
+        Text { text: value; font-family: Theme.body; font-weight: 600; font-size: 27px; color: Theme.ink; overflow: elide; }
     }
 }
 
@@ -154,21 +172,23 @@ component OverrideRow inherits HorizontalLayout {
     in property <int> pct;
     in property <int> limit;
     in property <int> step: 10;
-    spacing: 8px;
+    spacing: 10px;
     height: 50px;
-    Label { width: 96px; vertical-alignment: center; text: label; }
-    Btn { width: 64px; min-height: 50px; text: "−"; clicked => { Actions.override(which, -step); } }
+    Label { width: 84px; vertical-alignment: center; text: label; font-size: 18px; }
+    Btn { width: 64px; min-height: 50px; text: "−"; font-size: 28px; clicked => { Actions.override(which, -step); } }
     Rectangle {
         horizontal-stretch: 1;
         Rectangle {
-            height: 14px;
-            border-radius: 7px;
-            background: #14181a;
-            clip: true;
+            height: 8px;
+            border-radius: 4px;
+            background: Theme.well;
             Rectangle {
                 x: 0;
                 width: parent.width * Math.min(1.0, pct / Math.max(1, root.limit));
-                background: Theme.sel;
+                border-radius: 4px;
+                background: pct == 100 ? Theme.sel : Theme.warn;
+                animate width { duration: Theme.settle; easing: ease-out; }
+                animate background { duration: Theme.settle; }
             }
         }
         // 100% mark
@@ -176,20 +196,23 @@ component OverrideRow inherits HorizontalLayout {
             x: parent.width * 100 / Math.max(1, root.limit) - 1px;
             width: 2px;
             height: 20px;
+            border-radius: 1px;
             background: Theme.muted;
         }
     }
-    Btn { width: 64px; min-height: 50px; text: "+"; clicked => { Actions.override(which, step); } }
+    Btn { width: 64px; min-height: 50px; text: "+"; font-size: 28px; clicked => { Actions.override(which, step); } }
     // Tapping the percentage resets the row to 100%.
     Text {
-        width: 84px;
+        width: 72px;
         vertical-alignment: center;
         horizontal-alignment: right;
         text: pct + "%";
         TouchArea { clicked => { Actions.override-reset(which); } }
-        font-family: Theme.display;
-        font-size: 28px;
-        color: Theme.ink;
+        font-family: Theme.body;
+        font-weight: 600;
+        font-size: 27px;
+        color: pct == 100 ? Theme.ink : Theme.warn;
+        animate color { duration: Theme.settle; }
     }
 }
 
@@ -202,13 +225,11 @@ export component LeftColumn inherits Rectangle {
         padding-bottom: 12px;
         spacing: 10px;
         Rectangle {
-            background: Theme.well;
-            border-width: 1px;
-            border-color: Theme.line;
-            border-radius: 8px;
+            background: Theme.panel;
+            border-radius: Theme.radius;
             VerticalLayout {
-                padding-left: 16px;
-                padding-right: 16px;
+                padding-left: 18px;
+                padding-right: 18px;
                 padding-top: 6px;
                 padding-bottom: 6px;
                 for r[i] in Live.dro: DroLine { data: r; last: i == Live.dro.length - 1; }
@@ -231,6 +252,7 @@ export component LeftColumn inherits Rectangle {
             text: Live.modal;
             font-family: Theme.body;
             font-size: 18px;
+            letter-spacing: 0.3px;
             color: Theme.dim;
             wrap: word-wrap;
         }
@@ -239,7 +261,7 @@ export component LeftColumn inherits Rectangle {
                 padding: 12px;
                 padding-top: 8px;
                 padding-bottom: 8px;
-                spacing: 8px;
+                spacing: 6px;
                 OverrideRow { label: "FEED"; which: "feed"; pct: Live.feed-pct; limit: Live.feed-max; }
                 OverrideRow { label: "RAPID"; which: "rapid"; pct: Live.rapid-pct; limit: 100; step: 25; }
                 OverrideRow { label: "SPINDLE"; which: "spindle"; pct: Live.spindle-pct; limit: Live.spindle-max; }
@@ -304,7 +326,8 @@ export component BottomBar inherits Rectangle {
             Btn {
                 width: 104px;
                 height: 96px;
-                font-size: 27px;
+                font-size: 24px;
+                flat: true;
                 icon: n.icon;
                 text: n.label;
                 on: Live.screen == n.id;
@@ -351,9 +374,10 @@ export component BottomBar inherits Rectangle {
             // A static ring (no flashing) says CYCLE START will resume.
             Rectangle {
                 width: 192px; height: 112px;
-                border-radius: 10px;
-                border-width: Live.paused ? 4px : 0;
-                border-color: #9ff0bd;
+                border-radius: 15px;
+                border-width: 4px;
+                border-color: Live.paused ? Theme.good : transparent;
+                animate border-color { duration: Theme.settle; }
                 Btn {
                     x: 6px; y: 6px;
                     width: 180px; height: 100px; font-size: 32px; kind: "go";
