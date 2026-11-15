@@ -704,11 +704,6 @@ fn main() -> Result<(), slint::PlatformError> {
                         with_manual(|mm| manual::log_message(ui, mm, &m));
                         live.set_message(SharedString::from(m.text.trim()));
                         live.set_message_error(m.kind == MessageKind::Error);
-                        // The header has room for a few words; show LinuxCNC's
-                        // errors in full where they can be read.
-                        if m.kind == MessageKind::Error {
-                            toast(ui, m.text.trim().to_string());
-                        }
                     }
                     Event::Disconnected(e) => {
                         let mut st = state.borrow_mut();
@@ -1247,15 +1242,13 @@ thread_local! {
 
 /// Show a refusal over the bottom bar for a few seconds.
 fn toast(ui: &MainWindow, text: String) {
-    // Long enough to read: 5 s, or about 15 characters a second (tap to close).
-    let shown = Duration::from_secs((text.chars().count() as u64 / 15).max(5));
     ui.global::<Live>().set_toast(text.into());
     let n = TOAST.with(|t| {
         t.set(t.get() + 1);
         t.get()
     });
     let weak = ui.as_weak();
-    slint::Timer::single_shot(shown, move || {
+    slint::Timer::single_shot(Duration::from_secs(5), move || {
         if TOAST.with(|t| t.get()) == n {
             if let Some(ui) = weak.upgrade() {
                 ui.global::<Live>().set_toast("".into());

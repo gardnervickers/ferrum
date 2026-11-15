@@ -50,7 +50,8 @@ component KeyBtn inherits Btn {
 // backplot): command line, help, library by category, G-code keypad.
 component MdiPanel inherits VerticalLayout {
     spacing: 12px;
-    property <bool> unlocked: Live.power && !Live.manual-locked;
+    // As Probe Basic: MDI needs the machine on, homed and idle.
+    property <bool> unlocked: Live.power && Live.homed && !Live.manual-locked;
     HorizontalLayout {
         spacing: 12px;
         Rectangle {
