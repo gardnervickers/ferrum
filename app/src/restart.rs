@@ -414,13 +414,14 @@ impl Plan {
     /// short so lines near the top can still be start lines. Within a line
     /// LinuxCNC does F, S, M3/M4, M7/M8, then the G4 dwell.
     pub fn preamble(&self) -> Vec<String> {
-        let mut v = vec!["G53 G0 Z0 (millgui restart: Z to the top)".to_string()];
+        // Modes first: LinuxCNC refuses G53 while G91 or cutter comp is on,
+        // and MDI or a probing macro can leave either behind.
         let mut modal = self.modal.clone();
         modal.extend(["G90".into(), "G40".into(), "G80".into()]);
         if !self.changes_tool {
             modal.extend(self.tlo.clone());
         }
-        v.push(modal.join(" "));
+        let mut v = vec![modal.join(" "), "G53 G0 Z0 (millgui restart: Z to the top)".to_string()];
         let mut setup = Vec::new();
         if let Some(f) = self.feed {
             setup.push(format!("F{}", fmt(f)));
@@ -558,8 +559,8 @@ mod tests {
         assert_eq!(
             p.preamble(),
             vec![
-                "G53 G0 Z0 (millgui restart: Z to the top)",
                 "G21 G17 G94 G91.1 G54 G90 G40 G80 G43 H3",
+                "G53 G0 Z0 (millgui restart: Z to the top)",
                 "F300 M3 S8000 M7 G4 P2",
                 "G0 X10 Y10",
                 "G0 Z15",
@@ -571,7 +572,7 @@ mod tests {
         let p = plan(FUSION, 18);
         assert!(p.changes_tool);
         assert_eq!((p.tool, p.spindle, p.mist), (Some(3), 0, false));
-        assert_eq!(p.preamble(), vec!["G53 G0 Z0 (millgui restart: Z to the top)", "G21 G17 G94 G91.1 G54 G90 G40 G80", "F300", "G0"]);
+        assert_eq!(p.preamble(), vec!["G21 G17 G94 G91.1 G54 G90 G40 G80", "G53 G0 Z0 (millgui restart: Z to the top)", "F300", "G0"]);
         let p = plan(FUSION, 20);
         assert_eq!((p.tool, p.rpm, p.spindle), (Some(5), 2000.0, 1));
         assert_eq!(p.op.as_deref(), Some("DRILL1"));
@@ -583,7 +584,7 @@ mod tests {
         let f = p.file_lines(FUSION);
         assert_eq!(f.len(), FUSION.len());
         assert_eq!(f[0], "%");
-        assert_eq!(f[1], "G53 G0 Z0 (millgui restart: Z to the top)");
+        assert_eq!(f[2], "G53 G0 Z0 (millgui restart: Z to the top)");
         assert_eq!(f[12], "");
         assert_eq!(&f[13..], &FUSION[13..]);
         // Before the preamble fits: refused.
@@ -629,7 +630,7 @@ mod tests {
         assert!(plan(&g, 13).problem.unwrap().contains("M100"));
         g[3] = "G64 P0.02".into();
         assert!(plan(&g, 13).problem.is_none());
-        assert!(plan(&g, 13).preamble()[1].contains("G64 P0.02"), "{:?}", plan(&g, 13).preamble());
+        assert!(plan(&g, 13).preamble()[0].contains("G64 P0.02"), "{:?}", plan(&g, 13).preamble());
     }
 
     #[test]

@@ -57,14 +57,16 @@ export component MainWindow inherits Window {
         init => { self.opacity = 1; }
         animate opacity { duration: Theme.quick; }
         width: 860px;
-        height: 84px;
+        // Grows to fit: an error is read in full, never cut off.
+        height: max(84px, toast-text.preferred-height + 28px);
         background: Theme.panel2;
         border-width: 2px;
         border-color: Theme.bad;
         border-radius: Theme.radius-ctl;
-        Text {
+        toast-text := Text {
             x: 24px;
             width: parent.width - 48px;
+            height: parent.height;
             vertical-alignment: center;
             text: Live.toast;
             wrap: word-wrap;

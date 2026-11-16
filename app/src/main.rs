@@ -704,6 +704,11 @@ fn main() -> Result<(), slint::PlatformError> {
                         with_manual(|mm| manual::log_message(ui, mm, &m));
                         live.set_message(SharedString::from(m.text.trim()));
                         live.set_message_error(m.kind == MessageKind::Error);
+                        // The top bar cuts long text off; an error also
+                        // shows in full until it is tapped away.
+                        if m.kind == MessageKind::Error {
+                            toast_until_tapped(ui, explain_error(m.text.trim()));
+                        }
                     }
                     Event::Disconnected(e) => {
                         let mut st = state.borrow_mut();
@@ -1241,6 +1246,31 @@ thread_local! {
 }
 
 /// Show a refusal over the bottom bar for a few seconds.
+/// A toast that stays until tapped (or replaced): for errors that must be
+/// read in full.
+fn toast_until_tapped(ui: &MainWindow, text: String) {
+    // Moving the counter on cancels the timer of any earlier toast.
+    TOAST.with(|t| t.set(t.get() + 1));
+    ui.global::<Live>().set_toast(text.into());
+}
+
+/// LinuxCNC's error, plus what to do for the ones whose cause is not on
+/// the line they name.
+fn explain_error(text: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    let hint = if lower.contains("cannot use g53 incremental") {
+        Some("G91 (incremental) is still on from MDI or a macro. Put G90 before the G53, or run G90 in MDI.")
+    } else if lower.contains("cannot use g53 with cutter radius comp") {
+        Some("Cutter compensation is still on. Put G40 before the G53, or run G40 in MDI.")
+    } else {
+        None
+    };
+    match hint {
+        Some(h) => format!("{text}\n{h}"),
+        None => text.to_string(),
+    }
+}
+
 fn toast(ui: &MainWindow, text: String) {
     ui.global::<Live>().set_toast(text.into());
     let n = TOAST.with(|t| {
