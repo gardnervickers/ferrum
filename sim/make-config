@@ -38,9 +38,6 @@ def ini(text: str, out: Path) -> str:
             continue
         if section == "[HMOT]":
             continue
-        if section.startswith("[JOINT_") and key in ("HOME_SEARCH_VEL", "HOME_LATCH_VEL", "HOME_FINAL_VEL"):
-            lines.append(f"{key} = 0")
-            continue
         if key == "PROGRAM_PREFIX":
             lines.append(f"PROGRAM_PREFIX = {out / 'nc_files'}")
             continue

@@ -3,7 +3,10 @@
 
 Exports the hm2_7i76e.0.* pins mymill.hal's logic uses, so that file runs
 unchanged apart from motion: HLFB inputs report ready, the probe trips
-inside a stock block and the tool setter trips over the G30 position.
+inside a stock block, the tool setter trips over the G30 position and the
+X/Y/Z home switches close a little way from where each joint started, in
+the direction mymill.ini's HOME_SEARCH_VEL searches, so homing runs the
+real search and latch moves.
 For the simulator only; it never talks to hardware.
 """
 import os
@@ -27,7 +30,7 @@ for name, t in [("spinmode", hal.HAL_U32), ("spinout", hal.HAL_FLOAT), ("spinena
 c.newpin(P + "output_source", hal.HAL_U32, hal.HAL_IN)
 c.newpin(P + "output_sink", hal.HAL_U32, hal.HAL_IN)
 for a in "xyz":
-    c.newpin(f"sim.{a}", hal.HAL_FLOAT, hal.HAL_IN)
+    c.newpin(f"sim.{a}", hal.HAL_FLOAT, hal.HAL_IN)  # motor position (continuous through homing)
 # Hold an input on by hand: halcmd setp hm2_7i76e.0.sim.force-probe 1
 c.newpin("sim.force-probe", hal.HAL_BIT, hal.HAL_IN)
 c.newpin("sim.force-setter", hal.HAL_BIT, hal.HAL_IN)
@@ -63,6 +66,20 @@ def tool_length():
         return 0.0
 
 
+# Home switches: input, joint, search direction (sign of HOME_SEARCH_VEL in
+# mymill.ini) and how far from the start position they close (mm).
+HOME_SWITCHES = [(28, "x", -1), (29, "y", 1), (30, "z", 1)]
+HOME_TRAVEL = float(os.environ.get("SIM_HOME_TRAVEL", "40"))
+
+
+def machine(j):
+    """Joint (machine) position; the motor position shifts when homed."""
+    try:
+        return float(hal.get_value(f"joint.{j}.pos-fb"))
+    except Exception:
+        return 0.0
+
+
 def setin(n, on):
     c[f"{P}input-{n:02d}"] = on
     c[f"{P}input-{n:02d}-not"] = not on
@@ -73,14 +90,15 @@ try:
     while True:
         if time.monotonic() - length_at > 0.05:
             length, length_at = tool_length(), time.monotonic()
-        x, y = c["sim.x"], c["sim.y"]
-        z = c["sim.z"] - length
+        x, y = machine(0), machine(1)
+        z = machine(2) - length
         # HLFB ok on every drive (inputs 24-27 high = ok).
         for n in (24, 25, 26, 27):
             setin(n, True)
-        # Home switches not pressed (inputs read through -not).
-        for n in (28, 29, 30):
-            setin(n, True)
+        # Home switches (normally closed, read through -not): pressed once the
+        # motor has gone HOME_TRAVEL past its start in the search direction.
+        for n, a, d in HOME_SWITCHES:
+            setin(n, not (c[f"sim.{a}"] * d >= HOME_TRAVEL))
         in_stock = STOCK["x"][0] <= x <= STOCK["x"][1] and STOCK["y"][0] <= y <= STOCK["y"][1] and z <= STOCK["top"]
         on_setter = (x - SETTER["x"]) ** 2 + (y - SETTER["y"]) ** 2 <= SETTER["r"] ** 2 and z <= SETTER["top"]
         # Probe and setter are normally closed: the -not pin is the trigger.

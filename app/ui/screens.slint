@@ -282,7 +282,6 @@ component ProgramCard inherits Card {
                     }
                     self.show();
                 }
-                enabled: Live.program != "";
                 pointer-event(e) => {
                     if e.kind == PointerEventKind.down {
                         self.dragging = false;
@@ -319,9 +318,11 @@ component ProgramCard inherits Card {
                 }
                 double-clicked => { if !self.cur-drag && !self.last-drag { Actions.plot-fit(); } }
             }
-            if Live.program == "": Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
+            // With no program the table and the tool still show, so the
+            // note sits along the bottom instead of over them.
+            if Live.program == "": Note { x: 96px; y: parent.height - self.height - 24px; width: parent.width - 260px; text: "No program loaded. Load one on FILES."; }
             // Zoom down the left edge, the camera caption beside it.
-            if Live.program != "": VerticalLayout {
+            VerticalLayout {
                 x: 12px; y: 12px; width: 68px;
                 spacing: 8px;
                 alignment: start;
@@ -331,7 +332,7 @@ component ProgramCard inherits Card {
                 Btn { height: 56px; font-size: 20px; text: "FIT"; clicked => { Actions.plot-fit(); } }
                 Btn { height: 56px; font-size: 20px; text: "CLEAR"; clicked => { Actions.plot-clear-trail(); } }
             }
-            if Live.program != "": Text {
+            Text {
                 x: 96px; y: 14px;
                 text: Live.plot-view + (Live.plot-summary == "" ? "" : "  ·  " + Live.plot-summary);
                 font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim;
@@ -356,7 +357,7 @@ component ProgramCard inherits Card {
             }
             // View cube: drag to orbit, tap a face, edge or corner to look
             // from there.
-            if Live.program != "": cube := Rectangle {
+            cube := Rectangle {
                 x: parent.width - self.width - 10px; y: 10px;
                 width: 150px; height: 150px;
                 for f in Live.cube-faces: Path {
@@ -429,7 +430,7 @@ component ProgramCard inherits Card {
                 }
             }
             // Show or hide the table and the tool.
-            if Live.program != "": Btn {
+            Btn {
                 x: parent.width - self.width - 12px; y: parent.height - self.height - 12px;
                 width: 130px; height: 48px; font-size: 20px;
                 text: "TABLE"; on: Live.plot-machine;
