@@ -143,9 +143,9 @@ export component OffsetsScreen inherits Rectangle {
                 if Live.offsets-view != "timeline": HorizontalLayout {
                     spacing: 12px;
                     Btn { max-width: 240px; preferred-width: 240px; min-width: 144px; horizontal-stretch: 1; text: "MAKE " + Live.offsets-sel-label + " ACTIVE"; enabled: !locked && !Live.offsets[Live.offsets-selected].active; clicked => { Actions.offsets-activate(); } }
-                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO X HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(0); } }
-                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Y HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(1); } }
-                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Z HERE"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-zero(2); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO X HERE"; enabled: !locked; clicked => { Actions.offsets-zero(0); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Y HERE"; enabled: !locked; clicked => { Actions.offsets-zero(1); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Z HERE"; enabled: !locked; clicked => { Actions.offsets-zero(2); } }
                     Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; text: "CLEAR " + Live.offsets-sel-label; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear(); } }
                     Rectangle { horizontal-stretch: 1; }
                     Btn { max-width: 190px; preferred-width: 190px; min-width: 114px; horizontal-stretch: 1; text: "CLEAR ALL"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear-all(); } }

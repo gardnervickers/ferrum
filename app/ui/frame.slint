@@ -114,6 +114,8 @@ component DroSub inherits Rectangle {
 component DroLine inherits Rectangle {
     in property <DroRow> data;
     in property <bool> last;
+    // Space the ZERO button takes from the number's left edge.
+    property <length> zero-w: Layout.compact ? 76px : 88px;
     height: 85px;
     if !last: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
     // The axis letter is amber until the axis is homed.
@@ -126,11 +128,24 @@ component DroLine inherits Rectangle {
         color: data.homed ? Theme.sel : Theme.warn;
         animate color { duration: 400ms; }
     }
+    // One tap: this axis reads 0 in the active work system (G10 L20 P0).
+    // No hold: the old value is on the OFFSETS timeline to put back.
+    Btn {
+        x: 50px;
+        y: 12px;
+        width: root.zero-w;
+        height: 56px;
+        text: "ZERO";
+        font-size: Layout.compact ? 20px : 22px;
+        enabled: Live.power && data.homed && !Live.manual-locked;
+        clicked => { Actions.dro-zero(data.axis); }
+    }
     Text {
-        x: 52px;
+        x: 50px + root.zero-w + 8px;
         y: 1px;
-        width: parent.width - 52px;
+        width: parent.width - self.x;
         horizontal-alignment: right;
+        overflow: elide;
         text: data.work;
         font-family: Theme.body;
         font-weight: 600;
