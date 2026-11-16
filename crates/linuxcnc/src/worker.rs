@@ -53,14 +53,33 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
     // first polls after connecting can come before task publishes status.
     let mut failing_since: Option<Instant> = None;
     let mut back: Option<MdiReturn> = None;
+    let mut modes: Option<ModeRestore> = None;
     loop {
         let start = Instant::now();
         loop {
             match rx.try_recv() {
                 Ok(cmd) => {
                     let is_mdi = matches!(cmd, Command::Mdi(_));
+                    // Put modes back from a finished macro before anything
+                    // that reads them: the next MDI line, or a program.
+                    if matches!(cmd, Command::Mdi(_) | Command::ProgramRun(_) | Command::Step) {
+                        if let Some(sent) = flush_modes(m, &last, &mut modes, on_event) {
+                            back = after_mdi(back.take(), Some(sent));
+                        }
+                    }
+                    if matches!(cmd, Command::ProgramRun(_) | Command::Step) {
+                        start_modes(m, &last, on_event);
+                    }
+                    let call = match &cmd {
+                        Command::Mdi(line) if is_macro_call(line) => true,
+                        _ => false,
+                    };
+                    let snap = if call && modes.is_none() { m.poll().ok().filter(|s| !s.busy() && s.queued_mdi == 0) } else { None };
                     let picks_mode = required_mode(&cmd).is_some() || matches!(cmd, Command::SetMode(_));
                     let sent = execute(m, &last, cmd, on_event);
+                    if call {
+                        modes = after_macro(modes.take(), snap, sent);
+                    }
                     if is_mdi {
                         back = after_mdi(back.take(), sent);
                     } else if picks_mode {
@@ -75,7 +94,14 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
             Ok(s) => {
                 connected = true;
                 failing_since = None;
-                if let Some(mode) = back.as_mut().and_then(|b| b.due(&s)) {
+                if modes.as_ref().is_some_and(|r| r.done(&s)) {
+                    if let Some(sent) = flush_modes(m, &last, &mut modes, on_event) {
+                        back = after_mdi(back.take(), Some(sent));
+                    }
+                }
+                if modes.is_some() {
+                    // The mode goes back after the restore, not before it.
+                } else if let Some(mode) = back.as_mut().and_then(|b| b.due(&s)) {
                     back = None;
                     let _ = m.send(&Command::SetMode(mode));
                 }
@@ -141,6 +167,167 @@ impl MdiReturn {
             return None;
         }
         (self.idle_since.get_or_insert_with(Instant::now).elapsed() >= MDI_RETURN_AFTER).then_some(self.mode)
+    }
+}
+
+/// Modes a macro changed are put back once it ends, finished or stopped.
+///
+/// Stock probe macros end in G91 (bore, pocket, slot), and a macro stopped
+/// partway (STOP, E-stop, a probe error) leaves whatever it had set: G91, a
+/// work system, units, the tool offset off. LinuxCNC's abort only puts back
+/// G90 and G40 (on_abort.ngc), and those modes carry into MDI and the next
+/// program. So millgui notes the modes before each `o<...> call` and, once
+/// the call is over, puts back the ones that differ. Typed G-codes (G91,
+/// G55) are left as typed; only macro calls are wrapped.
+struct ModeRestore {
+    before: Modes,
+    /// The last macro call sent; nothing is restored before task echoes it.
+    serial: i32,
+}
+
+/// The modes a restore puts back.
+#[derive(Debug, Clone, PartialEq)]
+struct Modes {
+    units: Option<i32>,
+    plane: Option<i32>,
+    feed: Option<i32>,
+    wcs: i32,
+    distance: Option<i32>,
+    /// G43 on (from the tool table), and the tool it was for.
+    tool_offset: bool,
+    tool: i32,
+}
+
+impl Modes {
+    fn of(s: &Status) -> Self {
+        // Codes are stored as code * 10, in fixed slots; look them up by
+        // value so the slot layout doesn't matter.
+        let pick = |set: &[i32]| s.active_gcodes[1..].iter().copied().find(|g| set.contains(g));
+        Modes {
+            units: pick(&[200, 210]),
+            plane: pick(&[170, 180, 190]),
+            feed: pick(&[930, 940, 950]),
+            wcs: s.g5x_index,
+            distance: pick(&[900, 910]),
+            tool_offset: s.active_gcodes[1..].contains(&430),
+            tool: s.tool_in_spindle,
+        }
+    }
+
+    /// The MDI line that takes `now` back to these modes, if any differ.
+    fn line_from(&self, now: &Modes) -> Option<String> {
+        let g = |c: i32| if c % 10 == 0 { format!("G{}", c / 10) } else { format!("G{}.{}", c / 10, c % 10) };
+        let mut w = Vec::new();
+        for (was, is) in [(self.units, now.units), (self.plane, now.plane), (self.feed, now.feed)] {
+            if let Some(c) = was.filter(|c| Some(*c) != is) {
+                w.push(g(c));
+            }
+        }
+        if self.wcs != now.wcs && (1..=9).contains(&self.wcs) {
+            w.push(["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"][self.wcs as usize - 1].to_string());
+        }
+        if let Some(c) = self.distance.filter(|c| Some(*c) != now.distance) {
+            w.push(g(c));
+        }
+        // Only an offset the macro turned off is turned back on, and only
+        // for the same tool: a touch-off ends with a new G43 on purpose, and
+        // a tool change brings its own.
+        if self.tool_offset && !now.tool_offset && self.tool == now.tool && self.tool > 0 {
+            w.push("G43".into());
+        }
+        (!w.is_empty()).then(|| w.join(" "))
+    }
+}
+
+fn is_macro_call(line: &str) -> bool {
+    let l = line.trim().to_ascii_lowercase();
+    l.starts_with("o<") && l.split_once('>').is_some_and(|(_, rest)| rest.trim_start().starts_with("call"))
+}
+
+/// Start (or extend) a restore for a macro call that was sent. The modes
+/// from before the first of a run of calls are the ones that come back.
+fn after_macro(r: Option<ModeRestore>, snap: Option<Status>, sent: Option<(Mode, i32)>) -> Option<ModeRestore> {
+    let Some((_, serial)) = sent else { return r };
+    match r {
+        Some(r) => Some(ModeRestore { serial, ..r }),
+        None => snap.map(|s| ModeRestore { before: Modes::of(&s), serial }),
+    }
+}
+
+impl ModeRestore {
+    /// The call is over: echoed, task no longer executing it, interpreter
+    /// idle. Holds after a stop or E-stop too.
+    fn done(&self, s: &Status) -> bool {
+        s.echo_serial >= self.serial && s.command_status != 2 && s.interp == Interp::Idle && s.queued_mdi == 0
+    }
+}
+
+/// Send the restore line if the macro is over and LinuxCNC can take MDI,
+/// and wait for it to finish (a following switch to AUTO would abort it).
+/// After an E-stop it stays pending until the machine is on and homed.
+/// Returns the mode and serial of the restore line, when one was sent.
+fn flush_modes(m: &mut dyn Machine, last: &Option<Status>, modes: &mut Option<ModeRestore>, on_event: &mut dyn FnMut(Event)) -> Option<(Mode, i32)> {
+    let s = m.poll().ok().or_else(|| last.clone())?;
+    let r = modes.as_ref()?;
+    if !r.done(&s) {
+        return None;
+    }
+    let Some(line) = r.before.line_from(&Modes::of(&s)) else {
+        *modes = None;
+        return None;
+    };
+    if !(s.power_on() && s.all_homed()) {
+        return None;
+    }
+    *modes = None;
+    let sent = execute(m, last, Command::Mdi(line.clone()), on_event)?;
+    wait_for(m, Duration::from_secs(2), |s| s.echo_serial >= sent.1 && s.command_status != 2 && s.interp == Interp::Idle);
+    on_event(Event::Message(Message { kind: MessageKind::Text, text: format!("Modes put back after the macro: {line}") }));
+    Some(sent)
+}
+
+/// The words a program start needs that the current modes lack, so a
+/// program runs the same after MDI or a macro as after a fresh start
+/// (RS274NGC_STARTUP_CODE): absolute moves, XY plane, no cutter comp, no
+/// canned cycle, feed per minute, incremental arc centres. Units, the work
+/// system and the tool offset are the operator's and stay as they are.
+fn start_words(s: &Status) -> Option<String> {
+    let g = &s.active_gcodes[1..];
+    let has = |c: i32| g.contains(&c);
+    let mut w = Vec::new();
+    if (810..=890).contains(&s.active_gcodes[1]) || (730..=760).contains(&s.active_gcodes[1]) {
+        w.push("G80");
+    }
+    if has(180) || has(190) {
+        w.push("G17");
+    }
+    if has(410) || has(420) {
+        w.push("G40");
+    }
+    if has(930) || has(950) {
+        w.push("G94");
+    }
+    if has(910) {
+        w.push("G90");
+    }
+    if has(901) {
+        w.push("G91.1");
+    }
+    (!w.is_empty()).then(|| w.join(" "))
+}
+
+/// Before CYCLE START (or a first single step) from idle, set the modes a
+/// program expects, in MDI, and wait for it: the switch to AUTO that
+/// follows would abort it.
+fn start_modes(m: &mut dyn Machine, last: &Option<Status>, on_event: &mut dyn FnMut(Event)) {
+    let Some(s) = m.poll().ok().or_else(|| last.clone()) else { return };
+    if s.busy() || !(s.power_on() && s.all_homed()) {
+        return;
+    }
+    let Some(line) = start_words(&s) else { return };
+    if let Some((_, serial)) = execute(m, last, Command::Mdi(line.clone()), on_event) {
+        wait_for(m, Duration::from_secs(2), |s| s.echo_serial >= serial && s.command_status != 2 && s.interp == Interp::Idle);
+        on_event(Event::Message(Message { kind: MessageKind::Text, text: format!("Set {line} for the program start") }));
     }
 }
 
@@ -438,5 +625,71 @@ mod tests {
         let s = sim.poll().unwrap();
         assert_eq!(s.traj_mode, 1);
         assert!(s.all_homed());
+    }
+
+    fn modal(codes: &[i32], wcs: i32, tool: i32) -> Status {
+        let mut s = Status::default();
+        s.active_gcodes = [-1; 17];
+        for (i, c) in codes.iter().enumerate() {
+            s.active_gcodes[i + 1] = *c;
+        }
+        s.g5x_index = wcs;
+        s.tool_in_spindle = tool;
+        s
+    }
+
+    #[test]
+    fn macro_calls_are_wrapped_typed_codes_are_not() {
+        assert!(is_macro_call("o<probe_round_pocket_center_start> call"));
+        assert!(is_macro_call("  O<mymill_powerfeed> CALL [1] [2]"));
+        assert!(!is_macro_call("G91"));
+        assert!(!is_macro_call("o100 if [#1 GT 0]"));
+        assert!(!is_macro_call("o<x> sub"));
+    }
+
+    #[test]
+    fn restore_puts_back_what_the_macro_changed() {
+        let before = Modes::of(&modal(&[210, 170, 940, 900, 430], 1, 3));
+        // Bore probe: ends in G91.
+        assert_eq!(before.line_from(&Modes::of(&modal(&[210, 170, 940, 910, 430], 1, 3))).as_deref(), Some("G90"));
+        // Stopped partway: G20, G55, G91, offset off.
+        let now = Modes::of(&modal(&[200, 170, 940, 910, 490], 2, 3));
+        assert_eq!(before.line_from(&now).as_deref(), Some("G21 G54 G90 G43"));
+        assert_eq!(before.line_from(&before), None);
+    }
+
+    #[test]
+    fn tool_offset_only_comes_back_for_the_same_tool() {
+        let on = Modes::of(&modal(&[210, 900, 430], 1, 3));
+        assert_eq!(on.line_from(&Modes::of(&modal(&[210, 900, 490], 1, 4))), None);
+        // A touch-off that turns G43 on is left alone.
+        let off = Modes::of(&modal(&[210, 900, 490], 1, 3));
+        assert_eq!(off.line_from(&Modes::of(&modal(&[210, 900, 430], 1, 3))), None);
+    }
+
+    #[test]
+    fn restore_waits_for_the_call_and_keeps_the_first_snapshot() {
+        let first = modal(&[900], 1, 0);
+        let r = after_macro(None, Some(first), Some((Mode::Manual, 5))).unwrap();
+        let r = after_macro(Some(r), Some(modal(&[910], 2, 0)), Some((Mode::Mdi, 6))).unwrap();
+        assert_eq!(r.serial, 6);
+        assert_eq!(r.before.wcs, 1);
+        let mut s = modal(&[910], 2, 0);
+        s.echo_serial = 5;
+        assert!(!r.done(&s));
+        s.echo_serial = 6;
+        s.command_status = 2;
+        assert!(!r.done(&s));
+        s.command_status = 1;
+        assert!(r.done(&s));
+        // Not sent: nothing to restore.
+        assert!(after_macro(None, Some(modal(&[900], 1, 0)), None).is_none());
+    }
+
+    #[test]
+    fn program_start_sets_absolute_and_clears_leftovers() {
+        assert_eq!(start_words(&modal(&[10, 170, 400, 210, 900, 940, 540, 911], 1, 0)), None);
+        assert_eq!(start_words(&modal(&[10, 170, 400, 210, 910, 940, 540, 911], 1, 0)).as_deref(), Some("G90"));
+        assert_eq!(start_words(&modal(&[810, 190, 410, 200, 910, 930, 550, 901], 2, 0)).as_deref(), Some("G80 G17 G40 G94 G90 G91.1"));
     }
 }

@@ -81,14 +81,17 @@ just started.
    guard, stopping one partway can leave a different WCS, units or tool
    offset in place, because `on_abort.ngc` only restores G90 and G40. Fixing
    this means changing the Pi's machine config.
-2. **No RESTORE MODES in millgui.** Once the guard is installed, an
-   interrupted power feed or touch-off holds motion until
-   `o<mymill_restore_modes>` runs. Probe Basic's Utilities tab has a button
-   for it; millgui doesn't yet (MDI `o<mymill_restore_modes> call` works).
-3. **Beyond Probe Basic: refuse CYCLE START with G91 active.** A
-   hand-written program without G90 would run incrementally after a pocket
-   probe or an MDI G91. Probe Basic doesn't check for this. millgui could
-   refuse, or ask first, when the modal line shows G91 at program start.
+2. **No RESTORE MODES in millgui.** Resolved without a button: millgui
+   notes the modes before every `o<...> call` (units, plane, feed mode, WCS,
+   G90/G91, and G43 for the same tool) and puts back whatever differs once
+   the call ends, whether it finished, was stopped, or was cut off by an
+   E-stop (then right after homing, before any MDI line or program). Typed
+   G-codes are left as typed. Checked in the simulator.
+3. **Beyond Probe Basic: G91 at CYCLE START.** Gardner chose not to refuse
+   the start. CYCLE START (and a first single step) now sets the modes a
+   program expects when they differ: G90, G17, G40, G80, G94 and G91.1, as in
+   RS274NGC_STARTUP_CODE. Units, the work system and the tool offset are left
+   to the operator. Checked in the simulator.
 
 ## Other findings (PR #8)
 
