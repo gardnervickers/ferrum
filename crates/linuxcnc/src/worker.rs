@@ -52,11 +52,21 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
     // Report a lost connection only after it stays lost for a second; the
     // first polls after connecting can come before task publishes status.
     let mut failing_since: Option<Instant> = None;
+    let mut back: Option<MdiReturn> = None;
     loop {
         let start = Instant::now();
         loop {
             match rx.try_recv() {
-                Ok(cmd) => execute(m, &last, cmd, on_event),
+                Ok(cmd) => {
+                    let is_mdi = matches!(cmd, Command::Mdi(_));
+                    let picks_mode = required_mode(&cmd).is_some() || matches!(cmd, Command::SetMode(_));
+                    let sent = execute(m, &last, cmd, on_event);
+                    if is_mdi {
+                        back = after_mdi(back.take(), sent);
+                    } else if picks_mode {
+                        back = None;
+                    }
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return,
             }
@@ -65,6 +75,10 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
             Ok(s) => {
                 connected = true;
                 failing_since = None;
+                if let Some(mode) = back.as_mut().and_then(|b| b.due(&s)) {
+                    back = None;
+                    let _ = m.send(&Command::SetMode(mode));
+                }
                 if last.as_ref() != Some(&s) {
                     on_event(Event::Status(Box::new(s.clone())));
                     last = Some(s);
@@ -87,13 +101,59 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
     }
 }
 
+/// After an MDI command the mode goes back to what it was, as Probe Basic
+/// does (QtPyVCP `issue_mdi`, and the mill's own MDI workers). Otherwise
+/// task stays in MDI with motion in coordinated mode, where the pendant's
+/// wheel (axis.N.jog-counts, teleop only) does nothing.
+struct MdiReturn {
+    mode: Mode,
+    /// The last MDI command sent; nothing goes back before task echoes it.
+    serial: i32,
+    idle_since: Option<Instant>,
+}
+
+/// How long MDI must stay idle before the switch back, so a run of MDI
+/// lines (a probe routine sends one at a time) doesn't flip modes between
+/// lines.
+const MDI_RETURN_AFTER: Duration = Duration::from_millis(500);
+
+fn after_mdi(back: Option<MdiReturn>, sent: Option<(Mode, i32)>) -> Option<MdiReturn> {
+    let (before, serial) = sent?;
+    match back {
+        Some(b) => Some(MdiReturn { serial, idle_since: None, ..b }),
+        None if before != Mode::Mdi => Some(MdiReturn { mode: before, serial, idle_since: None }),
+        None => None,
+    }
+}
+
+impl MdiReturn {
+    /// The mode to go back to, once MDI has finished and stayed idle.
+    fn due(&mut self, s: &Status) -> Option<Mode> {
+        if s.mode != Mode::Mdi {
+            // Someone else (the pendant, a program run) changed mode.
+            self.idle_since = None;
+            return None;
+        }
+        // RCS_EXEC (2) while task still works on the command.
+        let done = s.echo_serial >= self.serial && s.command_status != 2 && s.interp == Interp::Idle && s.queued_mdi == 0;
+        if !done {
+            self.idle_since = None;
+            return None;
+        }
+        (self.idle_since.get_or_insert_with(Instant::now).elapsed() >= MDI_RETURN_AFTER).then_some(self.mode)
+    }
+}
+
 /// Commands that need a task mode get it switched first, the way LinuxCNC's
 /// own GUIs do. A switch is only attempted while idle; otherwise LinuxCNC's
 /// own error is reported.
 fn required_mode(cmd: &Command) -> Option<Mode> {
     match cmd {
         Command::Mdi(_) => Some(Mode::Mdi),
-        Command::ProgramRun(_) | Command::ProgramOpen(_) => Some(Mode::Auto),
+        // Loading needs no mode (task opens a file in any idle mode), and
+        // Probe Basic doesn't switch for it; a switch to AUTO aborts and
+        // resynchs the interpreter.
+        Command::ProgramRun(_) | Command::Step => Some(Mode::Auto),
         Command::JogCont { .. }
         | Command::JogIncr { .. }
         | Command::Home(_)
@@ -106,18 +166,71 @@ fn required_mode(cmd: &Command) -> Option<Mode> {
     }
 }
 
-fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &mut dyn FnMut(Event)) {
-    if let (Some(want), Some(s)) = (required_mode(&cmd), last) {
+/// What the operator asked for, for "didn't happen" messages.
+fn describe(cmd: &Command) -> &'static str {
+    match cmd {
+        Command::Mdi(_) => "MDI command",
+        Command::ProgramRun(_) => "Program start",
+        Command::ProgramOpen(_) => "Program load",
+        Command::Step => "Single step",
+        Command::JogCont { .. } | Command::JogIncr { .. } => "Jog",
+        Command::Home(_) => "Homing",
+        Command::Unhome(_) => "Unhome",
+        Command::SpindleOn(_) => "Spindle start",
+        Command::SpindleOff => "Spindle stop",
+        _ => "Command",
+    }
+}
+
+fn mode_name(m: Mode) -> &'static str {
+    match m {
+        Mode::Manual => "MANUAL",
+        Mode::Auto => "AUTO",
+        Mode::Mdi => "MDI",
+    }
+}
+
+/// Returns the mode task was in before the command and the command's serial,
+/// once it was sent.
+fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &mut dyn FnMut(Event)) -> Option<(Mode, i32)> {
+    // Decide from a fresh status, not the last periodic poll: an earlier
+    // command in the same batch may have switched mode or started motion,
+    // and a mode switch while something runs aborts it (task's
+    // emcTaskSetMode aborts motion and the interpreter).
+    let now = m.poll().ok().or_else(|| last.clone());
+    if let (Some(want), Some(s)) = (required_mode(&cmd), &now) {
         if s.mode != want && !s.busy() {
             if let Err(e) = m.send(&Command::SetMode(want)) {
                 on_event(Event::Message(Message { kind: MessageKind::Error, text: e }));
-                return;
+                return None;
             }
             wait_for(m, Duration::from_millis(500), |s| s.mode == want);
+            // Task refuses some switches (while jogging it only says so) and
+            // then takes the command in the old mode, where a program run is
+            // dropped without a word. Stop here and say what didn't happen;
+            // a spindle stop is still sent, whatever the mode.
+            if cmd != Command::SpindleOff && m.poll().is_ok_and(|s| s.mode != want) {
+                let mut why = None;
+                while let Some(msg) = m.next_message() {
+                    if msg.kind == MessageKind::Error {
+                        why = Some(msg.text.trim().to_string());
+                    }
+                    on_event(Event::Message(msg));
+                }
+                let text = format!(
+                    "{} didn't happen: LinuxCNC stayed in {} mode{}",
+                    describe(&cmd),
+                    mode_name(s.mode),
+                    why.map(|w| format!(" ({w})")).unwrap_or_default()
+                );
+                on_event(Event::Message(Message { kind: MessageKind::Error, text }));
+                return None;
+            }
         }
     }
+    let last = &now;
     // Jogging: teleop (axis jogs) when homed, free mode (joint jogs) when not.
-    if let (Command::JogCont { .. } | Command::JogIncr { .. }, Some(s)) = (&cmd, last) {
+    if let (Command::JogCont { .. } | Command::JogIncr { .. }, Some(s)) = (&cmd, m.poll().ok().or_else(|| last.clone())) {
         let want = s.all_homed();
         if (s.traj_mode == 3) != want {
             let _ = m.send(&Command::Teleop(want));
@@ -134,10 +247,14 @@ fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &
             }
         }
     }
-    if let Err(e) = m.send(&cmd) {
-        on_event(Event::Message(Message { kind: MessageKind::Error, text: e }));
-        return;
-    }
+    let before = now.as_ref().map_or(Mode::Manual, |s| s.mode);
+    let serial = match m.send(&cmd) {
+        Ok(serial) => serial,
+        Err(e) => {
+            on_event(Event::Message(Message { kind: MessageKind::Error, text: e }));
+            return None;
+        }
+    };
     // Say so when a home command was taken but nothing started: LinuxCNC
     // drops it without a message when motion is not enabled.
     if let Command::Home(j) = cmd {
@@ -150,7 +267,7 @@ fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &
         while Instant::now() < end {
             if let Ok(s) = m.poll() {
                 if started(&s) {
-                    return;
+                    return None;
                 }
                 seen = Some(s);
             }
@@ -174,6 +291,7 @@ fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &
             on_event(Event::Message(Message { kind: MessageKind::Error, text }));
         }
     }
+    Some((before, serial))
 }
 
 fn wait_for(m: &mut dyn Machine, timeout: Duration, done: impl Fn(&Status) -> bool) {
@@ -201,6 +319,112 @@ mod tests {
         let last = Some(sim.poll().unwrap());
         execute(&mut sim, &last, Command::Mdi("G0 X0".into()), &mut |_| {});
         assert_eq!(sim.poll().unwrap().mode, Mode::Mdi);
+    }
+
+    /// LinuxCNC while an axis is still jogging: it says so and keeps the
+    /// mode, then takes a program run in MANUAL and drops it.
+    struct Jogging {
+        sim: Sim,
+        sent: Vec<Command>,
+        said: bool,
+    }
+
+    impl Machine for Jogging {
+        fn poll(&mut self) -> Result<Status, String> {
+            self.sim.poll()
+        }
+        fn send(&mut self, cmd: &Command) -> Result<i32, String> {
+            self.sent.push(cmd.clone());
+            if let Command::SetMode(_) = cmd {
+                self.said = true;
+                return Ok(0);
+            }
+            self.sim.send(cmd)
+        }
+        fn next_message(&mut self) -> Option<Message> {
+            if std::mem::take(&mut self.said) {
+                return Some(Message { kind: MessageKind::Error, text: "Ignoring task mode change while jogging".into() });
+            }
+            self.sim.next_message()
+        }
+    }
+
+    fn on_jogging() -> Jogging {
+        let mut sim = Sim::new();
+        sim.send(&Command::SetState(TaskState::EstopReset)).unwrap();
+        sim.send(&Command::SetState(TaskState::On)).unwrap();
+        sim.send(&Command::Home(-1)).unwrap();
+        Jogging { sim, sent: vec![], said: false }
+    }
+
+    #[test]
+    fn refused_mode_switch_stops_the_command_and_says_why() {
+        let mut m = on_jogging();
+        let mut said = vec![];
+        execute(&mut m, &None, Command::ProgramRun(0), &mut |e| {
+            if let Event::Message(msg) = e {
+                said.push(msg.text);
+            }
+        });
+        assert!(!m.sent.contains(&Command::ProgramRun(0)), "sent {:?}", m.sent);
+        assert_eq!(said.last().unwrap(), "Program start didn't happen: LinuxCNC stayed in MANUAL mode (Ignoring task mode change while jogging)");
+    }
+
+    #[test]
+    fn spindle_stop_is_sent_whatever_the_mode() {
+        let mut m = on_jogging();
+        m.sim.send(&Command::SetMode(Mode::Mdi)).unwrap();
+        execute(&mut m, &None, Command::SpindleOff, &mut |_| {});
+        assert!(m.sent.contains(&Command::SpindleOff));
+    }
+
+    #[test]
+    fn mode_comes_from_a_fresh_status_not_the_last_poll() {
+        // The last poll said MDI, but an earlier command already switched
+        // to AUTO: no second switch (which would abort what just started).
+        let mut m = on_jogging();
+        m.sim.send(&Command::SetMode(Mode::Auto)).unwrap();
+        let mut stale = m.sim.poll().unwrap();
+        stale.mode = Mode::Mdi;
+        execute(&mut m, &Some(stale), Command::ProgramRun(0), &mut |_| {});
+        assert_eq!(m.sent, vec![Command::ProgramRun(0)]);
+    }
+
+    #[test]
+    fn step_from_idle_switches_to_auto() {
+        assert_eq!(required_mode(&Command::Step), Some(Mode::Auto));
+    }
+
+    fn mdi_idle(serial: i32) -> Status {
+        Status { mode: Mode::Mdi, interp: Interp::Idle, echo_serial: serial, command_status: 1, ..Status::default() }
+    }
+
+    #[test]
+    fn mdi_goes_back_to_the_mode_it_came_from_once_idle() {
+        let mut b = after_mdi(None, Some((Mode::Manual, 7))).unwrap();
+        // Not echoed yet, then still executing, then queued: stay in MDI.
+        assert_eq!(b.due(&mdi_idle(6)), None);
+        assert_eq!(b.due(&Status { command_status: 2, ..mdi_idle(7) }), None);
+        assert_eq!(b.due(&Status { queued_mdi: 1, ..mdi_idle(7) }), None);
+        assert_eq!(b.due(&Status { interp: Interp::Reading, ..mdi_idle(7) }), None);
+        assert_eq!(b.due(&mdi_idle(7)), None, "not before it has been idle a while");
+        b.idle_since = Some(Instant::now() - MDI_RETURN_AFTER);
+        assert_eq!(b.due(&mdi_idle(7)), Some(Mode::Manual));
+    }
+
+    #[test]
+    fn a_later_mdi_line_keeps_the_original_mode_and_waits_for_its_own_echo() {
+        let b = after_mdi(None, Some((Mode::Auto, 3)));
+        let mut b = after_mdi(b, Some((Mode::Mdi, 9))).unwrap();
+        assert_eq!(b.mode, Mode::Auto);
+        b.idle_since = Some(Instant::now() - MDI_RETURN_AFTER);
+        assert_eq!(b.due(&mdi_idle(8)), None);
+    }
+
+    #[test]
+    fn mdi_from_mdi_mode_stays_there() {
+        assert!(after_mdi(None, Some((Mode::Mdi, 4))).is_none());
+        assert!(after_mdi(None, None).is_none(), "nothing sent, nothing to undo");
     }
 
     #[test]

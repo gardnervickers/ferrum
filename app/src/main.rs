@@ -464,16 +464,22 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         match (s.interp, single) {
             (Interp::Paused, true) => m.send(Command::Step),
             (Interp::Paused, false) => m.send(Command::Resume),
-            (Interp::Idle, true) => {
-                m.send(Command::SetMode(linuxcnc::Mode::Auto));
-                m.send(Command::Step);
-            }
+            // The worker switches to AUTO first (and says so if it can't).
+            (Interp::Idle, true) => m.send(Command::Step),
             (Interp::Idle, false) => m.send(Command::ProgramRun(0)),
             _ => {}
         }
     });
-    let m = machine.clone();
-    actions.on_feed_hold(move || m.send(Command::Pause));
+    let (m, st) = (machine.clone(), state.clone());
+    // Only a running program or MDI command can be held. Task takes a pause
+    // while idle too and then reports PAUSED, which blocks MDI and mode
+    // changes until CYCLE START resumes nothing (the button is greyed out
+    // when idle; this covers the remote screen).
+    actions.on_feed_hold(move || {
+        if st.borrow().status.as_ref().is_some_and(|s| s.busy() && s.interp != Interp::Paused) {
+            m.send(Command::Pause);
+        }
+    });
     let m = machine.clone();
     // A restart under way loads the original program again once the abort
     // leaves the interpreter idle.
