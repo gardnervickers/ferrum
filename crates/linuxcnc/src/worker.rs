@@ -67,6 +67,9 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
                             back = after_mdi(back.take(), Some(sent));
                         }
                     }
+                    if matches!(cmd, Command::ProgramRun(_) | Command::Step) {
+                        start_modes(m, &last, on_event);
+                    }
                     let call = match &cmd {
                         Command::Mdi(line) if is_macro_call(line) => true,
                         _ => false,
@@ -281,6 +284,51 @@ fn flush_modes(m: &mut dyn Machine, last: &Option<Status>, modes: &mut Option<Mo
     wait_for(m, Duration::from_secs(2), |s| s.echo_serial >= sent.1 && s.command_status != 2 && s.interp == Interp::Idle);
     on_event(Event::Message(Message { kind: MessageKind::Text, text: format!("Modes put back after the macro: {line}") }));
     Some(sent)
+}
+
+/// The words a program start needs that the current modes lack, so a
+/// program runs the same after MDI or a macro as after a fresh start
+/// (RS274NGC_STARTUP_CODE): absolute moves, XY plane, no cutter comp, no
+/// canned cycle, feed per minute, incremental arc centres. Units, the work
+/// system and the tool offset are the operator's and stay as they are.
+fn start_words(s: &Status) -> Option<String> {
+    let g = &s.active_gcodes[1..];
+    let has = |c: i32| g.contains(&c);
+    let mut w = Vec::new();
+    if (810..=890).contains(&s.active_gcodes[1]) || (730..=760).contains(&s.active_gcodes[1]) {
+        w.push("G80");
+    }
+    if has(180) || has(190) {
+        w.push("G17");
+    }
+    if has(410) || has(420) {
+        w.push("G40");
+    }
+    if has(930) || has(950) {
+        w.push("G94");
+    }
+    if has(910) {
+        w.push("G90");
+    }
+    if has(901) {
+        w.push("G91.1");
+    }
+    (!w.is_empty()).then(|| w.join(" "))
+}
+
+/// Before CYCLE START (or a first single step) from idle, set the modes a
+/// program expects, in MDI, and wait for it: the switch to AUTO that
+/// follows would abort it.
+fn start_modes(m: &mut dyn Machine, last: &Option<Status>, on_event: &mut dyn FnMut(Event)) {
+    let Some(s) = m.poll().ok().or_else(|| last.clone()) else { return };
+    if s.busy() || !(s.power_on() && s.all_homed()) {
+        return;
+    }
+    let Some(line) = start_words(&s) else { return };
+    if let Some((_, serial)) = execute(m, last, Command::Mdi(line.clone()), on_event) {
+        wait_for(m, Duration::from_secs(2), |s| s.echo_serial >= serial && s.command_status != 2 && s.interp == Interp::Idle);
+        on_event(Event::Message(Message { kind: MessageKind::Text, text: format!("Set {line} for the program start") }));
+    }
 }
 
 /// Commands that need a task mode get it switched first, the way LinuxCNC's
@@ -636,5 +684,12 @@ mod tests {
         assert!(r.done(&s));
         // Not sent: nothing to restore.
         assert!(after_macro(None, Some(modal(&[900], 1, 0)), None).is_none());
+    }
+
+    #[test]
+    fn program_start_sets_absolute_and_clears_leftovers() {
+        assert_eq!(start_words(&modal(&[10, 170, 400, 210, 900, 940, 540, 911], 1, 0)), None);
+        assert_eq!(start_words(&modal(&[10, 170, 400, 210, 910, 940, 540, 911], 1, 0)).as_deref(), Some("G90"));
+        assert_eq!(start_words(&modal(&[810, 190, 410, 200, 910, 930, 550, 901], 2, 0)).as_deref(), Some("G80 G17 G40 G94 G90 G91.1"));
     }
 }

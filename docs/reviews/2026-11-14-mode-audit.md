@@ -87,10 +87,11 @@ just started.
    the call ends, whether it finished, was stopped, or was cut off by an
    E-stop (then right after homing, before any MDI line or program). Typed
    G-codes are left as typed. Checked in the simulator.
-3. **Beyond Probe Basic: refuse CYCLE START with G91 active.** A
-   hand-written program without G90 would run incrementally after a pocket
-   probe or an MDI G91. Probe Basic doesn't check for this. millgui could
-   refuse, or ask first, when the modal line shows G91 at program start.
+3. **Beyond Probe Basic: G91 at CYCLE START.** Gardner chose not to refuse
+   the start. CYCLE START (and a first single step) now sets the modes a
+   program expects when they differ: G90, G17, G40, G80, G94 and G91.1, as in
+   RS274NGC_STARTUP_CODE. Units, the work system and the tool offset are left
+   to the operator. Checked in the simulator.
 
 ## Other findings (PR #8)
 
