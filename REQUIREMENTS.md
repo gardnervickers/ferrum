@@ -16,7 +16,12 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] Tapping an override % resets that row; rapid steps 25%.
 - [x] EXIT (hold) in the status bar ends the session; disabled while running.
 - [x] Popups cover only the middle, so E-STOP, power, feed hold, stop, cycle start stay usable.
-- [ ] Follow mode changes made by the WHB04B pendant (halui); pendant pill.
+- [x] WHB04B pendant (module `pendant`, hal/pendant.hal): pill (PENDANT / ASLEEP / OFF); START/PAUSE
+      goes to millgui (CYCLE START with its checks when idle, FEED HOLD while running, resume when
+      paused) instead of halui, whose AUTO switch aborted a running MDI line or probe macro; the
+      driver's MANUAL/teleop/joint/MDI requests (every wheel step, HOME) reach halui only while
+      nothing runs; after an MDI line millgui no longer switches back over a mode the pendant picked.
+- [x] HOME per axis: an unhomed axis's DRO ZERO becomes HOME (hold); A is referenced where it stands.
 - [x] Message drawer for (abort), (MSG), (PRINT), (DEBUG) (tap the message line).
 
 ## M2 Manual control
@@ -58,6 +63,8 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [ ] Files: the top view is not sent to the browser screen (only the Run backplot is streamed).
 - [x] Run: G-code view follows the executing line; NEXT M6 finds the next tool change.
 - [x] CYCLE START has a static outline when it can resume.
+- [x] BLOCK DELETE toggle on RUN › G-CODE (LinuxCNC starts with it on). RUN FROM SELECTED refuses
+      when a "/" line comes before the start line.
 - [x] Run from line (RUN FROM SELECTED, hold): refused inside a job, after o-word code or
   parameters, with cutter comp, G91 or a drilling cycle on, mid-arc, or with a different tool
   loaded than the line expects. Runs a restart copy whose skipped lines are replaced by a preamble
@@ -74,6 +81,7 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       drawbar; T200–249 warn "touch off likely required"; show the spindle nose reference state.
 - [x] Manual drawbar extend outside M6, and M61 Q0, on Tools.
 - [x] Tool table add/delete rows and scratch tools T200–249.
+- [x] Tool comments edited on an on-screen text keyboard (tap the comment).
 - [x] Offsets: columns match XYZR; ZERO HERE is one tap (Gardner, 2026-11-14), CLEAR needs a hold;
       undo either from the timeline; active WCS tagged;
       G92/G52 indicator with CLEAR.

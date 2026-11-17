@@ -68,6 +68,7 @@ export global Live {
     in property <bool> can-start;
     in property <bool> single-block;
     in property <bool> optional-stop;
+    in property <bool> block-delete;
 
     in property <[NavItem]> nav;
     in-out property <string> screen: "run";
@@ -319,6 +320,12 @@ export global Live {
     // was refused (keypad-error).
     in property <string> keypad-result;
     in property <bool> keypad-error;
+    // The text keyboard (tool comments).
+    in property <bool> text-open;
+    in property <string> text-label;
+    in property <string> text-value;
+    in property <bool> text-caps;
+    in property <string> text-error;
 }
 
 export global Actions {
@@ -326,6 +333,8 @@ export global Actions {
     callback estop-reset();
     callback power();
     callback home-all();
+    // One axis by its letter ("X"); A is referenced where it stands.
+    callback home-axis(axis: string);
     // which: "feed" | "rapid" | "spindle"; delta in percent
     callback override(which: string, delta: int);
     callback override-reset(which: string);
@@ -334,6 +343,7 @@ export global Actions {
     callback stop();
     callback single-block();
     callback optional-stop();
+    callback block-delete();
     callback navigate(id: string);
     callback exit();
 
@@ -353,6 +363,11 @@ export global Actions {
     callback edit(what: string);
     callback keypad-key(key: string);
     callback keypad-done(ok: bool);
+    // Opens the text keyboard for a named text ("tool-comment").
+    callback text-edit(what: string);
+    // A character as shown on the key, or "⌫", "CLR", "⇧", "SPACE".
+    callback text-key(key: string);
+    callback text-done(ok: bool);
 
     callback pf-mode-set(mode: string);
     callback pf-wcs-set(code: string);

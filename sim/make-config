@@ -10,7 +10,8 @@ What changes from the real config:
   position command is looped straight back as its feedback (no stepgens, no
   PID). Every other line of mymill.hal runs as written: the drawbar and
   spindle interlocks, HLFB arming, probe manager, touch-off latches.
-- Homing is immediate (no switch search), the pendant HAL file is left out,
+- Homing is immediate (no switch search), the pendant HAL file is replaced by
+  a stand-in driver (sim_pendant.py) with the nets millgui cares about,
   and PROGRAM_PREFIX points at OUT_DIR/nc_files.
 Then: `linuxcnc OUT_DIR/millgui.ini` with LinuxCNC's rip-environment sourced.
 It never talks to the mill; it is for the cloud/dev simulator only.
@@ -35,6 +36,7 @@ def ini(text: str, out: Path) -> str:
         if section == "[HAL]" and key in ("HALFILE", "POSTGUI_HALFILE"):
             if key == "HALFILE" and "mymill.hal" in s:
                 lines.append("HALFILE = mymill.hal")
+                lines.append("HALFILE = sim_pendant.hal")
             continue
         if section == "[HMOT]":
             continue
@@ -68,6 +70,25 @@ def hal(text: str) -> str:
     return "\n".join(out) + "\n"
 
 
+# The pendant nets of xhc-whb04b-6.hal that matter to millgui, on the
+# stand-in driver (sim_pendant.py).
+SIM_PENDANT_HAL = """loadusr -Wn whb ./sim_pendant.py
+net pdnt.mode.auto      whb.halui.mode.auto      halui.mode.auto
+net pdnt.mode.manual    whb.halui.mode.manual    halui.mode.manual
+net pdnt.mode.mdi       whb.halui.mode.mdi       halui.mode.mdi
+net pdnt.mode.joint     whb.halui.mode.joint     halui.mode.joint
+net pdnt.mode.teleop    whb.halui.mode.teleop    halui.mode.teleop
+net pdnt.mode.is-auto   halui.mode.is-auto       whb.halui.mode.is-auto
+net pdnt.mode.is-manual halui.mode.is-manual     whb.halui.mode.is-manual
+net pdnt.mode.is-mdi    whb.halui.mode.is-mdi
+net pdnt.mode.is-joint  halui.mode.is-joint      whb.halui.mode.is-joint
+net pdnt.mode.is-teleop halui.mode.is-teleop     whb.halui.mode.is-teleop
+net pdnt.program.pause  whb.halui.program.pause  halui.program.pause
+net pdnt.program.run    whb.halui.program.run    halui.program.run
+net pdnt.program.stop   whb.halui.program.stop   halui.program.stop
+"""
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out", type=Path)
@@ -89,6 +110,8 @@ def main():
     for f in (REPO / "millgui" / "testdata" / "nc_files").glob("*.ngc"):
         shutil.copy(f, out / "nc_files" / f.name)
     shutil.copy(HERE / "sim_card.py", out / "sim_card.py")
+    shutil.copy(HERE / "sim_pendant.py", out / "sim_pendant.py")
+    (out / "sim_pendant.hal").write_text(SIM_PENDANT_HAL)
     for f in ("tool.tbl", "probe_basic.var"):
         if not (out / f).exists():
             shutil.copy(REPO / f, out / f)
