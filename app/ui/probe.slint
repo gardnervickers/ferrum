@@ -1,5 +1,5 @@
 import { Theme, Layout } from "theme.slint";
-import { Live, Actions, ProbeItem, ProbeMove, ProbeOpt, ProbeSpot, ProbeParam } from "state.slint";
+import { Live, Actions, ProbeItem, ProbeOpt, ProbeSpot, ProbeParam } from "state.slint";
 import { Btn, Seg, Card, Label, H3, Note, Pill } from "widgets.slint";
 
 // One run value: label (with unit, and the default once changed), then
@@ -160,15 +160,24 @@ export component ProbeScreen inherits Rectangle {
                     background: Theme.well;
                     border-radius: Theme.radius-ctl;
                     clip: true;
-                    property <float> sc: min(self.width / 400px, (self.height - 30px) / 300px);
+                    // A band above for the hint and one below for the preview's caption.
+                    property <float> sc: min(self.width / 400px, (self.height - 64px) / 300px);
                     property <length> ox: (self.width - 400px * sc) / 2;
-                    property <length> oy: 30px + (self.height - 30px - 300px * sc) / 2;
+                    property <length> oy: 32px + (self.height - 64px - 300px * sc) / 2;
                     Text { x: 0; y: 6px; width: parent.width; horizontal-alignment: center; text: Live.pr-hint; font-family: Theme.body; font-size: 19px; color: Theme.dim; }
                     Path {
                         visible: root.paths-visible;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-outline;
+                        stroke: Theme.muted; stroke-width: 2px; fill: transparent;
+                    }
+                    // The part on the rotary, turning with A in the preview.
+                    Path {
+                        visible: root.paths-visible;
+                        x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
+                        viewbox-width: 400; viewbox-height: 300;
+                        commands: Live.pr-part;
                         stroke: Theme.muted; stroke-width: 2px; fill: transparent;
                     }
                     for sp in Live.pr-spots: Rectangle {
@@ -199,28 +208,48 @@ export component ProbeScreen inherits Rectangle {
                         commands: Live.pr-heads;
                         fill: Theme.warn; stroke: transparent;
                     }
-                    // The probe tip playing the routine once: out along each
-                    // move, a ring where it touches, then the next.
-                    for m[i] in Live.pr-moves: Rectangle {
-                        property <float> f: max(0, min(1, Live.pr-move-t - i));
-                        property <length> r: 11px * pic.sc;
-                        visible: root.paths-visible && Live.pr-move-t >= i && Live.pr-move-t < i + 1;
-                        x: pic.ox + (m.x1 + (m.x2 - m.x1) * f) * pic.sc * 1px - self.r;
-                        y: pic.oy + (m.y1 + (m.y2 - m.y1) * f) * pic.sc * 1px - self.r;
+                    // The preview: the tip plays the routine in a loop.
+                    // Green is the preview; amber stays the approach arrows.
+                    Path {
+                        visible: root.paths-visible && Live.pr-tip-on;
+                        x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
+                        viewbox-width: 400; viewbox-height: 300;
+                        commands: Live.pr-trail;
+                        stroke: Theme.good.with-alpha(0.8); stroke-width: 3px; fill: transparent;
+                    }
+                    if Live.pr-tip-on: Rectangle {
+                        // Clear of the part the tip is drawn larger and fainter.
+                        property <length> r: (6 + 5 * Live.pr-tip-z) * pic.sc * 1px;
+                        visible: root.paths-visible;
+                        x: pic.ox + Live.pr-tip-x * pic.sc * 1px - self.r;
+                        y: pic.oy + Live.pr-tip-y * pic.sc * 1px - self.r;
                         width: 2 * self.r; height: 2 * self.r;
                         border-radius: self.r;
-                        background: Theme.ink;
-                        border-width: 3px;
-                        border-color: Theme.warn;
+                        background: Theme.good.with-alpha(0.9 - 0.55 * Live.pr-tip-z);
+                        border-width: 2px;
+                        border-color: Theme.good;
                         // The touch.
                         Rectangle {
-                            visible: parent.f > 0.98;
-                            x: -parent.r; y: -parent.r;
-                            width: 4 * parent.r; height: 4 * parent.r;
-                            border-radius: 2 * parent.r;
+                            visible: Live.pr-tip-contact;
+                            x: -parent.r * 0.8; y: -parent.r * 0.8;
+                            width: 3.6 * parent.r; height: 3.6 * parent.r;
+                            border-radius: 1.8 * parent.r;
                             border-width: 2px;
-                            border-color: Theme.warn;
+                            border-color: Theme.good;
                         }
+                    }
+                    // What the tip is doing; its own band, so it never
+                    // covers the picture.
+                    Text {
+                        x: 12px; y: parent.height - 30px;
+                        width: parent.width - 24px; height: 24px;
+                        vertical-alignment: center;
+                        text: Live.pr-caption;
+                        font-family: Theme.display;
+                        font-size: 17px;
+                        letter-spacing: 1.2px;
+                        color: Theme.good;
+                        overflow: elide;
                     }
                 }
                 OptRow { label: Live.pr-opts-label; opts: Live.pr-opts; enabled: !Live.pr-running; }

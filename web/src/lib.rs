@@ -22,7 +22,7 @@ slint::include_modules!();
 
 #[allow(unused_parens, clippy::all)]
 mod mirror {
-    use super::{Actions, CheckRow, CubeFace, DroRow, FileRow, GotoRow, HistoryRow, Live, MdiCard, MsgRow, NavItem, ConvField, JobOp, OffsetRow, PillData, ProbeItem, ProbeMove, ProbeOpt, ProbeParam, ProbeSpot, StatusRow, ToolRow, WarmStage};
+    use super::{Actions, CheckRow, CubeFace, DroRow, FileOp, FileRow, GotoRow, HistoryRow, Live, MdiCard, MsgRow, NavItem, ConvField, JobOp, OffsetRow, PillData, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot, StatusRow, ToolRow, WarmStage};
     include!(concat!(env!("OUT_DIR"), "/mirror.rs"));
 }
 
@@ -33,7 +33,7 @@ const H: u32 = 1080;
 /// Two-way properties: edits here go to the Pi.
 const TO_PI: &[&str] = &["mdi-text", "gcode-selected"];
 /// Actions this screen handles itself.
-const LOCAL_ACTIONS: &[&str] = &["navigate", "plot-resize", "exit"];
+const LOCAL_ACTIONS: &[&str] = &["navigate", "plot-resize", "files-plot-resize", "exit"];
 
 struct WebPlatform {
     window: Rc<MinimalSoftwareWindow>,

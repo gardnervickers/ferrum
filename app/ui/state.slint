@@ -6,14 +6,14 @@ export struct NavItem { id: string, label: string, icon: string }
 export struct MsgRow { time: string, text: string, kind: string }
 export struct MdiCard { label: string, desc: string, fill: string, moves: bool }
 export struct FileRow { name: string, dir: bool, modified: string, size: string }
+// An op of the file selected on FILES; `color` indexes the backplot's op colours.
+export struct FileOp { name: string, tool: string, time: string, color: int }
 export struct ToolRow { t: string, len: string, dia: string, comment: string, needs-len: bool, current: bool, scratch: bool, wear-len: string, wear-dia: string }
 // One line of the offsets timeline (history.rs), newest first.
 export struct HistoryRow { when: string, what: string, tool: bool, change: string, cause: string }
 export struct CheckRow { t: string, status: string, kind: string, action: string }
 export struct OffsetRow { wcs: string, x: string, y: string, z: string, a: string, rot: string, active: bool, used: bool }
 export struct ProbeItem { id: string, label: string, on: bool }
-// A probe move on the picture, in its 400 × 300 units.
-export struct ProbeMove { x1: float, y1: float, x2: float, y2: float }
 export struct ProbeSpot { id: string, x: float, y: float, w: float, h: float, r: float, on: bool }
 // A choice under the probe picture; a disabled one keeps its slot.
 export struct ProbeOpt { id: string, label: string, on: bool, enabled: bool }
@@ -110,7 +110,24 @@ export global Live {
     in property <bool> files-can-up;
     in property <string> files-name;
     in property <string> files-preview;
+    // The picture or the program text, on the selected file's card.
+    in-out property <string> files-tab: "plot";
+    // One line: ops, estimated time, tools.
     in property <string> files-summary;
+    // The selected program from above (drawn on the mill; not mirrored).
+    in property <image> files-plot;
+    // Says why there is no picture (reading, no moves, cannot read); empty with one.
+    in property <string> files-status;
+    // Work zero in the picture, as fractions of its width and height; -1 hides it.
+    in property <float> files-zero-x: -1;
+    in property <float> files-zero-y: -1;
+    // Where the cuts sit in work coordinates, under the picture.
+    in property <string> files-extent;
+    // The interpreter stopped early: the picture and times are partial.
+    in property <string> files-warning;
+    in property <[FileOp]> files-ops;
+    // The op picked out in the picture, or -1 for all of them.
+    in property <int> files-op: -1;
 
     in property <[string]> gcode-lines;
     in property <int> gcode-count;
@@ -202,10 +219,18 @@ export global Live {
     in property <string> pr-arrows;
     in property <string> pr-heads;
     in property <[ProbeSpot]> pr-spots;
-    // The moves the animated tip plays, and where it is: the move's index
-    // plus how far along (0–1); -1 hides it.
-    in property <[ProbeMove]> pr-moves;
-    in property <float> pr-move-t: -1;
+    // The preview: the probe tip playing the routine in a loop (probe_anim.rs).
+    // Where the tip is in picture units; z is its height (1 clear, 0 at depth).
+    in property <bool> pr-tip-on;
+    in property <float> pr-tip-x;
+    in property <float> pr-tip-y;
+    in property <float> pr-tip-z;
+    in property <bool> pr-tip-contact;
+    // The lines it has drawn at depth so far, and the step it is on.
+    in property <string> pr-trail;
+    in property <string> pr-caption;
+    // What turns with A in the rotary's end view.
+    in property <string> pr-part;
     // Up to two rows of choices under the picture, each with a row label.
     in property <string> pr-opts-label;
     in property <[ProbeOpt]> pr-opts;
@@ -359,6 +384,8 @@ export global Actions {
     callback files-up();
     callback files-refresh();
     callback files-load();
+    callback files-op-tap(index: int);
+    callback files-plot-resize(width: float, height: float);
     callback gcode-next-m6();
     // Hold RUN FROM SELECTED: raise Z, restore spindle/coolant, run from the line.
     callback gcode-run-from-selected();

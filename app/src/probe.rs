@@ -22,7 +22,7 @@ use crate::config::Config;
 use crate::manual::KeypadTarget;
 use crate::settings::Settings;
 use crate::toolchange::Io;
-use crate::{Actions, Live, MainWindow, ProbeItem, ProbeMove, ProbeOpt, ProbeParam, ProbeSpot};
+use crate::{Actions, Live, MainWindow, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot};
 use linuxcnc::{Command, Handle, Message, MessageKind, Status};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
@@ -742,13 +742,32 @@ impl Probe {
         let sel = self.selected();
         live.set_pr_title(sel.label.clone().into());
         let on_picture = self.picks_on_picture();
-        live.set_pr_hint(if on_picture { "TAP A BLUE SPOT TO CHOOSE WHERE" } else { "" }.into());
+        live.set_pr_hint(
+            match sel.kind {
+                _ if on_picture => "TAP A BLUE SPOT TO CHOOSE WHERE",
+                "cyl" | "flat" | "dia" | "runout" | "defl" => "END VIEW · LOOKING ALONG X · TABLE BELOW",
+                "top" | "setter" | "nose" => "SIDE VIEW",
+                _ => "TOP VIEW",
+            }
+            .into(),
+        );
         // Picture: the spots are the only controls on it.
         let (outline, arrows, heads) = picture(self, &sel);
         live.set_pr_outline(outline.into());
         live.set_pr_arrows(arrows.into());
         live.set_pr_heads(heads.into());
-        play_moves(ui, segs(self, &sel));
+        let moves = segs(self, &sel);
+        crate::probe_anim::play(
+            ui,
+            crate::probe_anim::script(&crate::probe_anim::Routine {
+                kind: sel.kind,
+                segs: &moves,
+                at: (sel.x, sel.y),
+                angle: self.angle,
+                ridge: self.ridge,
+                side: side_name(self.start),
+            }),
+        );
         let spots: Vec<ProbeSpot> = if on_picture {
             targets
                 .iter()
@@ -1052,8 +1071,12 @@ fn picture(p: &Probe, sel: &Target) -> (String, String, String) {
         "bore" => rect(60.0, 40.0, 280.0, 220.0) + &circle(200.0, 150.0, 60.0),
         "slot" if p.axes == "Y" => rect(60.0, 110.0, 280.0, 80.0),
         "slot" => rect(160.0, 40.0, 80.0, 220.0),
-        "cyl" | "dia" | "runout" => circle(200.0, 165.0, 70.0) + "M 200 82 L 200 248 M 110 165 L 290 165",
-        "defl" => rect(140.0, 40.0, 40.0, 200.0),
+        // The rotary from its end: the axis marks; the part (or its index
+        // mark) turns with A and is drawn by the preview (`pr-part`).
+        "cyl" | "dia" | "runout" | "defl" => {
+            let marks = "M 200 80 L 200 88 M 200 242 L 200 250 M 108 165 L 122 165 M 278 165 L 292 165 ";
+            if sel.kind == "flat" { marks.to_string() } else { circle(200.0, 165.0, 70.0) + marks }
+        }
         "ring" => circle(200.0, 150.0, 100.0) + &circle(200.0, 150.0, 66.0),
         "setter" => rect(160.0, 200.0, 80.0, 40.0),
         _ => rect(160.0, 200.0, 80.0, 40.0) + &rect(170.0, 60.0, 60.0, 70.0),
@@ -1073,60 +1096,6 @@ fn picture(p: &Probe, sel: &Target) -> (String, String, String) {
         heads += &format!("M {x2:.1} {y2:.1} L {:.1} {:.1} L {:.1} {:.1} Z ", bx - uy * w, by + ux * w, bx + uy * w, by - ux * w);
     }
     (outline, lines, heads)
-}
-
-thread_local! {
-    /// The moves last played on the picture, and the clock playing them.
-    static PLAYED: RefCell<(Vec<[f64; 4]>, slint::Timer)> = RefCell::new((Vec::new(), slint::Timer::default()));
-}
-
-/// Seconds for the tip to travel one move, then to rest at the touch.
-const MOVE_S: f64 = 0.6;
-const REST_S: f64 = 0.25;
-
-/// Where the animated tip is after `secs`: the move's index plus how far
-/// along it is (eased, 0–1), or -1 once every move has played.
-fn move_phase(secs: f64, moves: usize) -> f32 {
-    let per = MOVE_S + REST_S;
-    let i = (secs / per).floor();
-    if i as usize >= moves {
-        return -1.0;
-    }
-    let f = ((secs - i * per) / MOVE_S).min(1.0);
-    // Ease in and out, like a probe leaving and slowing to touch.
-    let e = f * f * (3.0 - 2.0 * f);
-    // Stay just inside this move while resting on the touch.
-    (i + e.min(0.999)) as f32
-}
-
-/// Animate the tip once along `moves` when they differ from the last ones
-/// shown (a new shape, target or option), so the picture shows the routine.
-fn play_moves(ui: &MainWindow, moves: Vec<[f64; 4]>) {
-    PLAYED.with(|p| {
-        let mut p = p.borrow_mut();
-        if p.0 == moves {
-            return;
-        }
-        p.0 = moves.clone();
-        let live = ui.global::<Live>();
-        let model: Vec<ProbeMove> =
-            moves.iter().map(|m| ProbeMove { x1: m[0] as f32, y1: m[1] as f32, x2: m[2] as f32, y2: m[3] as f32 }).collect();
-        live.set_pr_moves(ModelRc::new(VecModel::from(model)));
-        live.set_pr_move_t(if moves.is_empty() { -1.0 } else { 0.0 });
-        if moves.is_empty() {
-            p.1.stop();
-            return;
-        }
-        let (start, n, weak) = (std::time::Instant::now(), moves.len(), ui.as_weak());
-        p.1.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(16), move || {
-            let Some(ui) = weak.upgrade() else { return };
-            let t = move_phase(start.elapsed().as_secs_f64(), n);
-            ui.global::<Live>().set_pr_move_t(t);
-            if t < 0.0 {
-                PLAYED.with(|p| p.borrow().1.stop());
-            }
-        });
-    });
 }
 
 /// Slots (0–2) for the values `want`, chosen so that across `lists` (the
@@ -1164,7 +1133,8 @@ fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
         let dy = if t.y < 150.0 { -1.0 } else { 1.0 };
         let (x, y) = (t.x, t.y);
         return if k == "icorner" {
-            vec![[x - dx * 50.0, y - dy * 30.0, x - dx * 2.0, y - dy * 30.0], [x - dx * 30.0, y - dy * 50.0, x - dx * 30.0, y - dy * 2.0]]
+            // Both walls from one spot inside the pocket.
+            vec![[x - dx * 40.0, y - dy * 40.0, x, y - dy * 40.0], [x - dx * 40.0, y - dy * 40.0, x - dx * 40.0, y]]
         } else {
             vec![[x + dx * 60.0, y - dy * 30.0, x, y - dy * 30.0], [x - dx * 30.0, y + dy * 60.0, x - dx * 30.0, y]]
         };
@@ -1204,11 +1174,10 @@ fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
         "slot" => {
             if p.axes == "Y" { vec![[200.0, 150.0, 200.0, 112.0], [200.0, 150.0, 200.0, 188.0]] } else { vec![[200.0, 150.0, 162.0, 150.0], [200.0, 150.0, 238.0, 150.0]] }
         }
-        "cyl" | "dia" => vec![[200.0, 40.0, 200.0, 92.0], [60.0, 165.0, 127.0, 165.0], [340.0, 165.0, 273.0, 165.0]],
-        "runout" => vec![[200.0, 40.0, 200.0, 92.0]],
+        "cyl" | "dia" | "defl" => vec![[200.0, 40.0, 200.0, 95.0], [80.0, 165.0, 130.0, 165.0], [320.0, 165.0, 270.0, 165.0]],
+        "runout" => vec![[200.0, 40.0, 200.0, 95.0]],
         "top" => vec![[200.0, 50.0, 200.0, 170.0]],
-        "flat" => vec![[170.0, 40.0, 170.0, 92.0], [230.0, 40.0, 230.0, 92.0]],
-        "defl" => vec![[260.0, 150.0, 186.0, 150.0]],
+        "flat" => vec![[170.0, 40.0, 170.0, crate::probe_anim::flat_y(170.0)], [230.0, 40.0, 230.0, crate::probe_anim::flat_y(230.0)]],
         "ring" => vec![[200.0, 150.0, 136.0, 150.0], [200.0, 150.0, 264.0, 150.0], [200.0, 150.0, 200.0, 86.0]],
         "setter" => vec![[200.0, 40.0, 200.0, 196.0]],
         "nose" => vec![[200.0, 136.0, 200.0, 196.0]],
@@ -1490,18 +1459,6 @@ mod tests {
         assert_eq!(super::slots(&lists, &lists[1]), [1, 2]);
         assert_eq!(super::slots(&lists, &lists[2]), [2, 0, 1]);
         assert_eq!(super::slots(&lists, &lists[3]), [1, 2, 0]);
-    }
-
-    #[test]
-    fn move_phase_plays_each_move_once() {
-        assert_eq!(super::move_phase(0.0, 2), 0.0);
-        // Halfway through the first move: eased to the middle.
-        assert!((super::move_phase(super::MOVE_S / 2.0, 2) - 0.5).abs() < 1e-6);
-        // Resting on the first touch, still on move 0.
-        let rest = super::move_phase(super::MOVE_S + 0.1, 2);
-        assert!(rest > 0.99 && rest < 1.0);
-        assert_eq!(super::move_phase(super::MOVE_S + super::REST_S + 0.001, 2).floor(), 1.0);
-        assert_eq!(super::move_phase(10.0, 2), -1.0);
     }
 
     #[test]

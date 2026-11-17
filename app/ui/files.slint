@@ -1,9 +1,11 @@
 import { Theme, Layout } from "theme.slint";
-import { Live, Actions, FileRow } from "state.slint";
-import { Btn, Card, Label, H3, Note } from "widgets.slint";
+import { Live, Actions, FileRow, FileOp } from "state.slint";
+import { Btn, Seg, Card, Label, H3, Note } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
 
 export component FilesScreen inherits Rectangle {
+    // The backplot's op colours (preview::software::OP_COLORS).
+    property <[color]> op-colors: [#6d7cff, #f3c463, #7fd6a0, #e07a7a, #8cc4ef, #c49cf0];
     HorizontalLayout {
         padding: 14px;
         spacing: 14px;
@@ -20,8 +22,8 @@ export component FilesScreen inherits Rectangle {
                     padding-left: 12px;
                     padding-right: 12px;
                     Label { horizontal-stretch: 1; text: "NAME"; }
-                    Label { width: 120px; horizontal-alignment: right; text: "SIZE"; }
-                    Label { width: 200px; horizontal-alignment: right; text: "MODIFIED"; }
+                    Label { width: Layout.compact ? 80px : 120px; horizontal-alignment: right; text: "SIZE"; }
+                    Label { width: Layout.compact ? 150px : 200px; horizontal-alignment: right; text: "MODIFIED"; }
                 }
                 Rectangle {
                     vertical-stretch: 1;
@@ -39,8 +41,8 @@ export component FilesScreen inherits Rectangle {
                                 padding-left: 12px;
                                 padding-right: 12px;
                                 Text { horizontal-stretch: 1; vertical-alignment: center; text: (f.dir ? "▸ " : "") + f.name; font-family: Theme.body; font-size: 24px; color: Theme.ink; overflow: elide; }
-                                Text { width: 120px; horizontal-alignment: right; vertical-alignment: center; text: f.size; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.sel-ink : Theme.muted; }
-                                Text { width: 200px; horizontal-alignment: right; vertical-alignment: center; text: f.modified; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.sel-ink : Theme.muted; }
+                                Text { width: Layout.compact ? 80px : 120px; horizontal-alignment: right; vertical-alignment: center; text: f.size; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.sel-ink : Theme.muted; }
+                                Text { width: Layout.compact ? 150px : 200px; horizontal-alignment: right; vertical-alignment: center; text: f.modified; font-family: Theme.body; font-size: 20px; color: i == Live.files-selected ? Theme.sel-ink : Theme.muted; }
                             }
                             ft := TouchArea { clicked => { Actions.files-tap(i); } }
                         }
@@ -53,7 +55,7 @@ export component FilesScreen inherits Rectangle {
                     Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "REFRESH"; clicked => { Actions.files-refresh(); } }
                     Rectangle { horizontal-stretch: 1; }
                     Btn {
-                        width: 240px;
+                        width: Layout.compact ? 180px : 240px;
                         text: "LOAD";
                         enabled: Live.files-name != "" && !Live.running;
                         clicked => { Actions.files-load(); }
@@ -62,54 +64,83 @@ export component FilesScreen inherits Rectangle {
             }
         }
         // Fixed width: a long file name elides instead of resizing the screen.
+        // Every slot below has a fixed height, so picking a file, an op or
+        // the other tab changes what is in a slot and never moves one.
         Card {
-            width: Layout.compact ? 400px : 540px;
+            width: Layout.compact ? 480px : 640px;
             VerticalLayout {
                 padding: 14px;
                 spacing: 12px;
-                H3 { text: Live.files-name == "" ? "SELECT A FILE" : Live.files-name; overflow: elide; }
-                // Ops and estimated times from the interpreter; fixed height
-                // so the preview below never moves.
-                Rectangle {
-                    height: 380px;
-                    background: Theme.panel2;
-                    border-radius: Theme.radius-ctl;
-                    clip: true;
-                    sf := Flickable {
-                        content-height: sm.preferred-height + 16px;
-                        sm := Text {
-                            x: 12px;
-                            y: 8px;
-                            width: parent.width - 24px;
-                            text: Live.files-summary;
-                            font-family: Theme.body;
-                            font-size: 21px;
-                            color: Theme.ink;
-                        }
-                    }
-                    // More ops below: fade the last row and say so.
-                    if sf.content-height > sf.height && sf.content-y > sf.height - sf.content-height + 4px: Rectangle {
-                        y: parent.height - 44px;
-                        height: 44px;
-                        background: Theme.panel2;
-                        Rectangle { y: 0; height: 1px; background: Theme.line; }
-                        Text {
-                            x: parent.width - self.width - 12px;
-                            y: parent.height - self.height - 6px;
-                            text: "SCROLL FOR MORE";
-                            font-family: Theme.body;
-                            font-size: 16px;
-                            color: Theme.dim;
-                        }
+                H3 { height: 34px; vertical-alignment: center; text: Live.files-name == "" ? "SELECT A FILE" : Live.files-name; overflow: elide; }
+                HorizontalLayout {
+                    height: 52px;
+                    spacing: 12px;
+                    Label { horizontal-stretch: 1; vertical-alignment: center; text: Live.files-summary; overflow: elide; }
+                    HorizontalLayout {
+                        width: Layout.compact ? 220px : 260px;
+                        spacing: 0;
+                        Seg { first: true; text: "TOP VIEW"; font-size: 20px; on: Live.files-tab == "plot"; clicked => { Live.files-tab = "plot"; } }
+                        Seg { last: true; text: "G-CODE"; font-size: 20px; on: Live.files-tab == "code"; clicked => { Live.files-tab = "code"; } }
                     }
                 }
-                Rectangle {
-                    vertical-stretch: 1;
+                // The program from above, or its text. The picture is drawn
+                // by Rust at this well's size.
+                well := Rectangle {
+                    height: 360px;
                     background: Theme.well;
                     border-radius: Theme.radius-ctl;
                     clip: true;
-                    Flickable {
-                        content-height: pv.preferred-height;
+                    Timer {
+                        interval: 250ms;
+                        running: true;
+                        triggered => { Actions.files-plot-resize(well.width / 1px, well.height / 1px); }
+                    }
+                    changed width => { Actions.files-plot-resize(well.width / 1px, well.height / 1px); }
+                    if Live.files-tab == "plot": pic := Rectangle {
+                        property <bool> drawn: Live.files-name != "" && Live.files-status == "" && !Live.remote;
+                        Image { visible: pic.drawn; width: parent.width; height: parent.height; source: Live.files-plot; image-fit: fill; }
+                        // Work zero, named in the corner its two axis lines make.
+                        if pic.drawn && Live.files-zero-x >= 0: Text {
+                            x: Live.files-zero-x * parent.width + 6px;
+                            y: Live.files-zero-y * parent.height - self.height - 3px;
+                            text: "X0 Y0";
+                            font-family: Theme.body;
+                            font-size: 15px;
+                            color: Theme.muted;
+                        }
+                        Text {
+                            x: 12px; y: 8px;
+                            width: parent.width - 24px;
+                            visible: pic.drawn;
+                            text: Live.files-op >= 0 ? "TOP VIEW · OP " + (Live.files-op + 1) + " · TAP IT AGAIN FOR ALL" : "TOP VIEW · TAP AN OP TO PICK IT OUT";
+                            font-family: Theme.display;
+                            font-size: 16px;
+                            letter-spacing: 1.2px;
+                            color: Theme.dim;
+                            overflow: elide;
+                        }
+                        Text {
+                            x: 12px; y: parent.height - self.height - 8px;
+                            width: parent.width - 24px;
+                            visible: pic.drawn;
+                            text: Live.files-extent;
+                            font-family: Theme.body;
+                            font-size: 17px;
+                            color: Theme.muted;
+                            overflow: elide;
+                        }
+                        Note {
+                            x: 24px;
+                            width: parent.width - 48px;
+                            height: parent.height;
+                            visible: !pic.drawn;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            text: Live.files-name == "" ? "Pick a program to see it from above." : Live.remote && Live.files-status == "" ? "The picture shows on the mill's screen." : Live.files-status;
+                        }
+                    }
+                    if Live.files-tab == "code": Flickable {
+                        content-height: pv.preferred-height + 16px;
                         pv := Text {
                             x: 12px;
                             y: 8px;
@@ -120,7 +151,48 @@ export component FilesScreen inherits Rectangle {
                         }
                     }
                 }
-                Note { text: "Times are estimates from feed rates, without acceleration."; }
+                // Ops with tool and estimated time; a tap picks one out in
+                // the picture.
+                Rectangle {
+                    vertical-stretch: 1;
+                    min-height: 120px;
+                    background: Theme.panel2;
+                    border-radius: Theme.radius-ctl;
+                    clip: true;
+                    ListView {
+                        for o[i] in Live.files-ops: Rectangle {
+                            height: 56px;
+                            background: i == Live.files-op ? Theme.sel-soft : ot.pressed ? Theme.raised : transparent;
+                            border-radius: Theme.radius-sm;
+                            border-width: i == Live.files-op ? 2px : 0;
+                            border-color: Theme.sel;
+                            animate background { duration: Theme.quick; }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 12px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle { width: 18px; height: 18px; border-radius: 4px; background: root.op-colors[mod(o.color, 6)]; }
+                                }
+                                Text { horizontal-stretch: 1; vertical-alignment: center; text: o.name; font-family: Theme.body; font-size: 22px; color: Theme.ink; overflow: elide; }
+                                Text { width: 64px; horizontal-alignment: right; vertical-alignment: center; text: o.tool; font-family: Theme.body; font-weight: 600; font-size: 21px; color: i == Live.files-op ? Theme.sel-ink : Theme.muted; }
+                                Text { width: 92px; horizontal-alignment: right; vertical-alignment: center; text: o.time; font-family: Theme.body; font-size: 21px; color: i == Live.files-op ? Theme.sel-ink : Theme.muted; }
+                            }
+                            ot := TouchArea { clicked => { Actions.files-op-tap(i); } }
+                        }
+                    }
+                    if Live.files-ops.length == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: Live.files-name == "" || Live.files-status != "" ? "" : "No ops to list."; }
+                }
+                // One line, always there: a partial read says so in amber.
+                Note {
+                    height: 24px;
+                    wrap: no-wrap;
+                    overflow: elide;
+                    vertical-alignment: center;
+                    color: Live.files-warning != "" ? Theme.warn : Theme.muted;
+                    text: Live.files-warning != "" ? Live.files-warning : "Times are estimates from feed rates, without acceleration.";
+                }
             }
         }
     }

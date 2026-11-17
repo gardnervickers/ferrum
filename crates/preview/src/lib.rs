@@ -14,6 +14,7 @@ pub mod mini;
 pub mod rs274;
 pub mod raster;
 pub mod software;
+pub use tiny_skia::Pixmap;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 

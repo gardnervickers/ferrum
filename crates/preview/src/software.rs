@@ -125,6 +125,31 @@ impl Fit {
         Self { view, scale: scale_z, ox, oy, h: h as f64 }
     }
 
+    /// A fixed view fitted to the toolpath's outline in that view (plus the
+    /// work origin), `margin` pixels in from every side. Tighter than `new`,
+    /// which leaves room to orbit; for pictures that never turn.
+    pub fn outline(tp: &Toolpath, view: View, w: u32, h: u32, margin: f64) -> Self {
+        let (mut lo, mut hi) = ([0.0f64; 3], [0.0f64; 3]);
+        if let Some((a, b)) = tp.bounds() {
+            for i in 0..3 {
+                lo[i] = a[i].min(0.0);
+                hi[i] = b[i].max(0.0);
+            }
+        }
+        // The box's corners on the screen.
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for k in 0..8 {
+            let pick = |i: usize| if k >> i & 1 == 0 { lo[i] } else { hi[i] };
+            let (x, y) = project(view, [pick(0), pick(1), pick(2), 0.0]);
+            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+        }
+        let (dx, dy) = ((x1 - x0).max(1.0), (y1 - y0).max(1.0));
+        let scale = ((w as f64 - 2.0 * margin) / dx).min((h as f64 - 2.0 * margin) / dy).max(1e-6);
+        let ox = w as f64 / 2.0 - (x0 + x1) / 2.0 * scale;
+        let oy = h as f64 / 2.0 - (y0 + y1) / 2.0 * scale;
+        Self { view, scale, ox, oy, h: h as f64 }
+    }
+
     /// Work coordinates to image pixels (y down).
     pub fn map(&self, p: P4) -> (f32, f32) {
         let (x, y) = project(self.view, p);
@@ -193,11 +218,16 @@ impl Software {
 
 impl Base {
     pub fn draw(tp: &Toolpath, view: View, w: u32, h: u32, highlight: Option<usize>, zoom: Zoom) -> Base {
+        let (w, h) = (w.max(16), h.max(16));
+        Self::draw_fit(tp, Fit::new(tp, view, w, h, zoom), w, h, highlight)
+    }
+
+    /// As `draw`, with the screen mapping given.
+    pub fn draw_fit(tp: &Toolpath, fit: Fit, w: u32, h: u32, highlight: Option<usize>) -> Base {
         let w = w.max(16);
         let h = h.max(16);
         // Transparent: `compose` puts it over the background and the table.
         let mut pm = Pixmap::new(w, h).expect("pixmap size");
-        let fit = Fit::new(tp, view, w, h, zoom);
 
         // Work origin axes.
         let o = fit.map([0.0; 4]);
@@ -318,6 +348,16 @@ impl Base {
     }
 }
 
+/// The whole program seen from above, fitted to the image: the picture on
+/// the FILES screen. `highlight` dims every op but that one; `margin` is
+/// the clear band inside the edges, in pixels. Also returns where work zero
+/// landed, in pixels.
+pub fn top_view(tp: &Toolpath, w: u32, h: u32, highlight: Option<usize>, margin: f64) -> (Pixmap, (f32, f32)) {
+    let (w, h) = (w.max(16), h.max(16));
+    let fit = Fit::outline(tp, View::Top, w, h, margin);
+    (Base::draw_fit(tp, fit, w, h, highlight).compose(&[], &[], None, None), fit.map([0.0; 4]))
+}
+
 /// Toward the viewer, for back-face culling and depth order.
 pub(crate) fn toward_viewer(v: View) -> [f64; 3] {
     v.basis().2
@@ -431,6 +471,31 @@ mod tests {
             let lit = pm.data().chunks(4).filter(|p| p[0] > 0x40 || p[1] > 0x40 || p[2] > 0x40).count();
             assert!(lit > 100, "{v:?}: {lit}");
         }
+    }
+}
+
+#[cfg(test)]
+mod top_tests {
+    use super::*;
+
+    #[test]
+    fn top_view_fills_the_image_and_dims_other_ops() {
+        // A wide, flat program with a tall retract: the outline fit ignores Z.
+        let tp = crate::mini::parse("(A)\nG0 X0 Y0 Z50\nG1 Z0 F100\nX200\n(B)\nG1 Y20\nX0\nG0 Z50\n", 100.0);
+        let fit = Fit::outline(&tp, View::Top, 600, 300, 36.0);
+        let (x0, _) = fit.map([0.0, 0.0, 0.0, 0.0]);
+        let (x1, _) = fit.map([200.0, 0.0, 0.0, 0.0]);
+        assert!((x0 - 36.0).abs() < 0.5 && (x1 - 564.0).abs() < 0.5, "{x0} {x1}");
+        // Op A's colour is strong when it is the highlight, faint otherwise.
+        let px = |hl| {
+            let (pm, zero) = top_view(&tp, 600, 300, hl, 36.0);
+            assert!((zero.0 - 36.0).abs() < 0.5, "{zero:?}");
+            let (x, y) = fit.map([100.0, 0.0, 0.0, 0.0]);
+            let p = pm.pixel(x as u32, y as u32).unwrap();
+            p.blue() as i32 - BG[2] as i32
+        };
+        assert!(px(Some(0)) > 150, "{}", px(Some(0)));
+        assert!(px(Some(1)) < 60, "{}", px(Some(1)));
     }
 }
 

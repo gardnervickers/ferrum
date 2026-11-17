@@ -206,6 +206,12 @@ pub fn fmt_time(s: f64) -> String {
 /// Read `path` through the interpreter (or the stand-in) on a worker
 /// thread; `done` runs on the UI thread with the result.
 pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpath) + Send + 'static) {
+    if plot.borrow().inline {
+        // Headless screenshots have no event loop to come back on.
+        let rapid = plot.borrow().rapid;
+        done(std::fs::read_to_string(&path).map(|t| preview::mini::parse(&t, rapid)).unwrap_or_default());
+        return;
+    }
     let (setup, rapid) = {
         let p = plot.borrow();
         (p.setup.as_ref().map(|s| rs274::Setup { ini: s.ini.clone(), config_dir: s.config_dir.clone(), var_file: s.var_file.clone(), tool_table: s.tool_table.clone(), rapid_mm_s: s.rapid_mm_s }), p.rapid)
@@ -243,35 +249,9 @@ pub fn load(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
     });
 }
 
-/// One line per op for the FILES screen: name, tool, estimated time.
-pub fn op_summary(tp: &Toolpath) -> String {
-    if let Some(e) = &tp.error {
-        if tp.segs.is_empty() {
-            return format!("Cannot read: {e}");
-        }
-    }
-    if tp.segs.is_empty() {
-        return "No moves.".into();
-    }
-    let n = tp.ops.len();
-    let mut out = format!("{} OP{} · ~{}", n, if n == 1 { "" } else { "S" }, fmt_time(tp.seconds()));
-    for (i, o) in tp.ops.iter().enumerate() {
-        let name = if o.name.is_empty() { format!("OP {}", i + 1) } else { o.name.clone() };
-        let tag = format!("T{}", o.tool);
-        // JOB names already end in their tool; manual steps have none.
-        let mut line = format!("\n{}  {}", i + 1, name);
-        if o.tool > 0 && !name.ends_with(&tag) {
-            line += &format!("  ·  {tag}");
-        }
-        if o.seconds > 0.0 {
-            line += &format!("  ·  ~{}", fmt_time(o.seconds));
-        }
-        out += &line;
-    }
-    if let Some(e) = &tp.error {
-        out += &format!("\nStops early: {e}");
-    }
-    out
+/// Draws inline, without worker threads (headless screenshots).
+pub fn inline(plot: &Rc<RefCell<Plot>>) -> bool {
+    plot.borrow().inline
 }
 
 /// Follow the tool (work coordinates) and extend the trail.
