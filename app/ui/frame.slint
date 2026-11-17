@@ -130,7 +130,7 @@ component DroLine inherits Rectangle {
     }
     // One tap: this axis reads 0 in the active work system (G10 L20 P0).
     // No hold: the old value is on the OFFSETS timeline to put back.
-    Btn {
+    if data.homed || !Live.power: Btn {
         x: 50px;
         y: 12px;
         width: root.zero-w;
@@ -139,6 +139,21 @@ component DroLine inherits Rectangle {
         font-size: Layout.compact ? 20px : 22px;
         enabled: Live.power && data.homed && !Live.manual-locked;
         clicked => { Actions.dro-zero(data.axis); }
+    }
+    // Not homed: the same spot homes just this axis (hold, it moves).
+    // A has no switch, so "homing" it sets its reference where it stands.
+    if !data.homed && Live.power: Btn {
+        x: 50px;
+        y: 12px;
+        // Wider than ZERO so the HOLD tag clears the word.
+        width: root.zero-w + 36px;
+        height: 56px;
+        text: "HOME";
+        kind: "hold";
+        hold: true;
+        font-size: Layout.compact ? 20px : 22px;
+        enabled: Live.connected && !Live.running;
+        clicked => { Actions.home-axis(data.axis); }
     }
     Text {
         x: 50px + root.zero-w + 8px;

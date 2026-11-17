@@ -22,6 +22,7 @@ mod remote;
 mod restart;
 mod renderer;
 mod settings;
+mod textentry;
 mod toolchange;
 mod offsets;
 mod probe;
@@ -363,6 +364,7 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     live.set_running(s.busy());
     live.set_paused(s.interp == Interp::Paused);
     live.set_optional_stop(s.optional_stop);
+    live.set_block_delete(s.block_delete);
     let ready = s.power_on() && s.all_homed();
     live.set_can_start(ready && (s.interp == Interp::Paused || (s.interp == Interp::Idle && !s.file.is_empty())));
 
@@ -405,6 +407,13 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     actions.on_estop_reset(move || m.send(Command::SetState(TaskState::EstopReset)));
     let m = machine.clone();
     actions.on_home_all(move || m.send(Command::Home(-1)));
+    // trivkins: joints are numbered in [TRAJ]COORDINATES order.
+    let (m, coords) = (machine.clone(), cfg.coordinates().to_ascii_uppercase());
+    actions.on_home_axis(move |axis| {
+        if let Some(j) = coords.find(axis.as_str()) {
+            m.send(Command::Home(j as i32));
+        }
+    });
     let (m, st) = (machine.clone(), state.clone());
     actions.on_power(move || {
         let on = st.borrow().status.as_ref().is_some_and(|s| s.power_on());
@@ -537,6 +546,11 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         let on = st.borrow().status.as_ref().is_some_and(|s| s.optional_stop);
         m.send(Command::OptionalStop(!on));
     });
+    let (m, st) = (machine.clone(), state.clone());
+    actions.on_block_delete(move || {
+        let on = st.borrow().status.as_ref().is_some_and(|s| s.block_delete);
+        m.send(Command::BlockDelete(!on));
+    });
     // LinuxCNC shuts the whole session down when its display program exits.
     actions.on_exit(|| {
         let _ = slint::quit_event_loop();
@@ -549,6 +563,9 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             let live = ui.global::<Live>();
             if live.get_keypad_open() {
                 ui.global::<Actions>().invoke_keypad_done(false);
+            }
+            if live.get_text_open() {
+                ui.global::<Actions>().invoke_text_done(false);
             }
             if live.get_pick_open() {
                 ui.global::<Actions>().invoke_pick(-1);
@@ -726,6 +743,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     wire_actions(&ui, &handle, &state, &cfg);
     let manual = manual::wire(&ui, &handle, &cfg, settings::Settings::load(), axes.contains(&3));
+    textentry::wire(&ui);
     // The sim browses its own folder (where CONV and JOB write in the sim),
     // seeded with the sample programs; PROGRAM_PREFIX is on the Pi.
     let files_root = if args.sim { sim_nc_dir() } else { files::root(&cfg) };
@@ -857,6 +875,38 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
+    // The pendant's START/PAUSE, as the cycle buttons: start (with CYCLE
+    // START's checks) or resume when idle or paused, feed hold when running.
+    // The same tick passes its mode requests on (modules.rs, Pendant).
+    let pendant_tick = slint::Timer::default();
+    if modules.iter().any(|m| m.id() == "pendant") {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        let modules = modules.clone();
+        pendant_tick.start(slint::TimerMode::Repeated, Duration::from_millis(50), move || {
+            let s = state.borrow().status.clone();
+            // Every module ticks (no short-circuit): the pendant also passes
+            // its mode requests on here.
+            let pressed = modules.iter().fold(false, |any, m| m.tick(s.as_ref()) | any);
+            if !pressed {
+                return;
+            }
+            let Some(ui) = weak.upgrade() else { return };
+            let actions = ui.global::<Actions>();
+            match s.map(|s| (s.interp, s.busy())) {
+                Some((Interp::Paused, _)) | Some((Interp::Idle, false)) => {
+                    toast(&ui, "Pendant START".to_string());
+                    actions.invoke_cycle_start();
+                }
+                Some((_, true)) => {
+                    toast(&ui, "Pendant PAUSE: feed hold".to_string());
+                    actions.invoke_feed_hold();
+                }
+                _ => {}
+            }
+        });
+    }
+
     // LinuxCNC stops the display with SIGTERM; leave the loop so hal_exit runs.
     let _ = ctrlc::set_handler(|| {
         let _ = slint::invoke_from_event_loop(|| {
@@ -965,6 +1015,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
 
     let handle = linuxcnc::spawn(Box::new(linuxcnc::Sim::new()), Duration::from_secs(3600), |_| {});
     let manual = manual::wire(&ui, &handle, cfg, settings::Settings::memory(), axis_indices(cfg).contains(&3));
+    textentry::wire(&ui);
     mdi::wire(&ui, &handle, cfg, &mut Vec::new());
     files::wire(&ui, &handle, sample_dir());
     program::wire(&ui);
@@ -1029,6 +1080,14 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                 actions.invoke_mdi_pick("G10 L20 P1 X".into());
                 for k in ["5", "Y", "0"] {
                     actions.invoke_mdi_key(k.into());
+                }
+            }
+            // The text keyboard on the first tool's comment.
+            "comment" => {
+                actions.invoke_tools_select(0);
+                actions.invoke_text_edit("tool-comment".into());
+                for k in ["SPACE", "6", "M", "M"] {
+                    actions.invoke_text_key(k.into());
                 }
             }
             "line" => {

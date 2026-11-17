@@ -487,10 +487,17 @@ component GcodeView inherits VerticalLayout {
         spacing: 12px;
         Btn {
             text: "RUN FROM SELECTED"; hold: true;
+            font-size: Layout.compact ? 18px : 24px;
             enabled: Live.gcode-selected >= 0 && Live.power && Live.homed && !Live.manual-locked;
             clicked => { Actions.gcode-run-from-selected(); }
         }
-        Btn { text: "NEXT M6"; enabled: Live.gcode-count > 0; clicked => { Actions.gcode-next-m6(); } }
+        Btn { text: "NEXT M6"; font-size: Layout.compact ? 18px : 24px; enabled: Live.gcode-count > 0; clicked => { Actions.gcode-next-m6(); } }
+        // Lines starting with "/" are skipped while this is on.
+        Btn {
+            text: Layout.compact ? "BLOCK DEL" : "BLOCK DELETE"; font-size: Layout.compact ? 18px : 24px;
+            on: Live.block-delete; enabled: Live.connected;
+            clicked => { Actions.block-delete(); }
+        }
     }
 }
 

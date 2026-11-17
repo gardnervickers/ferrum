@@ -215,6 +215,20 @@ impl Tools {
         self.save()
     }
 
+    /// The selected tool's comment, as it shows in the table and the tool
+    /// change overlay. The table file keeps it after the ";".
+    fn set_comment(&mut self, text: &str) -> Result<(), String> {
+        let sel = self.selected.ok_or("Select a tool first")?;
+        self.idle()?;
+        let text = text.trim().to_string();
+        let t = self.tool_mut(sel).ok_or("Select a tool first")?;
+        if t.comment == text {
+            return Ok(());
+        }
+        t.comment = text;
+        self.save()
+    }
+
     fn next_scratch(&self) -> Option<i32> {
         SCRATCH.into_iter().find(|n| !self.tools.iter().any(|t| t.t == *n))
     }
@@ -375,6 +389,25 @@ impl KeypadTarget for Keys {
     }
 }
 
+impl crate::textentry::TextTarget for Keys {
+    fn label(&self, what: &str) -> Option<String> {
+        (what == "tool-comment").then(|| format!("T{} COMMENT", self.0.borrow().selected.unwrap_or(0)))
+    }
+    fn current(&self, what: &str) -> Option<String> {
+        let st = self.0.borrow();
+        (what == "tool-comment").then(|| st.selected.and_then(|s| st.tools.iter().find(|t| t.t == s)).map(|t| t.comment.clone()).unwrap_or_default())
+    }
+    fn apply(&self, what: &str, v: &str) -> Option<Result<(), String>> {
+        if what != "tool-comment" {
+            return None;
+        }
+        let mut st = self.0.borrow_mut();
+        let r = st.set_comment(v);
+        st.refresh();
+        Some(r)
+    }
+}
+
 pub fn table_path(cfg: &Config, sim: bool) -> PathBuf {
     let rel = cfg.get("EMCIO", "TOOL_TABLE").unwrap_or("tool.tbl");
     let real = cfg.dir().join(rel);
@@ -400,6 +433,7 @@ pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<
     let tools = Rc::new(RefCell::new(Tools { path, tools: Vec::new(), selected: None, status: None, machine: machine.clone(), io, ui: ui.as_weak(), probe_tool }));
     tools.borrow_mut().load();
     crate::manual::add_keypad_target(Rc::new(Keys(tools.clone())));
+    crate::textentry::add_target(Rc::new(Keys(tools.clone())));
     let actions = ui.global::<Actions>();
     let t = tools.clone();
     actions.on_tools_select(move |i| {

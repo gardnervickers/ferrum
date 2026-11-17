@@ -153,6 +153,14 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
             code_before = true;
             continue;
         }
+        // A "/" line runs or not depending on BLOCK DELETE, so what it
+        // left behind is not known from the text.
+        if line.trim_start().starts_with('/') && unreplayable.is_none() {
+            unreplayable = Some(format!(
+                "Line {} before here is a block delete (/) line. Run the program from the start",
+                lines_seen + 1
+            ));
+        }
         let w = words(line);
         let has = |l: char, v: f64| w.iter().any(|&(a, b)| a == l && (b - v).abs() < 1e-6);
         let gs: Vec<f64> = w.iter().filter(|(a, _)| *a == 'G').map(|&(_, v)| v).collect();
@@ -631,6 +639,15 @@ mod tests {
         g[3] = "G64 P0.02".into();
         assert!(plan(&g, 13).problem.is_none());
         assert!(plan(&g, 13).preamble()[0].contains("G64 P0.02"), "{:?}", plan(&g, 13).preamble());
+    }
+
+    #[test]
+    fn block_delete_lines_before_the_start_refuse() {
+        let lines = ["G21 G90 G54", "T1 M6", "S1000 M3", "/G0 Z50", "G0 X10 Y10", "G0 Z5", "G1 Z-1 F100", "G1 X20", "G1 Y20"];
+        let p = plan(&lines, 8);
+        assert!(p.problem.as_deref().is_some_and(|e| e.contains("block delete")), "{:?}", p.problem);
+        let lines = ["G21 G90 G54", "T1 M6", "S1000 M3", "G0 Z50", "G0 X10 Y10", "G0 Z5", "G1 Z-1 F100", "G1 X20", "/G1 Y20"];
+        assert!(plan(&lines, 8).problem.is_none(), "{:?}", plan(&lines, 8).problem);
     }
 
     #[test]

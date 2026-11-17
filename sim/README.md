@@ -58,3 +58,9 @@ display for a full-size window.
 
 Handy pins: `halcmd setp hm2_7i76e.0.sim.force-probe 1` holds the probe
 tripped, `sim.force-setter` the tool setter.
+
+The pendant is a stand-in (`sim_pendant.py`, component `whb`) with the
+nets of `xhc-whb04b-6.hal` that millgui cares about. Press START/PAUSE with
+`halcmd setp whb.sim.press-start 1` then `0`; turn the wheel (the driver
+asks for MANUAL) with `whb.sim.wheel 1` then `0`; unplug it with
+`whb.sim.connected 0`.
