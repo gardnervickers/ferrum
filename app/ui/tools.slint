@@ -54,7 +54,7 @@ export component ToolsScreen inherits Rectangle {
                 spacing: 12px;
                 HorizontalLayout {
                     H3 { horizontal-stretch: 1; text: "TOOL TABLE"; }
-                    Label { vertical-alignment: center; text: "TAP A ROW · TAP LENGTH OR DIA TO EDIT"; }
+                    Label { vertical-alignment: center; text: "TAP LENGTH, DIA OR COMMENT TO EDIT"; }
                 }
                 HorizontalLayout {
                     padding-left: 12px;
@@ -105,14 +105,34 @@ export component ToolsScreen inherits Rectangle {
                                     editable: !locked;
                                     tapped => { Actions.tools-select(i); Actions.edit("tool-d"); }
                                 }
-                                Text {
+                                // Tap to edit on the text keyboard.
+                                Rectangle {
                                     horizontal-stretch: 1;
-                                    vertical-alignment: center;
-                                    text: "   " + t.comment;
-                                    font-family: Theme.body;
-                                    font-size: 22px;
-                                    color: t.scratch ? Theme.warn : Theme.muted;
-                                    overflow: elide;
+                                    Rectangle {
+                                        x: 6px;
+                                        y: 5px;
+                                        width: parent.width - 12px;
+                                        height: parent.height - 10px;
+                                        border-radius: Theme.radius-ctl;
+                                        background: ct.pressed && !locked ? Theme.raised : transparent;
+                                        border-width: ct.pressed && !locked ? 1px : 0px;
+                                        border-color: Theme.sel;
+                                    }
+                                    Text {
+                                        x: 0;
+                                        width: parent.width - 8px;
+                                        height: parent.height;
+                                        vertical-alignment: center;
+                                        text: "   " + t.comment;
+                                        font-family: Theme.body;
+                                        font-size: 22px;
+                                        color: t.scratch ? Theme.warn : Theme.muted;
+                                        overflow: elide;
+                                    }
+                                    ct := TouchArea {
+                                        enabled: !locked;
+                                        clicked => { Actions.tools-select(i); Actions.text-edit("tool-comment"); }
+                                    }
                                 }
                             }
                         }

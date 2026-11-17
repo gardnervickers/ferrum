@@ -104,6 +104,96 @@ export component Keypad inherits Scrim {
     }
 }
 
+component TextKey inherits Btn {
+    in property <string> key;
+    // What the key shows, when not the key itself.
+    in property <string> label: key;
+    height: 76px;
+    text: label;
+    family: Theme.body;
+    font-size: label.character-count > 1 ? 24px : 34px;
+    clicked => { Actions.text-key(key); }
+}
+
+// Letters, digits and a few symbols, for short text such as a tool comment.
+export component TextKeyboard inherits Scrim {
+    property <[string]> r1: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
+    property <[string]> r2u: ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"];
+    property <[string]> r2l: ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"];
+    property <[string]> r3u: ["A", "S", "D", "F", "G", "H", "J", "K", "L", "-"];
+    property <[string]> r3l: ["a", "s", "d", "f", "g", "h", "j", "k", "l", "-"];
+    property <[string]> r4u: ["Z", "X", "C", "V", "B", "N", "M", ".", "/", "#"];
+    property <[string]> r4l: ["z", "x", "c", "v", "b", "n", "m", ".", "/", "#"];
+    // A hardware keyboard types too (the desktop sim, a USB keyboard).
+    keys := FocusScope {
+        init => { self.focus(); }
+        key-pressed(e) => {
+            if e.text == Key.Return { Actions.text-done(true); return accept; }
+            if e.text == Key.Escape { Actions.text-done(false); return accept; }
+            if e.text == Key.Backspace { Actions.text-key("⌫"); return accept; }
+            if e.text == " " { Actions.text-key("SPACE"); return accept; }
+            if e.text.character-count == 1 && !e.modifiers.control && !e.modifiers.meta {
+                Actions.text-key(e.text);
+                return accept;
+            }
+            reject
+        }
+    }
+    Dialog {
+        // Narrower windows (the compact layout) get narrower keys.
+        width: min(1100px, root.width - 32px);
+        height: 720px;
+        VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+            Text { text: Live.text-label; font-family: Theme.display; font-size: 38px; letter-spacing: 2px; color: Theme.ink; }
+            Rectangle {
+                height: 72px;
+                background: Theme.well;
+                border-width: 1px;
+                border-color: Live.text-error != "" ? Theme.stop-border : Theme.sel;
+                border-radius: Theme.radius-ctl;
+                clip: true;
+                // A long text slides left so its end (the cursor) stays in view.
+                Text {
+                    x: min(16px, parent.width - 16px - self.preferred-width);
+                    width: max(parent.width - 32px, self.preferred-width);
+                    vertical-alignment: center;
+                    text: Live.text-value + "▏";
+                    font-family: Theme.body; font-weight: 500; font-size: 36px; color: Theme.ink;
+                }
+            }
+            // Fixed height, so the keys don't move when it appears.
+            Text {
+                height: 30px;
+                vertical-alignment: center;
+                overflow: elide;
+                text: Live.text-error;
+                font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.bad;
+            }
+            GridLayout {
+                spacing: 8px;
+                Row { for k in r1: TextKey { key: k; } }
+                Row { for k[i] in r2u: TextKey { key: Live.text-caps ? k : r2l[i]; } }
+                Row { for k[i] in r3u: TextKey { key: Live.text-caps ? k : r3l[i]; } }
+                Row { for k[i] in r4u: TextKey { key: Live.text-caps ? k : r4l[i]; } }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                TextKey { key: "⇧"; label: Live.text-caps ? "ABC" : "abc"; on: Live.text-caps; width: 150px; }
+                TextKey { key: "SPACE"; horizontal-stretch: 1; }
+                TextKey { key: "⌫"; width: 150px; }
+                TextKey { key: "CLR"; width: 150px; }
+            }
+            HorizontalLayout {
+                spacing: 20px;
+                Btn { height: 64px; text: "CANCEL"; clicked => { Actions.text-done(false); } }
+                Btn { height: 64px; text: "ENTER"; kind: "go"; clicked => { Actions.text-done(true); } }
+            }
+        }
+    }
+}
+
 export component MessageDrawer inherits Scrim {
     Dialog {
         width: 1100px;

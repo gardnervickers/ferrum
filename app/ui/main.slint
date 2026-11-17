@@ -9,7 +9,7 @@ import { ToolsScreen } from "tools.slint";
 import { OffsetsScreen } from "offsets.slint";
 import { ProbeScreen } from "probe.slint";
 import { UtilScreen } from "util.slint";
-import { Keypad, MessageDrawer, ToolChange, Picker } from "overlays.slint";
+import { Keypad, TextKeyboard, MessageDrawer, ToolChange, Picker } from "overlays.slint";
 import { JobScreen } from "job.slint";
 import { ConvScreen } from "conv.slint";
 
@@ -47,6 +47,7 @@ export component MainWindow inherits Window {
         if Live.tc-open: ToolChange {}
         if Live.pick-open: Picker {}
         if Live.keypad-open: Keypad {}
+        if Live.text-open: TextKeyboard {}
     }
     BottomBar { x: 0; y: parent.height - 128px; width: parent.width; height: 128px; }
     if Live.toast != "": Rectangle {

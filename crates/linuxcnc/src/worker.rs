@@ -99,6 +99,11 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
                         back = after_mdi(back.take(), Some(sent));
                     }
                 }
+                if back.as_ref().is_some_and(|b| b.overtaken(&s)) {
+                    // Someone else (the pendant, halui) changed mode after
+                    // the MDI command: follow them, don't switch back later.
+                    back = None;
+                }
                 if modes.is_some() {
                     // The mode goes back after the restore, not before it.
                 } else if let Some(mode) = back.as_mut().and_then(|b| b.due(&s)) {
@@ -153,6 +158,12 @@ fn after_mdi(back: Option<MdiReturn>, sent: Option<(Mode, i32)>) -> Option<MdiRe
 }
 
 impl MdiReturn {
+    /// Task left MDI after it took the command: another program (the
+    /// pendant asking for MANUAL to jog) changed mode.
+    fn overtaken(&self, s: &Status) -> bool {
+        s.mode != Mode::Mdi && s.echo_serial >= self.serial
+    }
+
     /// The mode to go back to, once MDI has finished and stayed idle.
     fn due(&mut self, s: &Status) -> Option<Mode> {
         if s.mode != Mode::Mdi {
@@ -606,6 +617,18 @@ mod tests {
         assert_eq!(b.mode, Mode::Auto);
         b.idle_since = Some(Instant::now() - MDI_RETURN_AFTER);
         assert_eq!(b.due(&mdi_idle(8)), None);
+    }
+
+    #[test]
+    fn a_mode_change_by_someone_else_cancels_the_return() {
+        let b = after_mdi(None, Some((Mode::Manual, 7))).unwrap();
+        let mut s = mdi_idle(7);
+        assert!(!b.overtaken(&s));
+        s.mode = Mode::Auto;
+        assert!(b.overtaken(&s));
+        // Before task has the command, the old mode is not someone else's.
+        s.echo_serial = 6;
+        assert!(!b.overtaken(&s));
     }
 
     #[test]

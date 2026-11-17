@@ -6,7 +6,9 @@
 use crate::config::Config;
 use hal::{BitPin, Component, Dir, FloatPin};
 use linuxcnc::Status;
+use std::cell::Cell;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 pub struct Pill {
     pub text: String,
@@ -76,6 +78,13 @@ pub trait Module {
     /// load signal. The backplot colours the tool's trail by it.
     fn load(&self, _status: Option<&Status>) -> Option<f64> {
         None
+    }
+
+    /// Called every 50 ms. Returns true when a hardware START/PAUSE button
+    /// (the pendant's) was pressed since the last call; the screen acts on
+    /// it as on its own CYCLE START or FEED HOLD.
+    fn tick(&self, _status: Option<&Status>) -> bool {
+        false
     }
 }
 
@@ -334,6 +343,86 @@ impl Module for Load {
     }
 }
 
+/// The WHB04B pendant (millgui/hal/pendant.hal, xhc-whb04b-6.hal). Its
+/// START/PAUSE button comes to millgui instead of LinuxCNC: halui would
+/// switch to AUTO (which aborts a running MDI command or probe macro) and
+/// skip CYCLE START's checks and its G90 setup. The pill says whether the
+/// pendant is there.
+#[derive(Default)]
+struct Pendant {
+    connected: Option<BitPin>,
+    asleep: Option<BitPin>,
+    /// whb.button.start-pause: the driver raises it when task is already in AUTO.
+    start: Option<BitPin>,
+    /// whb.halui.mode.auto: otherwise the driver asks for AUTO first.
+    auto_request: Option<BitPin>,
+    /// The driver's other mode requests (it asks for MANUAL or teleop on
+    /// every wheel step, joint mode before HOME), passed on to halui only
+    /// while nothing runs: a switch out of MDI aborts a probe macro.
+    modes: Vec<(BitPin, BitPin)>,
+    was_down: Cell<bool>,
+    last: Cell<Option<Instant>>,
+}
+
+/// One press can raise both pins one after the other.
+const PENDANT_DEBOUNCE: Duration = Duration::from_millis(700);
+
+/// Mode requests millgui passes from the pendant to halui.
+const PENDANT_MODES: [&str; 4] = ["manual", "teleop", "joint", "mdi"];
+
+/// Whether a pendant mode request may reach halui now: nothing running,
+/// queued or paused (a switch would abort it).
+fn pendant_modes_ok(s: Option<&Status>) -> bool {
+    s.is_some_and(|s| !s.busy() && s.interp == linuxcnc::Interp::Idle && s.queued_mdi == 0)
+}
+
+impl Pendant {
+    /// Edge detection on the two pins, one press per PENDANT_DEBOUNCE.
+    fn pressed(&self, down: bool, now: Instant) -> bool {
+        let edge = down && !self.was_down.get();
+        self.was_down.set(down);
+        if !edge || self.last.get().is_some_and(|t| now.duration_since(t) < PENDANT_DEBOUNCE) {
+            return false;
+        }
+        self.last.set(Some(now));
+        true
+    }
+}
+
+impl Module for Pendant {
+    fn id(&self) -> &'static str {
+        "pendant"
+    }
+    fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
+        self.connected = Some(comp.bit("pendant.connected", Dir::In)?);
+        self.asleep = Some(comp.bit("pendant.asleep", Dir::In)?);
+        self.start = Some(comp.bit("pendant.start", Dir::In)?);
+        self.auto_request = Some(comp.bit("pendant.auto-request", Dir::In)?);
+        for m in PENDANT_MODES {
+            self.modes.push((comp.bit(&format!("pendant.ask-{m}"), Dir::In)?, comp.bit(&format!("pendant.mode-{m}"), Dir::Out)?));
+        }
+        Ok(())
+    }
+    fn pills(&self, _s: Option<&Status>, out: &mut Vec<Pill>) {
+        let Some(c) = &self.connected else { return };
+        out.push(if !c.get() {
+            Pill::new("PENDANT OFF", "")
+        } else if self.asleep.as_ref().is_some_and(|p| p.get()) {
+            Pill::new("PENDANT ASLEEP", "")
+        } else {
+            Pill::new("PENDANT", "good")
+        });
+    }
+    fn tick(&self, s: Option<&Status>) -> bool {
+        let ok = pendant_modes_ok(s);
+        for (ask, out) in &self.modes {
+            out.set(ask.get() && ok);
+        }
+        let down = [&self.start, &self.auto_request].iter().any(|p| p.as_ref().is_some_and(|p| p.get()));
+        self.pressed(down, Instant::now())
+    }
+}
+
 fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
     let screen = |id, label, icon| Some(Box::new(Screen { id, label, icon }) as Box<dyn Module>);
     match id {
@@ -351,6 +440,7 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
         "drawbar" => Some(Box::new(Drawbar::default())),
         "interlock" => Some(Box::new(Interlock::default())),
         "load" => Some(Box::new(Load::default())),
+        "pendant" => Some(Box::new(Pendant::default())),
         _ => None,
     }
 }
@@ -376,6 +466,31 @@ pub fn build(cfg: &Config) -> (Vec<Box<dyn Module>>, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pendant_press_counts_once() {
+        let p = Pendant::default();
+        let t0 = Instant::now();
+        assert!(p.pressed(true, t0));
+        // Held, then the second pin of the same press.
+        assert!(!p.pressed(true, t0 + Duration::from_millis(50)));
+        assert!(!p.pressed(false, t0 + Duration::from_millis(100)));
+        assert!(!p.pressed(true, t0 + Duration::from_millis(300)));
+        assert!(!p.pressed(false, t0 + Duration::from_millis(400)));
+        // A new press later.
+        assert!(p.pressed(true, t0 + Duration::from_millis(1500)));
+    }
+
+    #[test]
+    fn pendant_modes_pass_only_while_idle() {
+        let mut s = Status::default();
+        assert!(!pendant_modes_ok(None));
+        assert!(pendant_modes_ok(Some(&s)));
+        s.interp = linuxcnc::Interp::Reading;
+        assert!(!pendant_modes_ok(Some(&s)));
+        s.interp = linuxcnc::Interp::Paused;
+        assert!(!pendant_modes_ok(Some(&s)));
+    }
 
     #[test]
     fn unlisted_modules_do_not_exist() {
