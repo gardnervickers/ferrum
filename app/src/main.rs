@@ -460,6 +460,8 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
                 Some("Unload the probe before cycle start".to_string())
             } else if !block.is_empty() {
                 Some(block.to_string())
+            } else if let Some(p) = plot::with_ret(|p| plot::start_problem(p, 0)).flatten() {
+                Some(p)
             } else {
                 JOB.with(|j| j.borrow().clone()).and_then(|j| j.borrow_mut().cycle_start_problem(0))
             };
@@ -511,6 +513,8 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             Some(block.to_string())
         } else if let Some(p) = plan.refuse(&s) {
             Some(p)
+        } else if let Some(p) = plot::with_ret(|p| plot::start_problem(p, sel as u32 + 1)).flatten() {
+            Some(p)
         } else {
             JOB.with(|j| j.borrow().clone()).and_then(|j| j.borrow_mut().cycle_start_problem(sel + 1))
         };
@@ -534,6 +538,18 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         if run.pump(&s, &m) {
             RESTART.with(|r| *r.borrow_mut() = Some(run));
         }
+    });
+    let weak = ui.as_weak();
+    actions.on_plot_check_tap(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let Some((text, line)) = plot::with_ret(|p| plot::check_details(p)).flatten() else { return };
+        let live = ui.global::<Live>();
+        if line > 0 {
+            live.set_run_tab("program".into());
+            live.set_gcode_selected(line as i32 - 1);
+        }
+        live.set_message(text.into());
+        live.set_message_error(live.get_plot_check_level() == 2);
     });
     let weak = ui.as_weak();
     actions.on_single_block(move || {
@@ -690,6 +706,8 @@ fn main() -> Result<(), slint::PlatformError> {
                         OFFSETS.with(|o| {
                             if let Some(o) = o.borrow().as_ref() {
                                 offsets::apply_status(ui, o, &s);
+                                let live = offsets::preflight_live(o, &s);
+                                plot::with(|p| plot::set_live(ui, p, live));
                             }
                         });
                         PROBE.with(|p| {
@@ -1038,6 +1056,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     tools::apply_status(&ui, &tools, &s);
     let offsets = offsets::wire(&ui, &handle, cfg, true);
     offsets::apply_status(&ui, &offsets, &s);
+    plot::set_live(&ui, &plot, offsets::preflight_live(&offsets, &s));
     history::wire(&ui, None, restore_fn(&offsets, &tools));
     let rot = offsets.clone();
     let probe = probe::wire(&ui, &handle, cfg, Some(tc_io.clone() as Rc<dyn toolchange::Io>), true, Box::new(move |w| offsets::rotation(&rot, w)));

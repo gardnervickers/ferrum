@@ -11,6 +11,7 @@ pub mod canon;
 pub mod cube;
 pub mod machine;
 pub mod mini;
+pub mod preflight;
 pub mod rs274;
 pub mod raster;
 pub mod software;
@@ -58,6 +59,24 @@ pub struct Toolpath {
     /// The box to frame when there are no moves (no program loaded): the
     /// table and the travel above it, so the view still shows the machine.
     pub frame: Option<(P4, P4)>,
+    /// The offsets the interpreter applied, each from `segs[n]` on (the
+    /// first entry from 0). Canon positions are work positions; these turn
+    /// them into machine positions (see `preflight`).
+    pub offsets: Vec<(usize, Offsets)>,
+}
+
+/// The offsets in effect for a stretch of moves, as the interpreter
+/// reported them (from its parameter file and the program's own G10/G92).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Offsets {
+    /// Work system, 1 (G54) to 9 (G59.3); 0 before the interpreter named one.
+    pub wcs: u8,
+    pub g5x: [f64; 3],
+    pub g92: [f64; 3],
+    /// Tool length offset (G43): X Y Z.
+    pub tool: [f64; 3],
+    /// XY rotation of the work system, degrees.
+    pub rotation: f64,
 }
 
 impl Toolpath {
@@ -104,6 +123,7 @@ pub struct Builder {
     /// such as `(MSG, ...)`, don't name or split ops.
     marked: bool,
     line: u32,
+    offsets: Offsets,
 }
 
 impl Builder {
@@ -120,6 +140,24 @@ impl Builder {
             op_cut: false,
             marked: false,
             line: 0,
+            offsets: Offsets::default(),
+        }
+    }
+
+    /// The offsets now in effect (each change is recorded once).
+    pub fn offsets(&self) -> Offsets {
+        self.offsets
+    }
+
+    pub fn set_offsets(&mut self, o: Offsets) {
+        if o == self.offsets && !self.tp.offsets.is_empty() {
+            return;
+        }
+        self.offsets = o;
+        let at = self.tp.segs.len();
+        match self.tp.offsets.last_mut() {
+            Some(last) if last.0 == at => last.1 = o,
+            _ => self.tp.offsets.push((at, o)),
         }
     }
 

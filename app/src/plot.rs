@@ -5,6 +5,7 @@ use crate::config::Config;
 use crate::{Actions, CubeFace, Live, MainWindow};
 use preview::machine::{Machine, Pose};
 use preview::software::{Base, View, Zoom};
+use preview::preflight::{self, Limits, Report};
 use preview::{rs274, Toolpath, P4};
 use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer};
 use std::cell::RefCell;
@@ -59,6 +60,13 @@ pub struct Plot {
     pixels: Option<SharedPixelBuffer<Rgba8Pixel>>,
     /// Counts redraws, so the web mirror knows when the picture changed.
     version: u64,
+    /// Soft limits from the INI, for the travel check (None: no check).
+    limits: Option<Limits>,
+    /// The machine's offsets now, and the travel check of the toolpath
+    /// with them (None until a program is read and status arrived).
+    live: Option<preflight::Live>,
+    check: Option<Report>,
+    summary: String,
 }
 
 /// The preview INI: the machine INI without REMAP lines. Remaps read HAL
@@ -89,6 +97,17 @@ fn setup(cfg: &Config) -> Option<rs274::Setup> {
         tool_table: cfg.get("EMCIO", "TOOL_TABLE").map(rel),
         rapid_mm_s: rapid(cfg),
     })
+}
+
+/// [AXIS_X/Y/Z] MIN_LIMIT and MAX_LIMIT, when all six are set.
+pub fn limits(cfg: &Config) -> Option<Limits> {
+    let mut l = Limits { min: [0.0; 3], max: [0.0; 3] };
+    for (i, a) in ["X", "Y", "Z"].iter().enumerate() {
+        let sec = format!("AXIS_{a}");
+        l.min[i] = cfg.get_f64(&sec, "MIN_LIMIT")?;
+        l.max[i] = cfg.get_f64(&sec, "MAX_LIMIT")?;
+    }
+    Some(l)
 }
 
 fn rapid(cfg: &Config) -> f64 {
@@ -175,12 +194,12 @@ impl Plot {
         let live = ui.global::<Live>();
         let secs = tp.seconds();
         let ops = tp.ops.len();
-        live.set_plot_summary(if tp.segs.is_empty() {
+        self.summary = if tp.segs.is_empty() {
             String::new()
         } else {
             format!("{} OP{} · ~{}", ops, if ops == 1 { "" } else { "S" }, fmt_time(secs))
-        }
-        .into());
+        };
+        live.set_plot_summary(self.summary.clone().into());
         if let Some(e) = &tp.error {
             live.set_message(format!("Preview: {e}").into());
             live.set_message_error(true);
@@ -188,8 +207,98 @@ impl Plot {
         self.tp = Arc::new(tp);
         self.id += 1;
         self.zoom = Zoom::default();
+        self.run_check(ui);
         self.redraw(ui);
     }
+
+    /// The travel check of the toolpath with the offsets now, from line
+    /// `from_line` on.
+    fn check_from(&self, from_line: u32) -> Option<Report> {
+        let (limits, live) = (self.limits.as_ref()?, self.live.as_ref()?);
+        if self.tp.segs.is_empty() {
+            return None;
+        }
+        let top = -self.machine.nose_above_table;
+        Some(preflight::check(&self.tp, limits, live, Some(top), from_line))
+    }
+
+    fn run_check(&mut self, ui: &MainWindow) {
+        self.check = self.check_from(0);
+        let live = ui.global::<Live>();
+        let (text, level, line) = match &self.check {
+            None => (String::new(), 0, 0),
+            Some(r) => check_text(r, &self.tp, self.live.as_ref()),
+        };
+        live.set_plot_check(text.into());
+        live.set_plot_check_level(level);
+        live.set_plot_check_line(line as i32);
+    }
+}
+
+/// The banner text, its level (0 OK, 1 note, 2 problem) and the line to
+/// show for a travel check.
+fn check_text(r: &Report, tp: &Toolpath, live: Option<&preflight::Live>) -> (String, i32, u32) {
+    let wcs = live.map_or(0, |l| l.active.clamp(1, 9) as usize - 1);
+    let op_name = |op: usize| tp.ops.get(op).map(|o| o.name.clone()).filter(|n| !n.is_empty());
+    if let Some(p) = r.problems.first() {
+        let mut text = preflight::describe(p);
+        if let Some(n) = op_name(p.op) {
+            text += &format!(" ({n})");
+        }
+        if r.problems.len() > 1 {
+            text += &format!(" · {} MORE", r.problems.len() - 1);
+        }
+        let level = if r.travel().next().is_some() { 2 } else { 1 };
+        return (text, level, p.line);
+    }
+    if let Some(line) = r.sets_offsets.first() {
+        let text = format!("OK with today's offsets. The program sets an offset itself from line {line}");
+        return (text, 1, *line);
+    }
+    (format!("OK in {} · every move inside the limits", crate::offsets::CODES[wcs]), 0, 0)
+}
+
+/// Why the loaded program must not start from line `from_line` (0: the
+/// top): a move past a soft limit. LinuxCNC would stop there mid-cut.
+/// A tool tip below the table only warns (the model is approximate).
+pub fn start_problem(plot: &Rc<RefCell<Plot>>, from_line: u32) -> Option<String> {
+    let st = plot.borrow();
+    let r = st.check_from(from_line)?;
+    let p = r.travel().next()?;
+    let mut text = preflight::describe(p);
+    if let Some(n) = st.tp.ops.get(p.op).map(|o| o.name.clone()).filter(|n| !n.is_empty()) {
+        text += &format!(" ({n})");
+    }
+    Some(format!("{text}. Check the work offset"))
+}
+
+/// The machine's offsets changed (or arrived): check again.
+pub fn set_live(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, live: preflight::Live) {
+    let mut st = plot.borrow_mut();
+    if st.live == Some(live) {
+        return;
+    }
+    st.live = Some(live);
+    st.run_check(ui);
+}
+
+/// Every finding of the travel check, one per line, for the message drawer.
+pub fn check_details(plot: &Rc<RefCell<Plot>>) -> Option<(String, u32)> {
+    let st = plot.borrow();
+    let r = st.check.as_ref()?;
+    let mut lines: Vec<String> = r
+        .problems
+        .iter()
+        .map(|p| {
+            let n = st.tp.ops.get(p.op).map(|o| format!(" ({})", o.name)).unwrap_or_default();
+            format!("{}{n}", preflight::describe(p))
+        })
+        .collect();
+    if let Some(l) = r.sets_offsets.first() {
+        lines.push(format!("The program sets a work offset or G92 itself from line {l}; moves after it were checked with today's values"));
+    }
+    let line = r.problems.first().map(|p| p.line).or(r.sets_offsets.first().copied()).unwrap_or(0);
+    Some((lines.join("\n"), line))
 }
 
 pub fn fmt_time(s: f64) -> String {
@@ -373,6 +482,10 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         want_pixels: false,
         pixels: None,
         version: 0,
+        limits: limits(cfg),
+        live: None,
+        check: None,
+        summary: String::new(),
     }));
     PLOT.with(|p| *p.borrow_mut() = Some(plot.clone()));
     let actions = ui.global::<Actions>();
@@ -517,6 +630,10 @@ pub fn with(f: impl FnOnce(&Rc<RefCell<Plot>>)) {
     if let Some(p) = PLOT.with(|p| p.borrow().clone()) {
         f(&p);
     }
+}
+
+pub fn with_ret<R>(f: impl FnOnce(&Rc<RefCell<Plot>>) -> R) -> Option<R> {
+    PLOT.with(|p| p.borrow().clone()).map(|p| f(&p))
 }
 
 /// Reload the toolpath when LinuxCNC reports a different program.

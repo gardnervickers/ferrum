@@ -63,6 +63,13 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [ ] Files: the top view is not sent to the browser screen (only the Run backplot is streamed).
 - [x] Run: G-code view follows the executing line; NEXT M6 finds the next tool change.
 - [x] CYCLE START has a static outline when it can resume.
+- [x] Travel check (`preview/src/preflight.rs`): every move of the loaded program, in machine
+  coordinates with today's work offsets and the interpreter's tool lengths, against [AXIS_X/Y/Z]
+  soft limits, and the tool tip against the table top of machine.toml. A banner under the backplot
+  says OK, or names the axis, distance, first line and op (tap: jump to the line, list all).
+  CYCLE START and RUN FROM SELECTED refuse a soft-limit overrun (from the start line on); the
+  table only warns. Moves after a program sets an offset itself are checked with today's value
+  and the banner says so. The preview numbers each line (N<line>) so moves carry source lines.
 - [x] BLOCK DELETE toggle on RUN › G-CODE (LinuxCNC starts with it on). RUN FROM SELECTED refuses
       when a "/" line comes before the start line.
 - [x] Run from line (RUN FROM SELECTED, hold): refused inside a job, after o-word code or

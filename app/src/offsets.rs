@@ -316,6 +316,19 @@ pub fn rotation(o: &Rc<RefCell<Offsets>>, sys: usize) -> f64 {
     o.borrow().table.get(sys).map_or(0.0, |r| r[4])
 }
 
+/// The travel check's view of the offsets: every work system as this
+/// screen knows it, G92 and the active system from status.
+pub fn preflight_live(o: &Rc<RefCell<Offsets>>, s: &Status) -> preview::preflight::Live {
+    let t = o.borrow().table;
+    let mut live = preview::preflight::Live { active: s.g5x_index.clamp(1, 9) as u8, ..Default::default() };
+    for (i, row) in t.iter().enumerate() {
+        live.wcs[i] = [row[0], row[1], row[2]];
+        live.rotation[i] = row[4];
+    }
+    live.g92 = [s.g92_offset[0], s.g92_offset[1], s.g92_offset[2]];
+    live
+}
+
 /// Status: the active system's offsets are always current here.
 pub fn apply_status(ui: &MainWindow, o: &Rc<RefCell<Offsets>>, s: &Status) {
     let mut st = o.borrow_mut();
