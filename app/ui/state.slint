@@ -87,6 +87,11 @@ export global Live {
     in-out property <string> run-tab: "program";
     in property <image> plot;
     in property <string> plot-summary;
+    // The travel check of the loaded program: what it found (empty when
+    // nothing loaded), 0 clear, 1 a note, 2 a problem; the line to show.
+    in property <string> plot-check;
+    in property <int> plot-check-level;
+    in property <int> plot-check-line;
     // The backplot caption: TOP VIEW, ISO VIEW, ORBIT VIEW...
     in property <string> plot-view: "ISO VIEW";
     // Cutting load now, e.g. "62%"; empty when nothing measures it (the
@@ -376,6 +381,8 @@ export global Actions {
     callback plot-cube-hover(x: float, y: float);
     callback plot-zoom(factor: float, x: float, y: float);
     callback plot-fit();
+    // Tap on the travel check: show its line and every finding.
+    callback plot-check-tap();
     callback plot-machine();
     // Also clears the toast where it was set, so a repeat shows again.
     callback toast-dismiss();

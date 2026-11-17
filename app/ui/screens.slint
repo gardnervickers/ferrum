@@ -430,6 +430,35 @@ component ProgramCard inherits Card {
                     }
                 }
             }
+            // The travel check: a problem in red, a note in amber, OK in
+            // green. Tap to jump to the line.
+            if Live.program != "" && Live.plot-check != "": check := Rectangle {
+                x: 96px; y: parent.height - self.height - 12px;
+                width: min(parent.width - 96px - 154px, 820px);
+                height: 48px;
+                border-radius: Theme.radius-ctl;
+                background: Live.plot-check-level == 2 ? Theme.bad-soft : Live.plot-check-level == 1 ? Theme.warn-soft : Theme.good-soft;
+                border-width: 1px;
+                border-color: Live.plot-check-level == 2 ? Theme.stop-border : Live.plot-check-level == 1 ? Theme.hold-border : Theme.go-border;
+                HorizontalLayout {
+                    padding-left: 14px; padding-right: 14px;
+                    spacing: 10px;
+                    Text {
+                        vertical-alignment: center;
+                        text: "TRAVEL";
+                        font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px;
+                        color: Live.plot-check-level == 2 ? Theme.bad : Live.plot-check-level == 1 ? Theme.warn : Theme.good;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        text: Live.plot-check;
+                        font-family: Theme.body; font-size: 18px; color: Theme.ink;
+                    }
+                }
+                TouchArea { enabled: Live.plot-check-level > 0; clicked => { Actions.plot-check-tap(); } }
+            }
             // Show or hide the table and the tool.
             Btn {
                 x: parent.width - self.width - 12px; y: parent.height - self.height - 12px;

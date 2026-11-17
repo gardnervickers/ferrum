@@ -26,8 +26,17 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
     let mut plane = Plane::Xy;
     let mut started = false;
     for line in text.lines() {
-        // Drop the sequence number and the N-word column.
-        let call = line.trim_start().splitn(3, char::is_whitespace).nth(2).unwrap_or("").trim();
+        // The sequence number, then the N-word column: "N....." or the
+        // block's N number (rs274::run numbers each line with its own line
+        // number, so this is the source line). A long number runs into the
+        // call name.
+        let rest = line.trim_start().trim_start_matches(|c: char| c.is_ascii_digit()).trim_start();
+        let Some(rest) = rest.strip_prefix('N') else { continue };
+        let digits = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        if let Ok(n) = rest[..digits].parse::<u32>() {
+            b.set_line(n);
+        }
+        let call = rest[digits..].trim_start_matches('.').trim();
         let Some((name, rest)) = call.split_once('(') else { continue };
         let inner = rest.strip_suffix(')').unwrap_or(rest);
         match name {
@@ -39,6 +48,38 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
             "CHANGE_TOOL" => {
                 if let Some(t) = args(inner).first() {
                     b.tool(*t as i32);
+                }
+            }
+            "SET_G5X_OFFSET" => {
+                let a = args(inner);
+                if a.len() >= 4 {
+                    let mut o = b.offsets();
+                    o.wcs = a[0].clamp(0.0, 9.0) as u8;
+                    o.g5x = [a[1], a[2], a[3]];
+                    b.set_offsets(o);
+                }
+            }
+            "SET_G92_OFFSET" => {
+                let a = args(inner);
+                if a.len() >= 3 {
+                    let mut o = b.offsets();
+                    o.g92 = [a[0], a[1], a[2]];
+                    b.set_offsets(o);
+                }
+            }
+            "USE_TOOL_LENGTH_OFFSET" => {
+                let a = args(inner);
+                if a.len() >= 3 {
+                    let mut o = b.offsets();
+                    o.tool = [a[0], a[1], a[2]];
+                    b.set_offsets(o);
+                }
+            }
+            "SET_XY_ROTATION" => {
+                if let Some(r) = args(inner).first() {
+                    let mut o = b.offsets();
+                    o.rotation = *r;
+                    b.set_offsets(o);
                 }
             }
             "SET_FEED_RATE" => {
@@ -130,6 +171,37 @@ mod tests {
    14 N..... SELECT_PLANE(CANON_PLANE_XZ)
    15 N..... ARC_FEED(5.0000, 80.0000, 5.0000, 90.0000, -1, 20.0000, 0.0000, 0.0000, 0.0000)
 "#;
+
+    #[test]
+    fn source_lines_come_from_the_n_column() {
+        let out = "    8 N3     STRAIGHT_TRAVERSE(1.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000)
+    9 N123456SET_FEED_RATE(100.0000)
+   10 N123456STRAIGHT_FEED(5.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000)
+   11 N..... STRAIGHT_FEED(5.0000, 3.0000, 0.0000, 0.0000, 0.0000, 0.0000)
+";
+        let tp = parse(out, 100.0);
+        // A subroutine's own lines carry no number: they stay on the call.
+        assert_eq!(tp.segs.iter().map(|s| s.line).collect::<Vec<_>>(), [123456, 123456]);
+    }
+
+    #[test]
+    fn records_the_offsets_in_effect() {
+        let out = "    1 N..... SET_G5X_OFFSET(1, 215.0000, -90.0000, -200.0000, 0.0000, 0.0000, 0.0000)
+    2 N..... SET_G92_OFFSET(0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000)
+    3 N..... SET_XY_ROTATION(0.0000)
+    4 N..... STRAIGHT_TRAVERSE(0.0000, 0.0000, 10.0000, 0.0000, 0.0000, 0.0000)
+    5 N..... STRAIGHT_FEED(10.0000, 0.0000, 10.0000, 0.0000, 0.0000, 0.0000)
+    6 N..... USE_TOOL_LENGTH_OFFSET(0.0000 0.0000 98.7941, 0.0000 0.0000 0.0000, 0.0000 0.0000 0.0000)
+    7 N..... STRAIGHT_FEED(10.0000, 5.0000, 10.0000, 0.0000, 0.0000, 0.0000)
+";
+        let tp = parse(out, 100.0);
+        assert_eq!(tp.offsets.len(), 2);
+        assert_eq!(tp.offsets[0].0, 0);
+        assert_eq!(tp.offsets[0].1.wcs, 1);
+        assert_eq!(tp.offsets[0].1.g5x, [215.0, -90.0, -200.0]);
+        assert_eq!(tp.offsets[1].0, 1);
+        assert_eq!(tp.offsets[1].1.tool, [0.0, 0.0, 98.7941]);
+    }
 
     #[test]
     fn parses_moves_arcs_and_ops() {
