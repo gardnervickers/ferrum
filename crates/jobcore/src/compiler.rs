@@ -271,6 +271,10 @@ fn resolve(op: &Op, machine: &Machine) -> Result<(Option<Setup>, Vec<String>)> {
             })?;
             Ok((Some(setup), body))
         }
+        "probe" => {
+            crate::probe::parse(op)?;
+            Ok((None, vec![]))
+        }
         "step" => {
             let ok = matches!(op.params.get("message"), Some(Value::String(m)) if !comment_text(m).is_empty());
             if !ok {
@@ -389,6 +393,11 @@ fn wrap(position: usize, total: usize, op: &Op, setup: Option<&Setup>, body: &[S
     out.push(format!("o<job_{}> if [#<_job_run>]", tag));
     out.push(format!("  {}", MACHINE_TOP));
     match setup {
+        None if op.kind == "probe" => {
+            // Checked in resolve().
+            let body = crate::probe::body(op, position, &tag, machine.probe_tool).unwrap_or_default();
+            out.extend(body.iter().map(|l| format!("  {}", l)));
+        }
         None => {
             out.push("  M5".into());
             out.push("  M9".into());
@@ -487,6 +496,10 @@ pub fn dependency_problems(job: &Job, enabled: &HashMap<String, bool>) -> Vec<St
 
 fn needs(op: &Op) -> Vec<String> {
     let mut needs = op.needs.clone();
+    if op.kind == "probe" {
+        // A FIND op sets its work offset rather than needing it.
+        return needs;
+    }
     let wcs = match op.kind.as_str() {
         "conversational" => op.params.get("wcs").cloned(),
         "cam" => match op.params.get("setup") {
@@ -833,6 +846,40 @@ mod tests {
                 drill("00000004"),
                 bore("00000005"),
             ],
+        }
+    }
+
+    fn probe_op(id: &str, mode: &str, link: Option<&str>) -> Op {
+        let mut p = params(
+            r#"{"mode": "find", "routine": "bore", "label": "BORE CENTER", "calls": ["o<probe_round_pocket_center_start> call"], "values": {"3025": 12.0}, "wcs": "G54", "start": [50.0, 30.0, 3.0]}"#,
+        );
+        p.insert("mode".into(), Value::String(mode.into()));
+        if mode == "measure" {
+            let m = format!(r#"{{"value": "diameter", "nominal": 12.0, "tol": 0.02, "op": {}, "on_fail": "pause"}}"#, link.map_or("null".to_string(), |l| format!("\"{l}\"")));
+            p.insert("measure".into(), py::loads(&m).unwrap());
+        }
+        Op::new(id.into(), "Bore center".into(), "probe", p)
+    }
+
+    #[test]
+    fn a_job_finds_cuts_and_checks() {
+        let job = Job {
+            name: "Probed".into(),
+            ops: vec![probe_op("0000000a", "find", None), bore("0000000b"), probe_op("0000000c", "measure", Some("0000000b"))],
+        };
+        let compiled = compile_job(&job, &machine(&[])).unwrap();
+        let t = &compiled.text;
+        assert_eq!(compiled.ranges.len(), 3);
+        assert!(t.contains("(MYMILL-PROBE"), "{t}");
+        assert!(t.contains("o<probe_round_pocket_center_start> call"));
+        assert!(t.contains("(DEBUG, MYMILL-MEASURE ID=0000000c VALUE=#<_job_m>)"), "{t}");
+        // The find writes the offset; the check measures only.
+        assert_eq!(t.matches("#3030 = 0").count(), 1);
+        assert_eq!(t.matches("#3030 = 1").count(), 1);
+        // Each probing op loads the probe and ends at the op contract's Z.
+        assert!(t.matches("G43 H99").count() >= 2);
+        if std::env::var_os("JOBCORE_PRINT").is_some() {
+            println!("{t}");
         }
     }
 

@@ -456,7 +456,9 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             // Probe Basic's checks before a program starts, then the JOB
             // page's rules for job programs (job_session.cycle_start_problem).
             let block = ui.global::<Live>().get_motion_block();
-            let problem = if s.tool_in_spindle == probe_tool {
+            // A job with probing ops loads the probe and puts it away itself.
+            let probing = gcode_lines(&ui).iter().any(|l| l.contains("(MYMILL-PROBE"));
+            let problem = if s.tool_in_spindle == probe_tool && !probing {
                 Some("Unload the probe before cycle start".to_string())
             } else if !block.is_empty() {
                 Some(block.to_string())
@@ -471,6 +473,9 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
                 live.set_message_error(true);
                 toast(&ui, format!("CYCLE START refused: {p}"));
                 return;
+            }
+            if probing {
+                with_probe(|p| p.job_started());
             }
         }
         match (s.interp, single) {
@@ -523,6 +528,9 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             live.set_message_error(true);
             toast(&ui, format!("RUN FROM SELECTED refused: {p}"));
             return;
+        }
+        if gcode_lines(&ui).iter().any(|l| l.contains("(MYMILL-PROBE")) {
+            with_probe(|p| p.job_started());
         }
         let mut run = match restart::Restart::new(&plan, &gcode_lines(&ui), &s.file) {
             Ok(run) => run,
@@ -734,6 +742,10 @@ fn main() -> Result<(), slint::PlatformError> {
                         if UTIL.with(|u| u.borrow().as_ref().is_some_and(|u| util::message(u, &m))) {
                             return;
                         }
+                        // A job's check reading (MYMILL-MEASURE): kept on the JOB page.
+                        if JOB.with(|j| j.borrow().as_ref().is_some_and(|j| j.borrow_mut().message(&m.text))) {
+                            return;
+                        }
                         if PROBE.with(|p| p.borrow().as_ref().is_some_and(|p| probe::message(ui, p, &m))) {
                             return;
                         }
@@ -816,6 +828,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let (j, timer) = job::wire(&ui, &handle, &cfg, args.sim);
         let conv_state = if args.sim { settings::Settings::memory() } else { settings::Settings::at("conv") };
         let _ = conv::wire(&ui, j.clone(), conv_state);
+        wire_job_probing(&ui, &j);
         JOB.with(|t| *t.borrow_mut() = Some(j));
         Some(timer)
     } else {
@@ -1292,6 +1305,67 @@ fn program_file(s: &mut Status, sub_dirs: &[PathBuf]) {
         };
         s.file = shown.clone();
         *pf = (raw, shown);
+    });
+}
+
+fn with_probe(f: impl FnOnce(&mut probe::Probe)) {
+    PROBE.with(|p| {
+        if let Some(p) = p.borrow().as_ref() {
+            f(&mut p.borrow_mut());
+        }
+    });
+}
+
+/// PROBE screen -> JOB page (+ JOB / + CHECK), and a check's tool
+/// correction -> the tool table.
+fn wire_job_probing(ui: &MainWindow, j: &Rc<RefCell<job::Job>>) {
+    let actions = ui.global::<Actions>();
+    let (t, w) = (j.clone(), ui.as_weak());
+    actions.on_probe_add_job(move |check| {
+        let Some(ui) = w.upgrade() else { return };
+        let made = PROBE.with(|p| p.borrow().as_ref().map(|p| p.borrow().job_step(check)));
+        let r = match made {
+            Some(Ok((name, params))) => t.borrow_mut().add_probe(&name, params),
+            Some(Err(e)) => Err(e),
+            None => return,
+        };
+        let live = ui.global::<Live>();
+        match r {
+            Ok(m) => {
+                live.set_message(format!("{m} on the JOB page. It starts where the probe is now.").into());
+                live.set_message_error(false);
+            }
+            Err(e) => {
+                live.set_message(e.clone().into());
+                live.set_message_error(true);
+                toast(&ui, e);
+            }
+        }
+    });
+    let (t, w) = (j.clone(), ui.as_weak());
+    actions.on_job_check_adjust(move || {
+        let Some(ui) = w.upgrade() else { return };
+        let id = t.borrow().selected_id();
+        let Some((tool, d, _)) = id.as_deref().and_then(|id| t.borrow().adjustment(id)) else { return };
+        let r = TOOLS.with(|ts| match ts.borrow().as_ref() {
+            Some(ts) => tools::adjust_diameter(ts, tool, d, "Job check correction"),
+            None => Err("The tool table is not open".into()),
+        });
+        let live = ui.global::<Live>();
+        match r {
+            Ok(()) => {
+                live.set_message(format!("T{tool} diameter is now {d:.3}. BUILD AND LOAD to cut with it.").into());
+                live.set_message_error(false);
+                if let Some(id) = id {
+                    t.borrow_mut().mark_corrected(&id);
+                }
+            }
+            Err(e) => {
+                live.set_message(e.clone().into());
+                live.set_message_error(true);
+                toast(&ui, e);
+            }
+        }
     });
 }
 

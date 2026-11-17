@@ -416,6 +416,29 @@ impl JobSession {
         self.add(op, machine)
     }
 
+    /// Add a probing op made on the PROBE screen (`probe` module params).
+    pub fn add_probe(&mut self, name: &str, params: Map<String, Value>, hooks: &mut Hooks, machine: &MachineFn) -> Result<usize> {
+        let mut params = params;
+        if params.get("mode").and_then(|v| v.as_str()) == Some("measure") && !params.contains_key("measure") {
+            let routine = params.get("routine").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            params.insert("measure".into(), crate::probe::default_measure(&routine));
+        }
+        let mut op = Op::new((hooks.new_id)(), name.to_string(), "probe", params);
+        op.provides = crate::probe::provides(&op);
+        self.add(op, machine)
+    }
+
+    /// Change a MEASURE op's nominal, tolerance, value, checked op or
+    /// on-fail action.
+    pub fn set_measure(&mut self, op_id: &Value, changes: &Map<String, Value>, machine: &MachineFn) -> Result<()> {
+        self.require_editable()?;
+        let op = self.job.op_mut(op_id)?;
+        crate::probe::set_measure(op, changes)?;
+        self.save()?;
+        self.changed(machine);
+        Ok(())
+    }
+
     pub fn add_step(&mut self, message: &Value, hooks: &mut Hooks, machine: &MachineFn) -> Result<usize> {
         let id = (hooks.new_id)();
         match message {

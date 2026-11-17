@@ -313,6 +313,14 @@ export component ProbeScreen inherits Rectangle {
                     text: Live.pr-running ? "RUNNING…" : Live.pr-ready != "" ? Live.pr-ready : "Ready.";
                 }
                 Btn { height: 60px; font-size: 22px; text: Live.pr-load-label; enabled: Live.pr-load-enabled && !locked && Live.power && !Live.pr-running; clicked => { Actions.probe-load(); } }
+                // Always there, so nothing jumps when a setup can't go in a job:
+                // a job step that sets the offset, or one that checks a size.
+                HorizontalLayout {
+                    height: 60px;
+                    spacing: 10px;
+                    Btn { horizontal-stretch: 1; font-size: 22px; text: "+ JOB"; enabled: Live.pr-job-ok && !locked && !Live.pr-running; clicked => { Actions.probe-add-job(false); } }
+                    Btn { horizontal-stretch: 1; font-size: 22px; text: "+ JOB CHECK"; enabled: Live.pr-job-check && !locked && !Live.pr-running; clicked => { Actions.probe-add-job(true); } }
+                }
                 HorizontalLayout {
                     height: 76px;
                     spacing: 10px;

@@ -348,6 +348,18 @@ pub fn restore(tools: &Rc<RefCell<Tools>>, t: i32, vals: &[(usize, f64)], wear_t
     r
 }
 
+/// Set a tool's diameter as a wear adjustment (a job check's correction):
+/// the change is added to the diameter wear the timeline keeps.
+pub fn adjust_diameter(tools: &Rc<RefCell<Tools>>, t: i32, d: f64, cause: &str) -> Result<(), String> {
+    let mut st = tools.borrow_mut();
+    let tool = st.tools.iter().find(|x| x.t == t).ok_or(format!("T{t} is not in the tool table"))?;
+    let old = [tool.z, tool.d];
+    let wear = [None, Some(history::wear(t, old)[1] + (d - old[1]))];
+    let r = st.write(t, [old[0], d], wear, cause);
+    st.refresh();
+    r
+}
+
 /// Keypad values: "tool-z", "tool-d" (selected tool), their wear
 /// adjustments "tool-adj-z", "tool-adj-d", and "tool-new".
 struct Keys(Rc<RefCell<Tools>>);

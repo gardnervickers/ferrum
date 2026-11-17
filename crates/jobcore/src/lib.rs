@@ -18,6 +18,7 @@ pub mod gcode;
 pub mod helper;
 pub mod mill_ops;
 pub mod model;
+pub mod probe;
 pub mod py;
 pub mod session;
 

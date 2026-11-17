@@ -258,6 +258,9 @@ export global Live {
     in property <bool> pr-running;
     // Why a run can't start now ("" = ready).
     in property <string> pr-ready;
+    // Can this FIND setup become a job step / a job check of its size?
+    in property <bool> pr-job-ok;
+    in property <bool> pr-job-check;
 
     // UTIL screen (util.rs).
     in property <[WarmStage]> wu-stages;
@@ -286,6 +289,18 @@ export global Live {
     in property <bool> job-running;
     in property <float> job-fraction;
     in property <bool> job-stop-requested;
+    // The check strip for a selected probing op in MEASURE mode (job.rs).
+    in property <bool> job-check;
+    in property <string> job-check-value;
+    in property <int> job-check-values;
+    in property <string> job-check-nominal;
+    in property <string> job-check-tol;
+    in property <string> job-check-op;
+    in property <bool> job-check-pause: true;
+    in property <string> job-check-last;
+    in property <string> job-check-tone;
+    // "SET T11 Ø 6.000 → 5.968", or "" when there is nothing to adjust.
+    in property <string> job-check-adjust;
 
     // CONV screen (conv.rs). Picture paths are SVG data in a 400x300 box.
     in property <[ProbeItem]> conv-types;
@@ -462,6 +477,12 @@ export global Actions {
     callback job-start-at();
     callback job-stop-after();
     callback job-build();
+    callback job-check-value();
+    callback job-check-link();
+    callback job-check-pause();
+    callback job-check-adjust();
+    // Add the PROBE screen's setup to the job (check: as a measuring op).
+    callback probe-add-job(check: bool);
     callback conv-type(id: string);
     callback conv-field(key: string);
     callback conv-section(id: string);

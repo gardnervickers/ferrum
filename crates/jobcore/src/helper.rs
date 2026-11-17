@@ -192,6 +192,8 @@ impl Helper {
             "presets" => self.cmd_presets(),
             "thread" => self.cmd_thread(r)?,
             "conv" => self.cmd_conv(r)?,
+            "add_probe" => self.cmd_add_probe(r)?,
+            "set_measure" => self.cmd_set_measure(r)?,
             _ => return Err(Error::value_error(format!("unknown command {}", py::repr(&cmd)))),
         };
         if self.session.is_some() && !out.contains_key("snap") && !NO_SNAP.contains(&name) {
@@ -268,6 +270,7 @@ impl Helper {
                 let source = op.params.get("source").cloned().unwrap_or(Value::String(String::new()));
                 Ok(format!("T{}  ·  FROM {}", py::str_of(&tool), py::str_of(&source).to_uppercase()))
             }
+            "probe" => Ok(crate::probe::detail(op)),
             _ => Ok(String::new()),
         }
     }
@@ -300,13 +303,18 @@ impl Helper {
                 "conversational" => "CONV".to_string(),
                 "cam" => "CAM".to_string(),
                 "step" => "STEP".to_string(),
+                "probe" => "PROBE".to_string(),
                 other => other.to_uppercase(),
             };
-            ops.push(json!({
+            let mut row = json!({
                 "id": op.id, "pos": i + 1, "name": op.name.to_uppercase(), "badge": badge,
                 "kind": op.kind, "enabled": op.enabled, "detail": self.detail(op, &comments)?,
                 "state": state, "can_toggle": s.can_toggle(&Value::String(op.id.clone())),
-            }));
+            });
+            if op.kind == "probe" {
+                row["probe"] = probe_snap(op, &s.job, &self.machine().ok());
+            }
+            ops.push(row);
         }
         let (ready, why) = s.readiness(&machine);
         let (text, tone) = if run.running {
@@ -444,6 +452,22 @@ impl Helper {
         self.require_session("open")?;
         let path = path_arg(get(r, "path")?)?;
         self.with_session("open", |s, m, _| s.open(&path, m))?;
+        Ok(Map::new())
+    }
+
+    fn cmd_add_probe(&mut self, r: &Map<String, Value>) -> Result<Map<String, Value>> {
+        let name = py::str_of(get(r, "name")?);
+        let params = get(r, "params")?.as_object().cloned().ok_or_else(|| Error::job("params must be an object"))?;
+        let pos = self.with_session("add_probe", |s, m, hooks| s.add_probe(&name, params, hooks, m))?;
+        let mut out = Map::new();
+        out.insert("message".into(), Value::String(format!("ADDED {} AS OP {}.", name.to_uppercase(), pos)));
+        Ok(out)
+    }
+
+    fn cmd_set_measure(&mut self, r: &Map<String, Value>) -> Result<Map<String, Value>> {
+        let id = get(r, "id")?.clone();
+        let changes = get(r, "changes")?.as_object().cloned().ok_or_else(|| Error::job("changes must be an object"))?;
+        self.with_session("set_measure", |s, m, _| s.set_measure(&id, &changes, m))?;
         Ok(Map::new())
     }
 
@@ -681,4 +705,29 @@ impl Helper {
         }
         Ok(path)
     }
+}
+
+/// What the JOB page shows for a probing op: its measure settings and,
+/// for the op it checks, that op's tool and whether the tool's diameter
+/// sets the feature (so a correction can be offered).
+fn probe_snap(op: &crate::model::Op, job: &crate::model::Job, machine: &Option<crate::compiler::Machine>) -> Value {
+    let Ok(p) = crate::probe::parse(op) else { return Value::Null };
+    let Some(m) = p.measure else { return json!({"mode": p.mode, "routine": p.routine}) };
+    let checked = m.op.as_deref().and_then(|id| job.ops.iter().position(|o| o.id == id));
+    let (tool, sized) = match checked.map(|i| &job.ops[i]) {
+        Some(o) if o.kind == "conversational" => {
+            let t = o.params.get("tool_number").and_then(py::as_number).map(|t| t as i64);
+            let sized = o.params.get("type").and_then(|v| v.as_str()) == Some("helical_bore");
+            (t, sized && crate::probe::inside(&p.routine).is_some())
+        }
+        Some(o) if o.kind == "cam" => (o.params.get("setup").and_then(|s| s.get("tool")).and_then(py::as_number).map(|t| t as i64), false),
+        _ => (None, false),
+    };
+    let diameter = tool.and_then(|t| machine.as_ref().and_then(|m| m.tool(t)).map(|t| t.diameter));
+    json!({
+        "mode": p.mode, "routine": p.routine, "value": m.value, "values": crate::probe::values_for(&p.routine),
+        "nominal": m.nominal, "tol": m.tol, "pause": m.pause,
+        "op": m.op, "op_pos": checked.map(|i| i + 1), "op_name": checked.map(|i| job.ops[i].name.to_uppercase()),
+        "tool": tool, "diameter": diameter, "sized": sized,
+    })
 }

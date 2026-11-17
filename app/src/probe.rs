@@ -234,6 +234,8 @@ pub struct Probe {
     status: Option<Status>,
     state: Settings,
     restore_pending: bool,
+    /// A job with probing ops was started; see `job_started`.
+    job_armed: bool,
     probe_tool: i32,
     machine: Handle,
     io: Option<Rc<dyn Io>>,
@@ -488,6 +490,108 @@ impl Probe {
 
     fn active(&self) -> usize {
         self.status.as_ref().map_or(0, |s| (s.g5x_index - 1).clamp(0, 8) as usize)
+    }
+
+    /// The routine name a job op uses for `t`, when a job can run it:
+    /// FIND targets that need no operator step part way.
+    fn job_routine(&self, t: &Target) -> Option<&'static str> {
+        if self.mode != "find" {
+            return None;
+        }
+        Some(match t.kind {
+            "stock" | "corner" | "icorner" | "top" | "boss" | "bore" | "pocket" => t.kind,
+            "edge" if !self.angle => "edge",
+            "slot" if self.ridge => "ridge",
+            "slot" => "slot",
+            _ => return None,
+        })
+    }
+
+    /// Whether the selected target can be checked (MEASURE) in a job.
+    fn job_measurable(&self) -> bool {
+        let t = self.selected();
+        self.job_routine(&t).is_some_and(|r| !jobcore::probe::values_for(r).is_empty())
+    }
+
+    /// A job op for the selected target, started from where the probe is
+    /// now: (name, params for jobcore's probe op). `measure` makes a check
+    /// that reports instead of writing the work offset.
+    fn job_op(&self, measure: bool) -> Result<(String, serde_json::Value), String> {
+        let t = self.selected();
+        let routine = self.job_routine(&t).ok_or("A job can run FIND routines that need no jogging part way (not TWO FACES, angles, rotary or calibration)")?;
+        if measure && jobcore::probe::values_for(routine).is_empty() {
+            return Err("A check measures a bore, boss, pocket, slot, ridge or top face".into());
+        }
+        let s = self.status.as_ref().ok_or("Not connected to LinuxCNC")?;
+        if !s.all_homed() {
+            return Err("Home the machine first".into());
+        }
+        if s.tool_in_spindle != self.probe_tool {
+            return Err(format!("Load the probe (T{}) and jog it to where the routine starts", self.probe_tool));
+        }
+        // The op goes up to machine Z 0 and comes back down to here.
+        if s.actual[2] > -5.0 {
+            return Err("Jog the probe down to where the routine starts first: a job step starts from there".into());
+        }
+        let target = self.target_wcs();
+        if target != self.active() {
+            return Err(format!("Make {} active first: the start is taught in it", WCS[target]));
+        }
+        let calls = match routine {
+            "stock" => {
+                let side = match self.start { 'L' => 0, 'R' => 1, 'F' => 2, _ => 3 };
+                vec![
+                    format!("o<probe_auto_stock_center> call [{side}] [{:.3}] [1]", self.local("stock", 0)),
+                    "o<probe_auto_stock_apply> call [1]".to_string(),
+                ]
+            }
+            _ => vec![self.plain_call(&t).ok_or("No routine for this target")?],
+        };
+        let values: serde_json::Map<String, serde_json::Value> =
+            self.used_params(t.kind).into_iter().filter(|n| *n != 3030 && *n != 3014).map(|n| (n.to_string(), serde_json::json!(self.pv(n)))).collect();
+        let w = s.work_position();
+        let r3 = |v: f64| (v * 1000.0).round() / 1000.0;
+        let label = t.label.clone();
+        // "TOP FACE · SETS Z" checks as "CHECK TOP FACE": a check sets nothing.
+        let name = if measure { format!("CHECK {}", label.split(" · ").next().unwrap_or(&label)) } else { label.clone() };
+        let params = serde_json::json!({
+            "mode": if measure { "measure" } else { "find" },
+            "routine": routine,
+            "label": label,
+            "calls": calls,
+            "values": values,
+            "wcs": WCS[target],
+            "start": [r3(w[0]), r3(w[1]), r3(w[2])],
+        });
+        Ok((name, params))
+    }
+
+    /// The macro call for a target with no multi-step flow (`call` without
+    /// the flows; both must name the same routines).
+    fn plain_call(&self, t: &Target) -> Option<String> {
+        let side = |id: &str| match id {
+            "c-fl" | "i-fl" => "front_left",
+            "c-fr" | "i-fr" => "front_right",
+            "c-bl" | "i-bl" => "back_left",
+            _ => "back_right",
+        };
+        Some(match t.kind {
+            "corner" => format!("o<probe_{}_top_corner> call", side(t.id)),
+            "icorner" => format!("o<probe_{}_inside_corner> call", side(t.id)),
+            "edge" if !self.angle => {
+                let m = match t.id { "e-f" => "y_plus", "e-b" => "y_minus", "e-l" => "x_plus", _ => "x_minus" };
+                format!("o<probe_{m}_wco> call")
+            }
+            "top" => "o<probe_z_minus_wco> call".into(),
+            "boss" => "o<probe_round_boss> call".into(),
+            "pocket" => "o<probe_rect_pocket_center_start> call".into(),
+            "bore" => "o<probe_round_pocket_center_start> call".into(),
+            "slot" => {
+                let a = if self.axes == "Y" { "y" } else { "x" };
+                if self.ridge { format!("o<probe_ridge_{a}> call") } else { format!("o<probe_valley_{a}_center_start> call") }
+            }
+            _ => return None,
+        })
     }
 
     fn target_wcs(&self) -> usize {
@@ -915,6 +1019,21 @@ impl Probe {
         live.set_pr_run_label(run_label.into());
         live.set_pr_running(self.run.is_some());
         live.set_pr_ready(self.check(&sel).err().unwrap_or_default().into());
+        live.set_pr_job_ok(self.job_routine(&sel).is_some());
+        live.set_pr_job_check(self.job_measurable());
+    }
+
+    /// The job op for the selected setup (see `job_op`).
+    pub fn job_step(&self, measure: bool) -> Result<(String, serde_json::Value), String> {
+        self.job_op(measure)
+    }
+
+    /// A job with probing ops is starting: put the probe defaults back once
+    /// it is idle again, as after a run from this screen.
+    pub fn job_started(&mut self) {
+        // Armed until the program is seen running, so the restore can't
+        // slip in between CYCLE START and the program starting.
+        self.job_armed = true;
     }
 
     fn refresh(&self) {
@@ -1273,6 +1392,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         status: None,
         state,
         restore_pending,
+        job_armed: false,
         probe_tool,
         machine: machine.clone(),
         io,
@@ -1398,6 +1518,10 @@ pub fn apply_status(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, s: &Status) {
     let key = |o: &Status| (o.tool_in_spindle, o.power_on(), o.busy(), o.g5x_index, o.all_homed(), o.active_gcodes.contains(&400), o.g92_offset.iter().any(|v| *v != 0.0));
     let was = p.status.as_ref().map(key);
     p.status = Some(s.clone());
+    if p.job_armed && s.busy() {
+        p.job_armed = false;
+        p.mark_dirty(true);
+    }
     // A run that never restored its defaults (crash): restore them now.
     if p.restore_pending && p.run.is_none() && s.power_on() && !s.busy() {
         let lines = Probe::assign_lines(p.defaults.iter().map(|(n, v)| (*n, *v)));
@@ -1501,6 +1625,7 @@ mod tests {
             status: None,
             state: Settings::memory(),
             restore_pending: false,
+            job_armed: false,
             probe_tool: 99,
             machine: linuxcnc::spawn(Box::new(linuxcnc::Sim::new()), Duration::from_secs(3600), |_| {}),
             io: None,
@@ -1522,6 +1647,24 @@ mod tests {
         p.mode = mode;
         p.shape = shape;
         p.settle();
+    }
+
+    #[test]
+    fn job_calls_match_the_screen_calls() {
+        let mut p = probe();
+        for (mode, shapes) in SHAPES {
+            for (shape, _) in shapes.iter() {
+                pick(&mut p, mode, shape);
+                for ridge in [false, true] {
+                    p.ridge = ridge;
+                    for t in p.targets() {
+                        if let (Some(_), Some(plain)) = (p.job_routine(&t), p.plain_call(&t)) {
+                            assert_eq!(p.call(&t).unwrap().0, plain, "{shape} {}", t.id);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

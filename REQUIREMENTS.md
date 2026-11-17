@@ -134,6 +134,15 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [ ] Check on the Pi: python3 can import mymill_job/mymill_vcp from the config folder, and the
       built program reads mymill-job.stamp from millgui's component. 2026-11-13: the Pi's config
       checkout (131b64c) predates mymill_job, so JOB and CONV fail there until it is updated.
+- [x] Probing inside jobs: PROBE › FIND › + JOB adds the set-up routine as a job op (stock center,
+      corners, edge, top, boss, bore, pocket, slot/ridge) that starts where the probe was taught;
+      + JOB CHECK adds a measure-only op (#3030 = 1) that reports through `MYMILL-MEASURE` and can
+      pause out of tolerance. The JOB page check strip sets what it measures, nominal, tolerance,
+      the op that cut it and pause/keep going; for a conversational helical bore it offers the tool
+      diameter correction (as a wear adjustment, logged on the timeline). `jobcore/src/probe.rs`.
+- [ ] In the simulator, a job's auto stock walk once stopped with "Queue is not empty after probing"
+      (LinuxCNC, AUTO mode) and ran clean the next time; it never wrote an offset when it stopped.
+      Watch for it on the Pi.
 - [ ] Simulator ignores the skip and stop-after pins (it steps lines without interpreting).
 - [x] CAM ops (Fusion imports) into a job: JOB › ADD PROGRAM splits a Fusion program at its op-name comments (`jobcore/src/fusion.rs`). Anything it cannot account for (no op names, o-words or parameters, odd header lines, an op without tool, speed, M3/M4 or work offset before its first move, a first move that cuts) refuses the whole program with the reason; all ops are added or none.
 

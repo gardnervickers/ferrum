@@ -13,6 +13,7 @@ use linuxcnc::{Command, Handle, Interp, Status};
 use serde_json::{json, Value};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
@@ -74,6 +75,8 @@ enum Pick {
     Open(Vec<String>),
     Step,
     Program(Vec<PathBuf>),
+    /// Which earlier op a check measures (None: no op).
+    Link(Vec<Option<String>>),
 }
 
 pub struct Job {
@@ -90,6 +93,11 @@ pub struct Job {
     polls: u32,
     pick: Option<Pick>,
     pins: Option<Pins>,
+    /// The last reading of each check op this session (op id -> value),
+    /// from the job program's MYMILL-MEASURE lines.
+    readings: HashMap<String, f64>,
+    /// Checks whose last reading already corrected a tool (not offered again).
+    corrected: std::collections::HashSet<String>,
     machine: Handle,
     ui: slint::Weak<MainWindow>,
 }
@@ -219,7 +227,14 @@ impl Job {
                     badge: o["badge"].as_str().unwrap_or("").into(),
                     kind: o["kind"].as_str().unwrap_or("").into(),
                     name: o["name"].as_str().unwrap_or("").into(),
-                    detail: o["detail"].as_str().unwrap_or("").into(),
+                    detail: {
+                        let d = o["detail"].as_str().unwrap_or("");
+                        match o["id"].as_str().and_then(|id| self.readings.get(id)) {
+                            Some(v) => format!("LAST {}  ·  {d}", reading_text(*v, &o["probe"])),
+                            None => d.to_string(),
+                        }
+                        .into()
+                    },
                     enabled: o["enabled"].as_bool().unwrap_or(true),
                     state: state.into(),
                     can_toggle: o["can_toggle"].as_bool().unwrap_or(false),
@@ -262,6 +277,105 @@ impl Job {
         };
         live.set_job_note(note.into());
         live.set_job_note_tone(tone.into());
+        self.show_check(ui, sel.and_then(|i| ops.get(i)));
+    }
+
+    /// The check strip for a selected MEASURE op.
+    fn show_check(&self, ui: &MainWindow, op: Option<&Value>) {
+        let live = ui.global::<Live>();
+        let p = op.map(|o| &o["probe"]).filter(|p| p["mode"] == "measure");
+        live.set_job_check(p.is_some());
+        let Some(p) = p else { return };
+        let id = op.and_then(|o| o["id"].as_str()).unwrap_or("");
+        live.set_job_check_value(value_name(p["value"].as_str().unwrap_or("")).into());
+        live.set_job_check_values(p["values"].as_array().map_or(0, |a| a.len()) as i32);
+        live.set_job_check_nominal(p["nominal"].as_f64().map_or("NONE".into(), |v| format!("{v:.3}")).into());
+        live.set_job_check_tol(format!("±{:.3}", p["tol"].as_f64().unwrap_or(0.0)).into());
+        live.set_job_check_op(match (p["op_pos"].as_i64(), p["op_name"].as_str()) {
+            (Some(n), Some(name)) => format!("OP {n} · {name}"),
+            _ => "NO OP".into(),
+        }.into());
+        live.set_job_check_pause(p["pause"].as_bool().unwrap_or(true));
+        let (last, tone) = match self.readings.get(id) {
+            Some(v) => {
+                let ok = match p["nominal"].as_f64() {
+                    Some(n) => (v - n).abs() <= p["tol"].as_f64().unwrap_or(0.0) + 1e-9,
+                    None => true,
+                };
+                let fixed = if self.corrected.contains(id) { "  ·  TOOL CORRECTED" } else { "" };
+                (format!("LAST {}{fixed}", reading_text(*v, p)), if ok { "good" } else { "bad" })
+            }
+            None => ("NOT MEASURED YET".to_string(), ""),
+        };
+        live.set_job_check_last(last.into());
+        live.set_job_check_tone(tone.into());
+        live.set_job_check_adjust(self.adjustment(id).map_or(String::new(), |a| a.2).into());
+    }
+
+    /// For the selected check: (tool, new diameter, button text) when its
+    /// last reading suggests a diameter change for the tool that cut it.
+    pub fn adjustment(&self, id: &str) -> Option<(i32, f64, String)> {
+        let op = self.ops().into_iter().find(|o| o["id"].as_str() == Some(id))?;
+        let p = &op["probe"];
+        if p["sized"] != json!(true) || self.corrected.contains(id) {
+            return None;
+        }
+        let (v, n) = (*self.readings.get(id)?, p["nominal"].as_f64()?);
+        if (v - n).abs() < 0.0005 {
+            return None;
+        }
+        let (t, d) = (p["tool"].as_i64()? as i32, p["diameter"].as_f64()?);
+        let new = jobcore::probe::corrected_diameter(p["routine"].as_str()?, d, v, n)?;
+        Some((t, new, format!("SET T{t} Ø {d:.3} → {new:.3}")))
+    }
+
+    /// The selected check's reading has been used to correct its tool.
+    pub fn mark_corrected(&mut self, id: &str) {
+        self.corrected.insert(id.to_string());
+        self.refresh();
+    }
+
+    pub fn selected_id(&self) -> Option<String> {
+        self.selected.clone()
+    }
+
+    /// Add a probing op made on the PROBE screen.
+    pub fn add_probe(&mut self, name: &str, params: Value) -> Result<String, String> {
+        let r = self.call(json!({"cmd": "add_probe", "name": name, "params": params}))?;
+        let m = r["message"].as_str().unwrap_or("Added").to_string();
+        self.pinned = Some((m.clone(), "ready".into()));
+        self.refresh();
+        Ok(m)
+    }
+
+    fn check_set(&mut self, changes: Value) {
+        let Some(id) = self.selected.clone() else { return };
+        self.act(json!({"cmd": "set_measure", "id": id, "changes": changes}));
+    }
+
+    fn check_probe(&self) -> Option<Value> {
+        let id = self.selected.as_deref()?;
+        self.ops().into_iter().find(|o| o["id"].as_str() == Some(id)).map(|o| o["probe"].clone()).filter(|p| p["mode"] == "measure")
+    }
+
+    /// A `MYMILL-MEASURE ID=<id> VALUE=<v>` line from a running job.
+    pub fn message(&mut self, text: &str) -> bool {
+        let Some(rest) = text.trim().strip_prefix("MYMILL-MEASURE ") else { return false };
+        let mut id = None;
+        let mut value = None;
+        for w in rest.split_whitespace() {
+            if let Some(v) = w.strip_prefix("ID=") {
+                id = Some(v.to_string());
+            } else if let Some(v) = w.strip_prefix("VALUE=") {
+                value = v.parse::<f64>().ok();
+            }
+        }
+        if let (Some(id), Some(v)) = (id, value) {
+            self.corrected.remove(&id);
+            self.readings.insert(id, v);
+            self.refresh();
+        }
+        true
     }
 
     fn open_pick(&mut self, title: &str, items: Vec<String>, pick: Pick) {
@@ -269,6 +383,63 @@ impl Job {
             crate::picker::open(&ui, "job", title, items, None);
         }
         self.pick = Some(pick);
+    }
+}
+
+fn value_name(v: &str) -> &'static str {
+    match v {
+        "diameter" => "DIAMETER",
+        "x" => "X WIDTH",
+        "y" => "Y WIDTH",
+        _ => "Z HEIGHT",
+    }
+}
+
+/// "9.968 (−0.032)" against the check's nominal, or the bare value.
+fn reading_text(v: f64, probe: &Value) -> String {
+    if v <= -999998.0 {
+        return "NO RESULT".into();
+    }
+    match probe["nominal"].as_f64() {
+        Some(n) => {
+            let d = v - n;
+            let sign = if d < 0.0 { "−" } else { "+" };
+            format!("{v:.3} ({sign}{:.3})", d.abs())
+        }
+        None => format!("{v:.3}"),
+    }
+}
+
+/// Keypad values of the check strip: "jc-nominal", "jc-tol".
+struct Keys(Rc<RefCell<Job>>);
+
+impl crate::manual::KeypadTarget for Keys {
+    fn label(&self, what: &str) -> Option<String> {
+        match what {
+            "jc-nominal" => Some("CHECK · NOMINAL MM".into()),
+            "jc-tol" => Some("CHECK · TOLERANCE ± MM".into()),
+            _ => None,
+        }
+    }
+    fn current(&self, what: &str) -> Option<f64> {
+        let p = self.0.borrow().check_probe()?;
+        match what {
+            "jc-nominal" => Some(p["nominal"].as_f64().unwrap_or(0.0)),
+            "jc-tol" => p["tol"].as_f64(),
+            _ => None,
+        }
+    }
+    fn apply(&self, what: &str, v: f64) -> Option<Result<(), String>> {
+        let key = match what {
+            "jc-nominal" => "nominal",
+            "jc-tol" => "tol",
+            _ => return None,
+        };
+        if key == "tol" && !(v > 0.0) {
+            return Some(Err("The tolerance must be more than 0".into()));
+        }
+        self.0.borrow_mut().check_set(json!({ key: v }));
+        Some(Ok(()))
     }
 }
 
@@ -323,6 +494,8 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         polls: 0,
         pick: None,
         pins,
+        readings: HashMap::new(),
+        corrected: Default::default(),
         machine: machine.clone(),
         ui: ui.as_weak(),
     }));
@@ -336,7 +509,43 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         jb.show(ui);
     }
 
+    crate::manual::add_keypad_target(Rc::new(Keys(j.clone())));
     let actions = ui.global::<Actions>();
+    let t = j.clone();
+    actions.on_job_check_link(move || {
+        let mut jb = t.borrow_mut();
+        let Some(id) = jb.selected.clone() else { return };
+        // Ops before the check that cut something.
+        let mut names = vec!["NO OP".to_string()];
+        let mut ids = vec![None];
+        for o in jb.ops() {
+            if o["id"].as_str() == Some(id.as_str()) {
+                break;
+            }
+            if matches!(o["kind"].as_str(), Some("conversational") | Some("cam")) {
+                names.push(format!("OP {} · {}", o["pos"].as_i64().unwrap_or(0), o["name"].as_str().unwrap_or("").to_uppercase()));
+                ids.push(o["id"].as_str().map(str::to_string));
+            }
+        }
+        jb.open_pick("WHICH OP CUT THIS FEATURE?", names, Pick::Link(ids));
+    });
+    let t = j.clone();
+    actions.on_job_check_value(move || {
+        let mut jb = t.borrow_mut();
+        let Some(p) = jb.check_probe() else { return };
+        let values: Vec<&str> = p["values"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect()).unwrap_or_default();
+        let at = values.iter().position(|v| Some(*v) == p["value"].as_str()).unwrap_or(0);
+        if let Some(next) = values.get((at + 1) % values.len().max(1)) {
+            jb.check_set(json!({"value": next}));
+        }
+    });
+    let t = j.clone();
+    actions.on_job_check_pause(move || {
+        let mut jb = t.borrow_mut();
+        let Some(p) = jb.check_probe() else { return };
+        let on = !p["pause"].as_bool().unwrap_or(true);
+        jb.check_set(json!({"on_fail": if on { "pause" } else { "continue" }}));
+    });
     let t = j.clone();
     actions.on_job_select(move |i| {
         let mut jb = t.borrow_mut();
@@ -447,6 +656,11 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
             Some(Pick::Program(paths)) => {
                 if let Some(p) = paths.get(i) {
                     jb.act(json!({"cmd": "import_cam", "path": p}));
+                }
+            }
+            Some(Pick::Link(ids)) => {
+                if let Some(id) = ids.get(i) {
+                    jb.check_set(json!({"op": id}));
                 }
             }
             None => {}

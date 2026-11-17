@@ -106,6 +106,48 @@ export component JobScreen inherits Rectangle {
                     }
                 }
             }
+            if Live.job-check: Rectangle {
+                height: 156px;
+                background: Theme.panel2;
+                border-radius: Theme.radius-ctl;
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text { width: 96px; vertical-alignment: center; text: "CHECK"; font-family: Theme.display; font-size: 26px; letter-spacing: 1px; color: Theme.muted; }
+                        Btn { horizontal-stretch: 1; font-size: 21px; sub: "MEASURES"; text: Live.job-check-value; enabled: !locked && Live.job-check-values > 1; clicked => { Actions.job-check-value(); } }
+                        Btn { horizontal-stretch: 1; font-size: 21px; sub: "NOMINAL"; text: Live.job-check-nominal; enabled: !locked; clicked => { Actions.edit("jc-nominal"); } }
+                        Btn { horizontal-stretch: 1; font-size: 21px; sub: "TOLERANCE"; text: Live.job-check-tol; enabled: !locked; clicked => { Actions.edit("jc-tol"); } }
+                        Btn { horizontal-stretch: 2; font-size: 21px; sub: "CUT BY"; text: Live.job-check-op; enabled: !locked; clicked => { Actions.job-check-link(); } }
+                        Btn { horizontal-stretch: 1; font-size: 21px; sub: "IF OUT"; text: Live.job-check-pause ? "PAUSE" : "KEEP GOING"; on: Live.job-check-pause; enabled: !locked; clicked => { Actions.job-check-pause(); } }
+                    }
+                    // Always both, so nothing moves when a reading arrives.
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                            text: Live.job-check-last;
+                            font-family: Theme.display;
+                            font-size: 26px;
+                            letter-spacing: 1px;
+                            overflow: elide;
+                            color: Live.job-check-tone == "good" ? Theme.good : Live.job-check-tone == "bad" ? Theme.bad : Theme.muted;
+                        }
+                        Btn {
+                            width: 440px;
+                            font-size: 21px;
+                            kind: Live.job-check-adjust != "" ? "go" : "";
+                            hold: true;
+                            sub: "TOOL CORRECTION";
+                            text: Live.job-check-adjust != "" ? Live.job-check-adjust : "NONE TO MAKE";
+                            enabled: !locked && Live.job-check-adjust != "";
+                            clicked => { Actions.job-check-adjust(); }
+                        }
+                    }
+                }
+            }
             // Two lines: a refused program says why, and that needs room.
             Text {
                 height: 56px;
