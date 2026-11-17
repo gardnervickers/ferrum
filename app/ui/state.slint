@@ -1,6 +1,7 @@
 // Everything the Rust side pushes into the UI, and every action it handles.
 
-export struct PillData { text: string, kind: string }
+// `hint`: for a row that is not OK, what it means or what to do.
+export struct PillData { text: string, kind: string, hint: string }
 export struct DroRow { axis: string, work: string, mach: string, dtg: string, homed: bool }
 export struct NavItem { id: string, label: string, icon: string }
 export struct MsgRow { time: string, text: string, kind: string }
@@ -33,7 +34,17 @@ export global Live {
     in property <bool> estop: true;
     in property <bool> power;
     in property <bool> homed;
+    // The mode pill (MANUAL, AUTO, PAUSED, E-STOP...).
+    in property <PillData> mode-pill;
+    // Everything else the machine reports, one row each: the status pill
+    // sums it up and opens the list.
     in property <[PillData]> pills;
+    in property <string> status-text: "ALL OK";
+    in property <string> status-kind: "good";
+    // Something is wrong (a "bad" row): the status pill flashes.
+    in property <bool> status-flash;
+    in-out property <bool> status-open;
+    in-out property <float> status-x;
     in property <string> message;
     in property <bool> message-error;
     // A refusal the operator must not miss (CYCLE START blocked); clears itself.

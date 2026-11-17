@@ -253,7 +253,7 @@ fn core_pills_front(s: &Status, axes: &[usize], out: &mut Vec<Pill>) {
     let linear: Vec<usize> = axes.iter().copied().filter(|&i| i < 3).collect();
     let rotary: Vec<usize> = axes.iter().copied().filter(|&i| (3..6).contains(&i)).collect();
     if !linear.iter().all(|&i| homed(i)) {
-        out.push(Pill::new("NOT HOMED", "bad"));
+        out.push(Pill::new("NOT HOMED", "bad").hint("Hold HOME ALL, or HOME beside an axis."));
         return;
     }
     let mut text = format!("HOMED {}", linear.iter().map(|&i| AXIS_LETTERS[i]).collect::<String>());
@@ -266,7 +266,7 @@ fn core_pills_front(s: &Status, axes: &[usize], out: &mut Vec<Pill>) {
             kind = "warn";
         }
     }
-    out.push(Pill::new(text, kind));
+    out.push(Pill::new(text, kind).hint(if kind == "warn" { "Home the rotary axis to reference it where it stands." } else { "" }));
 }
 
 /// Commanded spindle state (there is no speed feedback to show).
@@ -298,9 +298,31 @@ fn refresh_pills(ui: &MainWindow, st: &UiState, modules: &[Box<dyn Module>], axe
     if let Some(s) = &st.status {
         core_pills_back(s, &mut pills);
     }
-    let model: Vec<PillData> =
-        pills.into_iter().map(|p| PillData { text: p.text.into(), kind: p.kind.into() }).collect();
-    ui.global::<Live>().set_pills(ModelRc::new(VecModel::from(model)));
+    let live = ui.global::<Live>();
+    let mut pills = pills.into_iter();
+    // The first is the mode; the rest are the status rows.
+    let mode = pills.next().unwrap_or_else(|| Pill::new("", ""));
+    let rows: Vec<Pill> = pills.collect();
+    let (text, kind, flash) = status_summary(&rows);
+    live.set_mode_pill(PillData { text: mode.text.into(), kind: mode.kind.into(), hint: "".into() });
+    live.set_status_text(text.into());
+    live.set_status_kind(kind.into());
+    live.set_status_flash(flash);
+    let model: Vec<PillData> = rows.into_iter().map(|p| PillData { text: p.text.into(), kind: p.kind.into(), hint: p.hint.into() }).collect();
+    live.set_pills(ModelRc::new(VecModel::from(model)));
+}
+
+/// The one status pill: ALL OK, or the worst row (faults before warnings)
+/// and how many more there are. A fault makes it flash.
+fn status_summary(rows: &[Pill]) -> (String, &'static str, bool) {
+    let mut wrong: Vec<&Pill> = rows.iter().filter(|p| p.kind == "bad").collect();
+    let flash = !wrong.is_empty();
+    wrong.extend(rows.iter().filter(|p| p.kind == "warn"));
+    match wrong.first() {
+        None => ("ALL OK".into(), "good", false),
+        Some(first) if wrong.len() == 1 => (first.text.clone(), first.kind, flash),
+        Some(first) => (format!("{} +{}", first.text, wrong.len() - 1), first.kind, flash),
+    }
 }
 
 /// The tool tip in work coordinates, the frame the interpreter preview uses.
@@ -1493,5 +1515,21 @@ fn toast(ui: &MainWindow, text: String) {
 fn with_manual(f: impl FnOnce(&Rc<RefCell<manual::Manual>>)) {
     if let Some(m) = MANUAL.with(|m| m.borrow().clone()) {
         f(&m);
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+
+    #[test]
+    fn the_status_pill_names_the_worst_row() {
+        let ok = [Pill::new("HOMED XYZ", "good"), Pill::new("PROBE NOT LOADED", ""), Pill::new("SPINDLE CMD CW 4000", "info")];
+        assert_eq!(status_summary(&ok), ("ALL OK".to_string(), "good", false));
+        let warn = [Pill::new("HOMED XYZ", "good"), Pill::new("PROBE LOADED", "warn")];
+        assert_eq!(status_summary(&warn), ("PROBE LOADED".to_string(), "warn", false));
+        // A fault comes before a warning listed ahead of it, and flashes.
+        let bad = [Pill::new("PROBE LOADED", "warn"), Pill::new("DRIVE FAULT X", "bad"), Pill::new("NOT HOMED", "bad")];
+        assert_eq!(status_summary(&bad), ("DRIVE FAULT X +2".to_string(), "bad", true));
     }
 }

@@ -10,6 +10,11 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] HOME ALL (hold) in the status bar while not homed; e-stop unhomes (VOLATILE_HOME).
 - [x] Homed pill never implies A is referenced (A has no switch: "A REF").
 - [x] Spindle and drawbar pills show commanded state.
+- [x] Top bar (2026-11-17): the mode pill plus one status pill. It reads ALL OK, or the worst row
+  and how many more ("NOT HOMED +1"); amber for a warning, flashing red for a fault. A tap opens
+  the list of every row (homing, probe, drives, drawbar, pendant, spindle) with a line under each
+  problem saying what it means. Modules still report rows through `Module::pills`. The message
+  has the rest of the bar.
 - [x] MOTION HELD: <reason> (motion.feed-inhibit = probe fault OR drives not ready).
 - [x] Prompt for M5 and a fresh start when spindle_drawbar_guard.rearm_required is set
       (needs the current mymill.hal on the Pi; the Pi's copy predates the pin).

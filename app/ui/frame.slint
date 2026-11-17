@@ -5,6 +5,12 @@ import { Btn, Pill, Label, Card } from "widgets.slint";
 
 export component StatusBar inherits Rectangle {
     background: Theme.bar;
+    property <bool> blink;
+    Timer {
+        interval: 500ms;
+        running: Live.status-flash;
+        triggered => { root.blink = !root.blink; }
+    }
     Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
     HorizontalLayout {
         padding-left: 14px;
@@ -54,11 +60,34 @@ export component StatusBar inherits Rectangle {
                 clicked => { Actions.home-all(); }
             }
         }
-        // The first pill is the mode (E-STOP, AUTO, MDI...): a fixed width
-        // keeps the others from shifting as it changes.
-        for p[i] in Live.pills: VerticalLayout {
+        // The mode (E-STOP, AUTO, MDI...): a fixed width keeps what follows
+        // from shifting as it changes.
+        VerticalLayout {
             alignment: center;
-            Pill { text: p.text; kind: p.kind; min-width: i == 0 ? 132px : 0px; }
+            Pill { text: Live.mode-pill.text; kind: Live.mode-pill.kind; min-width: 132px; }
+        }
+        // One pill for everything else: ALL OK, or what is wrong (flashing
+        // for a fault). A tap opens the full list.
+        if Live.connected: VerticalLayout {
+            alignment: center;
+            status := Rectangle {
+                height: 38px;
+                horizontal-stretch: 0;
+                HorizontalLayout {
+                    Pill {
+                        text: Live.status-text + "  ▼";
+                        kind: Live.status-kind;
+                        min-width: 150px;
+                        lit: Live.status-flash && root.blink;
+                    }
+                }
+                TouchArea {
+                    clicked => {
+                        Live.status-x = status.absolute-position.x / 1px;
+                        Live.status-open = !Live.status-open;
+                    }
+                }
+            }
         }
         Text {
             horizontal-stretch: 1;

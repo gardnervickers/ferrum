@@ -14,11 +14,17 @@ pub struct Pill {
     pub text: String,
     /// "" | "good" | "warn" | "bad" | "info"
     pub kind: &'static str,
+    /// Shown in the status list: what a row that is not OK means.
+    pub hint: &'static str,
 }
 
 impl Pill {
     pub fn new(text: impl Into<String>, kind: &'static str) -> Self {
-        Self { text: text.into(), kind }
+        Self { text: text.into(), kind, hint: "" }
+    }
+    pub fn hint(mut self, hint: &'static str) -> Self {
+        self.hint = hint;
+        self
     }
 }
 
@@ -157,11 +163,11 @@ impl Module for Probe {
         out.push(if !sel.get() {
             Pill::new("PROBE NOT LOADED", "")
         } else if fault.get() {
-            Pill::new("PROBE FAULT", "bad")
+            Pill::new("PROBE FAULT", "bad").hint("The probe reports a fault. Check the probe.")
         } else if trip.get() {
             Pill::new("PROBE TRIPPED", "info")
         } else {
-            Pill::new("PROBE T99 · WIRED", "warn")
+            Pill::new("PROBE LOADED", "warn").hint("The spindle will not start with the probe in.")
         });
     }
     fn capabilities(&self) -> &'static [&'static str] {
@@ -201,11 +207,11 @@ impl Module for Drives {
         }
         let faulted: String = self.faults.iter().filter(|(_, p)| p.get()).map(|(a, _)| *a).collect();
         out.push(if !faulted.is_empty() {
-            Pill::new(format!("DRIVE FAULT {faulted}"), "bad")
+            Pill::new(format!("DRIVE FAULT {faulted}"), "bad").hint("The drive of each axis named reports a fault.")
         } else if self.not_ready().is_empty() {
             Pill::new("DRIVES HLFB OK", "good")
         } else if s.is_some_and(|s| s.power_on()) {
-            Pill::new(format!("DRIVES NOT READY {}", self.not_ready()), "warn")
+            Pill::new(format!("DRIVES NOT READY {}", self.not_ready()), "warn").hint("The drives named have not reported ready.")
         } else {
             Pill::new("DRIVES OFF", "")
         });
@@ -245,7 +251,7 @@ impl Module for Drawbar {
     }
     fn pills(&self, _s: Option<&Status>, out: &mut Vec<Pill>) {
         let Some(io) = &self.io else { return };
-        out.push(if io.extended() { Pill::new("DRAWBAR CMD RELEASE", "bad") } else { Pill::new("DRAWBAR CMD CLAMP", "") });
+        out.push(if io.extended() { Pill::new("DRAWBAR CMD RELEASE", "bad").hint("The drawbar is told to let go of the tool.") } else { Pill::new("DRAWBAR CMD CLAMP", "") });
         if io.rearm_required() {
             out.push(Pill::new("SPINDLE: M5, THEN START AGAIN", "bad"));
         }
@@ -304,7 +310,7 @@ impl Module for Interlock {
             why.push("DRIVES NOT READY");
         }
         let reason = if why.is_empty() { "UNKNOWN".to_string() } else { why.join(" + ") };
-        out.push(Pill::new(format!("MOTION HELD: {reason}"), "bad"));
+        out.push(Pill::new(format!("MOTION HELD: {reason}"), "bad").hint("Feed is held until this clears."));
     }
     fn motion_block(&self) -> Option<String> {
         self.held.as_ref().is_some_and(|p| p.get()).then(|| "Motion is held (probe fault or drives)".into())

@@ -50,6 +50,60 @@ export component MainWindow inherits Window {
         if Live.text-open: TextKeyboard {}
     }
     BottomBar { x: 0; y: parent.height - 128px; width: parent.width; height: 128px; }
+    // The status list under its pill; a tap anywhere closes it.
+    if Live.status-open: TouchArea { clicked => { Live.status-open = false; } }
+    if Live.status-open: Rectangle {
+        x: min(Live.status-x * 1px, parent.width - self.width - 14px);
+        y: 60px;
+        width: 440px;
+        height: rows.preferred-height;
+        background: Theme.panel2;
+        border-width: 1px;
+        border-color: Theme.line;
+        border-radius: Theme.radius-ctl;
+        rows := VerticalLayout {
+            padding: 14px;
+            padding-left: 20px;
+            padding-right: 20px;
+            spacing: 0px;
+            Text { height: 38px; vertical-alignment: center; text: "MACHINE STATUS"; font-family: Theme.display; font-size: 18px; letter-spacing: 1.6px; color: Theme.dim; }
+            for p in Live.pills: HorizontalLayout {
+                spacing: 14px;
+                VerticalLayout {
+                    padding-top: 18px;
+                    alignment: start;
+                    Rectangle {
+                        width: 11px;
+                        height: 11px;
+                        border-radius: 5.5px;
+                        background: p.kind == "good" ? Theme.good : p.kind == "warn" ? Theme.warn : p.kind == "bad" ? Theme.bad : p.kind == "info" ? Theme.info : Theme.dim;
+                    }
+                }
+                VerticalLayout {
+                    padding-top: 9px;
+                    padding-bottom: 9px;
+                    spacing: 2px;
+                    Text {
+                        height: 30px;
+                        vertical-alignment: center;
+                        text: p.text;
+                        font-family: Theme.display;
+                        font-size: 22px;
+                        letter-spacing: 1.2px;
+                        color: p.kind == "bad" ? Theme.bad : p.kind == "warn" ? Theme.warn : Theme.ink;
+                    }
+                    if p.hint != "": Text {
+                        text: p.hint;
+                        wrap: word-wrap;
+                        font-family: Theme.body;
+                        font-size: 19px;
+                        color: Theme.muted;
+                    }
+                }
+            }
+        }
+        TouchArea { clicked => { Live.status-open = false; } }
+    }
     if Live.toast != "": Rectangle {
         x: parent.width - self.width - 14px;
         // Under the top bar, clear of the plot and bottom-bar controls.

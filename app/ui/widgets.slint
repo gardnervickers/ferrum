@@ -122,11 +122,13 @@ export component Btn inherits Rectangle {
 export component Pill inherits Rectangle {
     in property <string> text;
     in property <string> kind;
+    // The "on" half of a flashing pill: filled, so it is seen from across the shop.
+    in property <bool> lit;
     property <color> tone: kind == "good" ? Theme.good : kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : kind == "info" ? Theme.info : Theme.dim;
     height: 38px;
     horizontal-stretch: 0;
     border-radius: 19px;
-    background: kind == "bad" ? #ff8f8a24 : kind == "warn" ? #f3c4631c : Theme.panel;
+    background: lit ? Theme.stop : kind == "bad" ? #ff8f8a24 : kind == "warn" ? #f3c4631c : Theme.panel;
     animate background { duration: Theme.settle; }
     HorizontalLayout {
         padding-left: 14px;
@@ -134,7 +136,7 @@ export component Pill inherits Rectangle {
         spacing: 9px;
         VerticalLayout {
             alignment: center;
-            Rectangle { width: 9px; height: 9px; border-radius: 4.5px; background: tone; animate background { duration: Theme.settle; } }
+            Rectangle { width: 9px; height: 9px; border-radius: 4.5px; background: lit ? Theme.ink : tone; animate background { duration: Theme.settle; } }
         }
         Text {
             vertical-alignment: center;
@@ -142,7 +144,7 @@ export component Pill inherits Rectangle {
             font-family: Theme.display;
             font-size: 20px;
             letter-spacing: 1.2px;
-            color: kind == "" ? Theme.muted : tone;
+            color: lit ? Theme.ink : kind == "" ? Theme.muted : tone;
             animate color { duration: Theme.settle; }
         }
     }
