@@ -25,6 +25,7 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
     let mut b = Builder::new([0.0; 4], rapid_mm_s);
     let mut plane = Plane::Xy;
     let mut started = false;
+    let mut selected: Option<i32> = None;
     for line in text.lines() {
         // Drop the sequence number and the N-word column.
         let call = line.trim_start().splitn(3, char::is_whitespace).nth(2).unwrap_or("").trim();
@@ -36,9 +37,14 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
                     b.comment(inner.trim_matches('"'));
                 }
             }
+            // SELECT_TOOL carries the T number. CHANGE_TOOL's argument is
+            // the tool's place in the stand-alone interpreter's table, which
+            // is a different number once the table skips one (T23 came out
+            // as 22), so the selected number is the one to show.
+            "SELECT_TOOL" => selected = args(inner).first().map(|t| *t as i32),
             "CHANGE_TOOL" => {
-                if let Some(t) = args(inner).first() {
-                    b.tool(*t as i32);
+                if let Some(t) = selected.or_else(|| args(inner).first().map(|t| *t as i32)) {
+                    b.tool(t);
                 }
             }
             "SET_FEED_RATE" => {
@@ -144,5 +150,12 @@ mod tests {
         // The XZ arc ends at X 80, Z 5.
         let last = tp.segs.last().unwrap().to;
         assert!((last[0] - 80.0).abs() < 1e-6 && (last[2] - 5.0).abs() < 1e-6, "{last:?}");
+    }
+
+    #[test]
+    fn the_tool_is_the_selected_t_number_not_its_table_index() {
+        // T23 sits 22nd in a table that has no T15: rs274 prints both.
+        let out = "    1 N..... SELECT_TOOL(23)\n    2 N..... CHANGE_TOOL(22)\n    3 N..... STRAIGHT_TRAVERSE(0.0000, 0.0000, 5.0000, 0.0000, 0.0000, 0.0000)\n    4 N..... SET_FEED_RATE(600.0000)\n    5 N..... STRAIGHT_FEED(10.0000, 0.0000, 5.0000, 0.0000, 0.0000, 0.0000)\n";
+        assert_eq!(parse(out, 100.0).ops[0].tool, 23);
     }
 }

@@ -35,7 +35,10 @@ widgets in `app/ui/widgets.slint`.
   `Theme.quick` (140 ms) for presses, toggles and tab changes, `Theme.settle`
   (220 ms) for bars and status colours. A press lights at once and fades on
   release. Nothing moves position, nothing loops, nothing animates at idle,
-  and no animation delays a touch or a machine action.
+  and no animation delays a touch or a machine action. The one exception is
+  the probe preview: a small tip loops through the selected routine on the
+  PROBE picture (green, so it is never read as a control or an arrow), and
+  it stops while a probe runs.
 
 ## Widgets
 

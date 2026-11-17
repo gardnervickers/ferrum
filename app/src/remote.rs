@@ -23,16 +23,16 @@ use tungstenite::Message;
 
 #[allow(unused_parens, clippy::all)]
 mod mirror {
-    use crate::{Actions, CheckRow, CubeFace, DroRow, FileRow, GotoRow, HistoryRow, Live, MdiCard, MsgRow, NavItem, ConvField, JobOp, OffsetRow, PillData, ProbeItem, ProbeMove, ProbeOpt, ProbeParam, ProbeSpot, StatusRow, ToolRow, WarmStage};
+    use crate::{Actions, CheckRow, CubeFace, DroRow, FileOp, FileRow, GotoRow, HistoryRow, Live, MdiCard, MsgRow, NavItem, ConvField, JobOp, OffsetRow, PillData, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot, StatusRow, ToolRow, WarmStage};
     include!(concat!(env!("OUT_DIR"), "/mirror.rs"));
 }
 
 /// Per-screen state, never mirrored.
-const LOCAL: &[&str] = &["remote", "screen", "run-tab", "jog-tab", "drawer-open", "plot-dx", "plot-dy", "plot-landed"];
+const LOCAL: &[&str] = &["remote", "screen", "run-tab", "jog-tab", "files-tab", "drawer-open", "plot-dx", "plot-dy", "plot-landed"];
 /// Browser-side edits the Pi accepts (two-way properties the actions read).
 const FROM_REMOTE: &[&str] = &["mdi-text", "gcode-selected"];
 /// Actions each screen handles for itself.
-const LOCAL_ACTIONS: &[&str] = &["navigate", "plot-resize", "exit"];
+const LOCAL_ACTIONS: &[&str] = &["navigate", "plot-resize", "files-plot-resize", "exit"];
 
 #[derive(Default)]
 struct Pending {

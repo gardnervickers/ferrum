@@ -1,14 +1,16 @@
 //! Files screen: browse PROGRAM_PREFIX (no USB), preview a file, load it.
-//! The op list, times and top-view preview arrive with the interpreter
-//! backplot later in milestone 3.
+//! The selected file is read through the interpreter in the background
+//! (as the Run backplot does) for its top view, ops, tools and times.
 
 use crate::config::Config;
-use crate::{Actions, FileRow, Live, MainWindow};
+use crate::{Actions, FileOp, FileRow, Live, MainWindow};
 use linuxcnc::{Command, Handle};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use preview::Toolpath;
+use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 const EXTENSIONS: &[&str] = &["ngc", "nc", "tap", "gcode"];
@@ -122,38 +124,182 @@ pub fn root(cfg: &Config) -> PathBuf {
     if p.is_absolute() { p } else { cfg.dir().join(p) }
 }
 
-thread_local! {
+/// The selected program's picture: what it shows and at what size.
+#[derive(Default)]
+struct Picture {
+    tp: Option<Arc<Toolpath>>,
+    /// The op picked out, if any.
+    op: Option<usize>,
+    /// The well's size in physical pixels, and the window's scale.
+    size: (u32, u32),
+    scale: f32,
     /// Bumped per selection, so a slow read of an earlier file is dropped.
-    static SUMMARY_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    read: u64,
+    /// Bumped per drawing, so only the latest one lands.
+    drawn: u64,
 }
 
-/// Ops and times for the selected file, read in the background.
+thread_local! {
+    static PICTURE: RefCell<Picture> = RefCell::new(Picture::default());
+}
+
+fn num(v: f64) -> String {
+    let s = format!("{v:.1}");
+    let s = s.strip_suffix(".0").unwrap_or(&s);
+    if s == "-0" { "0".into() } else { s.to_string() }
+}
+
+/// "5 OPS · ~14 MIN · T14 T23": ops, estimated time, the tools in order of use.
+fn summary_line(tp: &Toolpath) -> String {
+    if tp.segs.is_empty() {
+        return String::new();
+    }
+    let n = tp.ops.len();
+    let mut tools: Vec<i32> = Vec::new();
+    for o in &tp.ops {
+        if o.tool > 0 && !tools.contains(&o.tool) {
+            tools.push(o.tool);
+        }
+    }
+    let mut out = format!("{} OP{} · ~{}", n, if n == 1 { "" } else { "S" }, crate::plot::fmt_time(tp.seconds()).to_uppercase());
+    if !tools.is_empty() {
+        out += " ·";
+        for t in tools {
+            out += &format!(" T{t}");
+        }
+    }
+    out
+}
+
+/// Name, tool and estimated time of each op.
+fn op_rows(tp: &Toolpath) -> Vec<FileOp> {
+    tp.ops
+        .iter()
+        .enumerate()
+        .map(|(i, o)| {
+            let tag = format!("T{}", o.tool);
+            // JOB names end in their tool, which has its own column here.
+            let name = match o.name.strip_suffix(&tag) {
+                Some(rest) if o.tool > 0 && rest.ends_with(' ') => rest.trim_end(),
+                _ => o.name.as_str(),
+            };
+            FileOp {
+                name: if name.is_empty() { format!("OP {}", i + 1) } else { name.to_string() }.into(),
+                tool: if o.tool > 0 { tag } else { String::new() }.into(),
+                time: if o.seconds > 0.0 { format!("~{}", crate::plot::fmt_time(o.seconds)) } else { String::new() }.into(),
+                color: i as i32,
+            }
+        })
+        .collect()
+}
+
+/// Where the cuts sit in work coordinates.
+fn extent(tp: &Toolpath) -> String {
+    match tp.bounds() {
+        Some((lo, hi)) if !tp.segs.is_empty() => {
+            format!("X {} to {}  ·  Y {} to {}  ·  lowest Z {}", num(lo[0]), num(hi[0]), num(lo[1]), num(hi[1]), num(lo[2]))
+        }
+        _ => String::new(),
+    }
+}
+
+/// Draw the picture for the current program, op and size. The drawing
+/// takes as long as the program is big, so it happens off the UI thread.
+fn draw(ui: &MainWindow) {
+    let (tp, op, (w, h), scale, id) = PICTURE.with(|p| {
+        let mut p = p.borrow_mut();
+        p.drawn += 1;
+        (p.tp.clone(), p.op, p.size, p.scale, p.drawn)
+    });
+    let Some(tp) = tp else { return };
+    if tp.segs.is_empty() || w < 16 || h < 16 {
+        return;
+    }
+    let margin = 36.0 * scale.max(0.25) as f64;
+    let land = move |ui: &MainWindow, pm: preview::Pixmap, zero: (f32, f32)| {
+        if PICTURE.with(|p| p.borrow().drawn) != id {
+            return;
+        }
+        let live = ui.global::<Live>();
+        live.set_files_plot(Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(pm.data(), pm.width(), pm.height())));
+        live.set_files_zero_x(zero.0 / pm.width() as f32);
+        live.set_files_zero_y(zero.1 / pm.height() as f32);
+    };
+    let mut inline = false;
+    crate::plot::with(|p| inline = crate::plot::inline(p));
+    if inline {
+        let (pm, zero) = preview::software::top_view(&tp, w, h, op, margin);
+        land(ui, pm, zero);
+        return;
+    }
+    let weak = ui.as_weak();
+    std::thread::spawn(move || {
+        let (pm, zero) = preview::software::top_view(&tp, w, h, op, margin);
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = weak.upgrade() {
+                land(&ui, pm, zero);
+            }
+        });
+    });
+}
+
+/// Nothing to show for the selection yet (or at all).
+fn clear(live: &Live, status: &str) {
+    live.set_files_summary(SharedString::new());
+    live.set_files_ops(ModelRc::new(VecModel::from(Vec::<FileOp>::new())));
+    live.set_files_op(-1);
+    live.set_files_extent(SharedString::new());
+    live.set_files_warning(SharedString::new());
+    live.set_files_plot(Image::default());
+    live.set_files_zero_x(-1.0);
+    live.set_files_status(status.into());
+}
+
+/// The picture, ops and times for the selected file, read in the background.
 fn summarize(ui: &MainWindow, path: Option<PathBuf>) {
-    let gen = SUMMARY_GEN.with(|g| {
-        g.set(g.get() + 1);
-        g.get()
+    let read = PICTURE.with(|p| {
+        let mut p = p.borrow_mut();
+        p.read += 1;
+        p.drawn += 1;
+        p.tp = None;
+        p.op = None;
+        p.read
     });
     let live = ui.global::<Live>();
     let Some(path) = path else {
-        live.set_files_summary(SharedString::new());
+        clear(&live, "");
         return;
     };
-    live.set_files_summary("Reading the program…".into());
+    clear(&live, "Reading the program…");
     let mut wired = false;
     let weak = ui.as_weak();
     crate::plot::with(|p| {
         wired = true;
         crate::plot::analyze(p, path, move |tp| {
-            if SUMMARY_GEN.with(|g| g.get()) != gen {
+            if PICTURE.with(|p| p.borrow().read) != read {
                 return;
             }
-            if let Some(ui) = weak.upgrade() {
-                ui.global::<Live>().set_files_summary(crate::plot::op_summary(&tp).into());
-            }
+            let Some(ui) = weak.upgrade() else { return };
+            let live = ui.global::<Live>();
+            live.set_files_summary(summary_line(&tp).into());
+            live.set_files_ops(ModelRc::new(VecModel::from(op_rows(&tp))));
+            live.set_files_extent(extent(&tp).into());
+            live.set_files_status(
+                match &tp.error {
+                    Some(e) if tp.segs.is_empty() => format!("Cannot read this program: {e}"),
+                    _ if tp.segs.is_empty() => "This program has no moves.".into(),
+                    _ => String::new(),
+                }
+                .into(),
+            );
+            let partial = tp.error.as_ref().filter(|_| !tp.segs.is_empty());
+            live.set_files_warning(partial.map(|e| format!("Stops early: {e}")).unwrap_or_default().into());
+            PICTURE.with(|p| p.borrow_mut().tp = Some(Arc::new(tp)));
+            draw(&ui);
         });
     });
     if !wired {
-        live.set_files_summary(SharedString::new());
+        clear(&live, "");
     }
 }
 
@@ -208,6 +354,35 @@ pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
         drop(st);
         summarize(&ui, path);
     });
+    // A tap on an op picks it out in the picture; again shows them all.
+    let weak = ui.as_weak();
+    actions.on_files_op_tap(move |i| {
+        let Some(ui) = weak.upgrade() else { return };
+        let op = PICTURE.with(|p| {
+            let mut p = p.borrow_mut();
+            let n = p.tp.as_ref().map_or(0, |tp| tp.ops.len());
+            p.op = if i < 0 || i as usize >= n || p.op == Some(i as usize) { None } else { Some(i as usize) };
+            p.op
+        });
+        ui.global::<Live>().set_files_op(op.map_or(-1, |o| o as i32));
+        draw(&ui);
+    });
+    let weak = ui.as_weak();
+    actions.on_files_plot_resize(move |w, h| {
+        let Some(ui) = weak.upgrade() else { return };
+        let scale = ui.window().scale_factor();
+        let size = (((w * scale) as u32).min(4096), ((h * scale) as u32).min(4096));
+        let changed = PICTURE.with(|p| {
+            let mut p = p.borrow_mut();
+            let changed = p.size != size;
+            p.size = size;
+            p.scale = scale;
+            changed
+        });
+        if changed {
+            draw(&ui);
+        }
+    });
     let (f, mc, weak) = (files.clone(), machine.clone(), ui.as_weak());
     actions.on_files_load(move || {
         let Some(path) = f.borrow().selected_path() else { return };
@@ -236,5 +411,21 @@ mod tests {
         assert!(names.contains(&"a.ngc".into()) && names.contains(&"b.NC".into()));
         assert!(!names.iter().any(|n| n == "notes.txt" || n.starts_with('.')));
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn summary_ops_and_extent() {
+        let src = "(MYMILL-OP 1/2 ID=A FACE 100 X 60 T14)\nT14 M6\nG0 X-10 Y0 Z5\nG1 Z-0.5 F600\nX110\n\
+                   (MYMILL-OP 2/2 ID=B DRILL1)\nT7 M6\nG0 X20 Y30 Z5\nG1 Z-6 F100\nG0 Z5\n";
+        let tp = preview::mini::parse(src, 100.0);
+        assert!(summary_line(&tp).starts_with("2 OPS · ~"), "{}", summary_line(&tp));
+        assert!(summary_line(&tp).ends_with("· T14 T7"), "{}", summary_line(&tp));
+        let rows = op_rows(&tp);
+        let got: Vec<_> = rows.iter().map(|r| (r.name.as_str(), r.tool.as_str(), r.color)).collect();
+        assert_eq!(got, [("FACE 100 X 60", "T14", 0), ("DRILL1", "T7", 1)]);
+        assert!(rows[0].time.starts_with('~'));
+        assert_eq!(extent(&tp), "X -10 to 110  ·  Y 0 to 30  ·  lowest Z -6");
+        assert_eq!(summary_line(&Toolpath::default()), "");
+        assert_eq!(extent(&Toolpath::default()), "");
     }
 }

@@ -25,6 +25,7 @@ mod settings;
 mod toolchange;
 mod offsets;
 mod probe;
+mod probe_anim;
 mod tools;
 mod util;
 
@@ -1036,6 +1037,9 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                 live.set_running(true);
             }
             "file" => actions.invoke_files_tap(1),
+            // "file:<row>" selects that row; "file-op:<n>" picks out an op.
+            w if w.starts_with("file:") => actions.invoke_files_tap(w[5..].parse().unwrap_or(1)),
+            w if w.starts_with("file-op:") => actions.invoke_files_op_tap(w[8..].parse().unwrap_or(0)),
             // PROBE state: probe-mode:<m>, probe-shape:<s>, probe-target:<t>.
             w if w.starts_with("probe-") => {
                 if let Some((k, v)) = w.split_once(':') {
@@ -1043,10 +1047,14 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                         "probe-mode" => actions.invoke_probe_mode(v.into()),
                         "probe-shape" => actions.invoke_probe_shape(v.into()),
                         "probe-target" => actions.invoke_probe_target(v.into()),
+                        "probe-opt" => actions.invoke_probe_opt(v.into()),
+                        // The preview held at <ms> into its loop.
+                        "probe-at" => probe_anim::freeze(&ui, v.parse().unwrap_or(0.0)),
                         _ => {}
                     }
                 }
             }
+            "file-code" => live.set_files_tab("code".into()),
             "jog" => live.set_run_tab("jog".into()),
             "feed" | "goto" => live.set_jog_tab(what.as_str().into()),
             "gotos" => {
