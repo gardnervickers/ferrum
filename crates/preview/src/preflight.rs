@@ -11,7 +11,9 @@
 //! interpreter's parameter file (LinuxCNC saves that file only at exit, and
 //! the operator may probe after loading). A program that sets an offset
 //! itself (G10, a probing op) is still checked with today's value, and the
-//! report says where it does that. The tool length is the one the
+//! report says where it does that. After a job's probing step that finds
+//! the offset, moves are not checked at all (the offset is not known until
+//! the step has run); the report names that line too. The tool length is the one the
 //! interpreter applied from the tool table when the program was read.
 
 use crate::Toolpath;
@@ -86,7 +88,12 @@ pub fn check(tp: &Toolpath, limits: &Limits, live: &Live, table_top: Option<f64>
     let mut seen_g92: Option<[f64; 3]> = None;
     let mut next = 0;
     let mut cur = crate::Offsets { wcs: live.active, ..Default::default() };
+    // The first FIND probing step this run reaches.
+    let found = tp.find_lines.iter().copied().find(|l| *l >= from_line);
+    // Whether the move before this one was checked, and was a G53 move.
+    let (mut prev_counted, mut prev_machine) = (false, false);
     for (i, seg) in tp.segs.iter().enumerate() {
+        let mut shifted = false;
         while next < tp.offsets.len() && tp.offsets[next].0 <= i {
             let o = tp.offsets[next].1;
             let w = o.wcs as usize;
@@ -100,19 +107,42 @@ pub fn check(tp: &Toolpath, limits: &Limits, live: &Live, table_top: Option<f64>
             seen_g5x[w].get_or_insert(o.g5x);
             seen_g92.get_or_insert(o.g92);
             cur = o;
+            shifted = true;
             next += 1;
         }
+        let machine = seg.line != 0 && tp.machine_lines.binary_search(&seg.line).is_ok();
         if seg.line != 0 && seg.line < from_line {
+            (prev_counted, prev_machine) = (false, machine);
+            continue;
+        }
+        // After a probing step that finds the work offset, where the moves
+        // land is not known until it has run. Its own G53 moves are.
+        if let Some(find) = found.filter(|f| seg.line >= *f && !machine) {
+            if !report.sets_offsets.contains(&find) {
+                report.sets_offsets.push(find);
+            }
+            (prev_counted, prev_machine) = (false, machine);
             continue;
         }
         report.moves += 1;
         let w = if (1..=9).contains(&cur.wcs) { cur.wcs } else { live.active.clamp(1, 9) } as usize - 1;
-        let (g5x, rot) = (live.wcs[w], live.rotation[w]);
+        // A G53 move goes to a machine position whatever the offsets are:
+        // the interpreter's own offsets turn its work position back into
+        // that. Every other move lands where today's offsets put it.
+        let (g5x, rot, g92) = if machine { (cur.g5x, cur.rotation, cur.g92) } else { (live.wcs[w], live.rotation[w], live.g92) };
         let (sin, cos) = rot.to_radians().sin_cos();
-        // A straight move is checked at its ends; arcs arrive as short lines.
-        for p in [seg.from, seg.to] {
-            let (x, y) = (p[0] + live.g92[0], p[1] + live.g92[1]);
-            let tip = [x * cos - y * sin + g5x[0], x * sin + y * cos + g5x[1], p[2] + live.g92[2] + g5x[2]];
+        // A straight move is checked at its end; arcs arrive as short
+        // lines. Its start is the end of the move before, so it is only
+        // checked for the first move of a run from a line. Not when the
+        // start is unknown or was shifted without a move: the first move
+        // of the program (the interpreter starts at an arbitrary point),
+        // one after an offset change (G43 moves the work position, not
+        // the machine) or after a G53 move.
+        let start = !prev_counted && i > 0 && !shifted && !prev_machine && !machine;
+        (prev_counted, prev_machine) = (true, machine);
+        for p in start.then_some(seg.from).into_iter().chain([seg.to]) {
+            let (x, y) = (p[0] + g92[0], p[1] + g92[1]);
+            let tip = [x * cos - y * sin + g5x[0], x * sin + y * cos + g5x[1], p[2] + g92[2] + g5x[2]];
             let nose = [tip[0] + cur.tool[0], tip[1] + cur.tool[1], tip[2] + cur.tool[2]];
             for a in 0..3 {
                 for (k, by) in [(a * 2, limits.min[a] - nose[a]), (a * 2 + 1, nose[a] - limits.max[a])] {
@@ -258,6 +288,46 @@ mod tests {
         assert_eq!(check(&tp, &LIMITS, &live(), None, 21).problems, vec![]);
         // The move into line 20 starts past the limit.
         assert_eq!(check(&tp, &LIMITS, &live(), None, 20).problems.len(), 1);
+    }
+
+    #[test]
+    fn a_tool_offset_change_does_not_move_the_machine() {
+        // G53 G0 Z0 with no offset (work Z 250 = machine 0), then G43 with
+        // a 100 mm tool and a move down: the nose never passes Z 0.
+        let tp = path(&[(18, [0.0, 0.0, 250.0, 0.0]), (48, [10.0, 0.0, 150.0, 0.0]), (50, [10.0, 0.0, 20.0, 0.0])], &[(0, g54(0.0)), (1, g54(100.0))]);
+        let r = check(&tp, &LIMITS, &live(), None, 0);
+        assert!(r.problems.is_empty(), "{:?}", r.problems);
+    }
+
+    #[test]
+    fn g53_moves_use_the_offsets_they_were_read_with() {
+        // The parameter file's G54 Z is -300; today's is -250. "G53 G0 Z0"
+        // arrives as work Z 300 and is machine Z 0 either way.
+        let mut file = g54(0.0);
+        file.g5x = [200.0, -90.0, -300.0];
+        let mut tp = path(&[(7, [0.0, 0.0, 300.0, 0.0]), (9, [10.0, 0.0, 10.0, 0.0])], &[(0, file)]);
+        assert_eq!(check(&tp, &LIMITS, &live(), None, 0).problems.len(), 1, "without the mark it reads as past Z+");
+        tp.machine_lines = vec![7];
+        let r = check(&tp, &LIMITS, &live(), None, 0);
+        assert!(r.problems.is_empty(), "{:?}", r.problems);
+        // A G53 move past a limit is still caught.
+        let mut tp = path(&[(7, [0.0, 0.0, 302.0, 0.0])], &[(0, file)]);
+        tp.machine_lines = vec![7];
+        assert_eq!(check(&tp, &LIMITS, &live(), None, 0).problems[0].what, What::Travel { axis: 2, high: true });
+    }
+
+    #[test]
+    fn moves_after_a_find_step_are_not_judged_with_todays_offset() {
+        // Today's G54 puts line 30 past X+; the FIND at line 20 will move it.
+        let mut tp = path(&[(10, [10.0, 0.0, 10.0, 0.0]), (30, [240.0, 0.0, 10.0, 0.0])], &[(0, g54(0.0))]);
+        assert_eq!(check(&tp, &LIMITS, &live(), None, 0).problems.len(), 1);
+        tp.find_lines = vec![20];
+        let r = check(&tp, &LIMITS, &live(), None, 0);
+        assert!(r.problems.is_empty(), "{:?}", r.problems);
+        assert_eq!(r.sets_offsets, vec![20]);
+        assert_eq!(r.moves, 1);
+        // Started after the find (the offset is set by then): checked again.
+        assert_eq!(check(&tp, &LIMITS, &live(), None, 25).problems.len(), 1);
     }
 
     #[test]

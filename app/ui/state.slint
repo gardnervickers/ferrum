@@ -38,6 +38,8 @@ export global Live {
     in property <bool> message-error;
     // A refusal the operator must not miss (CYCLE START blocked); clears itself.
     in-out property <string> toast;
+    // The toast is a program's own (MSG, ...) text, not a refusal or error.
+    in-out property <bool> toast-info;
     // machine.toml [buttons]: which quick buttons to show.
     in property <bool> quick-mist: true;
     in property <bool> quick-flood: true;

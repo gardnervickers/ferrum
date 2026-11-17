@@ -2,10 +2,10 @@
 //!
 //! The PROBE screen makes them (ADD TO JOB): the macro call it would run,
 //! the per-run `#30xx` values, the work system, and where the probe stood
-//! when the op was added (the start, in that work system). In the job the
-//! op loads the probe, rapids over the start at the top of travel, feeds
-//! down to it with a guarded move (G38.3, stops on contact and aborts), runs
-//! the routine and goes back to the top.
+//! when the op was added (the start). In the job the op loads the probe,
+//! rapids over the start at the top of travel, feeds down to it with a
+//! guarded move (G38.3, stops on contact and aborts), runs the routine and
+//! goes back to the top.
 //!
 //! FIND writes the work offset (#3030 = 0), as on the PROBE screen.
 //! MEASURE reports only (#3030 = 1). With a nominal it compares the result:
@@ -20,7 +20,11 @@
 //! - `calls`: macro call lines, run in order (auto stock is two)
 //! - `values`: `{"3019": 5.0, ...}` per-run probe settings
 //! - `wcs`: "G54".."G59.3"
-//! - `start`: [x, y, z] in `wcs`
+//! - `start`: [x, y, z] in `wcs`, where the probe stood
+//! - `start_machine` (FIND): the same spot in machine coordinates. A FIND
+//!   op goes there with G53: it sets `wcs`, so a start kept in `wcs` would
+//!   move with every run (and be wrong after the first one). A MEASURE op
+//!   starts at `start`: the feature sits where the work offset says.
 //! - `measure` (MEASURE only): `{"value": "diameter"|"x"|"y"|"z",
 //!   "nominal": number|null, "tol": number, "op": op id|null,
 //!   "on_fail": "pause"|"continue"}`
@@ -94,6 +98,9 @@ pub struct Parsed {
     pub values: Vec<(u16, f64)>,
     pub wcs: String,
     pub start: [f64; 3],
+    /// FIND: the start in machine coordinates (ops made before this was
+    /// kept have none and start at `start`).
+    pub start_machine: Option<[f64; 3]>,
     pub measure: Option<Measure>,
 }
 
@@ -142,16 +149,25 @@ pub fn parse(op: &Op) -> Result<Parsed> {
     if !WCS_CODES.contains(&wcs.as_str()) {
         return Err(bad(op, "wcs must be G54..G59.3."));
     }
-    let start = match p.get("start") {
-        Some(Value::Array(a)) if a.len() == 3 => {
-            let v: Vec<f64> = a.iter().filter_map(|x| num(Some(x))).collect();
-            if v.len() != 3 {
-                return Err(bad(op, "start must be three numbers."));
+    let xyz = |key: &str| -> Result<Option<[f64; 3]>> {
+        match p.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::Array(a)) if a.len() == 3 => {
+                let v: Vec<f64> = a.iter().filter_map(|x| num(Some(x))).collect();
+                if v.len() != 3 {
+                    return Err(bad(op, &format!("{key} must be three numbers.")));
+                }
+                Ok(Some([v[0], v[1], v[2]]))
             }
-            [v[0], v[1], v[2]]
+            _ => Err(bad(op, &format!("{key} must be [x, y, z]."))),
         }
-        _ => return Err(bad(op, "start must be [x, y, z].")),
     };
+    let start = xyz("start")?.ok_or_else(|| bad(op, "start must be [x, y, z]."))?;
+    let start_machine = if mode == "find" { xyz("start_machine")? } else { None };
+    // The op comes down from machine Z 0; a start above that cannot be.
+    if start_machine.is_some_and(|m| m[2] > 0.0) {
+        return Err(bad(op, "start_machine Z must be at or below machine Z 0."));
+    }
     let measure = if mode == "measure" {
         let m = p.get("measure").and_then(|m| m.as_object()).cloned().unwrap_or_default();
         let value = m.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -169,7 +185,7 @@ pub fn parse(op: &Op) -> Result<Parsed> {
     } else {
         None
     };
-    Ok(Parsed { mode, routine, label: s("label"), calls, values, wcs, start, measure })
+    Ok(Parsed { mode, routine, label: s("label"), calls, values, wcs, start, start_machine, measure })
 }
 
 /// Default MEASURE settings for a routine.
@@ -204,16 +220,34 @@ pub fn body(op: &Op, position: usize, tag: &str, probe_tool: i64) -> Result<Vec<
     for (n, v) in &set {
         out.push(format!("#{n} = {}", fmt(*v)));
     }
-    let [x, y, z] = p.start;
-    out.push(format!("G0 X{} Y{}", fmt(x), fmt(y)));
     // Down to the start, stopping on any contact.
-    out.push("F[#3017]".into());
-    out.push(format!("G38.3 Z{}", fmt(z)));
+    match p.start_machine {
+        Some([x, y, z]) => {
+            // From the top of travel (the tool change may have left Z
+            // anywhere), so the way down is the start's machine Z.
+            out.push(MACHINE_TOP.into());
+            out.push(format!("G53 G0 X{} Y{}", fmt(x), fmt(y)));
+            out.push("F[#3017]".into());
+            out.push(format!("G91 G38.3 Z{}", fmt(z)));
+            out.push("G90".into());
+        }
+        None => {
+            let [x, y, z] = p.start;
+            out.push(format!("G0 X{} Y{}", fmt(x), fmt(y)));
+            out.push("F[#3017]".into());
+            out.push(format!("G38.3 Z{}", fmt(z)));
+        }
+    }
     out.push("o<mymill_probe_assert_no_contact> call".into());
     if let Some(m) = &p.measure {
         out.push(format!("{} = -999999", result_param(&m.value)));
     }
-    out.extend(p.calls.iter().cloned());
+    // Only on the machine: the preview's interpreter has no probe, so the
+    // routines would abort there ("Probe event did not record point data")
+    // and hide the rest of the job from the preview and the travel check.
+    out.push(format!("o<job_{tag}_live> if [#<_task> EQ 1]"));
+    out.extend(p.calls.iter().map(|c| format!("  {c}")));
+    out.push(format!("o<job_{tag}_live> endif"));
     // Several routines end in G91.
     out.push("G90".into());
     for (n, _) in &set {
@@ -257,7 +291,10 @@ pub fn needs(op: &Op) -> Vec<String> {
 pub fn detail(op: &Op) -> String {
     let Ok(p) = parse(op) else { return String::new() };
     // The name already says what is probed.
-    let start = format!("STARTS AT X{} Y{} Z{}", fmt(round3(p.start[0])), fmt(round3(p.start[1])), fmt(round3(p.start[2])));
+    let start = match p.start_machine {
+        Some(m) => format!("STARTS AT MACHINE X{} Y{} Z{}", fmt(round3(m[0])), fmt(round3(m[1])), fmt(round3(m[2]))),
+        None => format!("STARTS AT X{} Y{} Z{}", fmt(round3(p.start[0])), fmt(round3(p.start[1])), fmt(round3(p.start[2]))),
+    };
     match &p.measure {
         None => format!("SETS {}  ·  {}", p.wcs, start),
         Some(m) => {
@@ -356,12 +393,37 @@ mod tests {
         assert!(t.contains("#3025 = 10\n"));
         let rapid = b.iter().position(|l| l == "G0 X10 Y20").unwrap();
         let guard = b.iter().position(|l| l == "G38.3 Z-3").unwrap();
-        let call = b.iter().position(|l| l.starts_with("o<probe_round")).unwrap();
+        let call = b.iter().position(|l| l == "  o<probe_round_pocket_center_start> call").unwrap();
+        // The routine runs on the machine only, not in the preview.
+        assert_eq!(b[call - 1], "o<job_op2_live> if [#<_task> EQ 1]");
+        assert_eq!(b[call + 1], "o<job_op2_live> endif");
         let restore = b.iter().position(|l| l == "#3025 = #<_job_p3025>").unwrap();
         assert!(rapid < guard && guard < call && call < restore);
         assert_eq!(b.last().unwrap(), MACHINE_TOP);
         assert!(!t.contains("MYMILL-MEASURE"));
         assert_eq!(provides(&op("find")), vec!["wcs:G54"]);
+    }
+
+    #[test]
+    fn find_starts_at_the_taught_machine_position() {
+        let mut o = op("find");
+        o.params.insert("start_machine".into(), json!([215.0, -150.0, -130.0]));
+        let b = body(&o, 1, "op1", 99).unwrap();
+        let at = |l: &str| b.iter().position(|x| x == l).unwrap_or_else(|| panic!("no {l} in {b:?}"));
+        // Top of travel, over the start, guarded down by the machine Z.
+        assert_eq!(b[at("G53 G0 X215 Y-150") - 1], MACHINE_TOP);
+        assert!(at("G43 H99") < at("G53 G0 X215 Y-150"));
+        assert_eq!(at("G91 G38.3 Z-130"), at("G53 G0 X215 Y-150") + 2);
+        assert_eq!(at("G90"), at("G91 G38.3 Z-130") + 1);
+        assert!(!b.iter().any(|l| l == "G0 X10 Y20"));
+        assert!(detail(&o).contains("STARTS AT MACHINE X215 Y-150 Z-130"), "{}", detail(&o));
+        // A check starts in its work system even if a machine start is given.
+        let mut m = op("measure");
+        m.params.insert("start_machine".into(), json!([215.0, -150.0, -130.0]));
+        assert!(body(&m, 1, "op1", 99).unwrap().iter().any(|l| l == "G0 X10 Y20"));
+        // Above machine Z 0 there is nowhere to come down from.
+        o.params.insert("start_machine".into(), json!([215.0, -150.0, 1.0]));
+        assert!(parse(&o).is_err());
     }
 
     #[test]

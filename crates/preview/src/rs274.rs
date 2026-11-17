@@ -59,8 +59,11 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
     // A copy with each line numbered (N<line>), so the canonical calls say
     // which source line they come from; the program itself is untouched.
     let numbered = dir.join("program.ngc");
-    let program = match std::fs::read(program) {
-        Ok(bytes) if std::fs::write(&numbered, number_lines(&String::from_utf8_lossy(&bytes))).is_ok() => numbered.as_path(),
+    let source = std::fs::read(program).map(|b| String::from_utf8_lossy(&b).into_owned());
+    let machine_lines = source.as_ref().map(|t| crate::machine_lines(t)).unwrap_or_default();
+    let find_lines = source.as_ref().map(|t| crate::find_lines(t)).unwrap_or_default();
+    let program = match &source {
+        Ok(text) if std::fs::write(&numbered, number_lines(text)).is_ok() => numbered.as_path(),
         _ => program,
     };
     cmd.arg("-g").arg(program);
@@ -75,6 +78,8 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
             if !msg.is_empty() {
                 tp.error = Some(msg.join(" · "));
             }
+            tp.machine_lines = machine_lines;
+            tp.find_lines = find_lines;
             tp
         }
         Err(e) => Toolpath { error: Some(format!("rs274: {e}")), ..Default::default() },
@@ -111,6 +116,12 @@ pub fn number_lines(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::number_lines;
+
+    #[test]
+    fn g53_lines_are_found_outside_comments() {
+        let src = "G21\nG53 G0 Z0\n  g53g0z0 (up)\n(G53 in a comment)\nG0 X1 ; G53\nG54\n";
+        assert_eq!(crate::machine_lines(src), [2, 3]);
+    }
 
     #[test]
     fn numbers_blocks_and_keeps_the_rest() {

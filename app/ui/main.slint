@@ -62,7 +62,7 @@ export component MainWindow inherits Window {
         height: max(84px, toast-text.preferred-height + 28px);
         background: Theme.panel2;
         border-width: 2px;
-        border-color: Theme.bad;
+        border-color: Live.toast-info ? Theme.warn : Theme.bad;
         border-radius: Theme.radius-ctl;
         toast-text := Text {
             x: 24px;
@@ -74,7 +74,7 @@ export component MainWindow inherits Window {
             font-family: Theme.body;
             font-weight: 600;
             font-size: 26px;
-            color: Theme.bad;
+            color: Live.toast-info ? Theme.warn : Theme.bad;
         }
         TouchArea { clicked => { Live.toast = ""; Actions.toast-dismiss(); } }
     }

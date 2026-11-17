@@ -554,7 +554,7 @@ impl Probe {
         let label = t.label.clone();
         // "TOP FACE · SETS Z" checks as "CHECK TOP FACE": a check sets nothing.
         let name = if measure { format!("CHECK {}", label.split(" · ").next().unwrap_or(&label)) } else { label.clone() };
-        let params = serde_json::json!({
+        let mut params = serde_json::json!({
             "mode": if measure { "measure" } else { "find" },
             "routine": routine,
             "label": label,
@@ -563,6 +563,11 @@ impl Probe {
             "wcs": WCS[target],
             "start": [r3(w[0]), r3(w[1]), r3(w[2])],
         });
+        if !measure {
+            // A FIND sets the work offset, so its start is kept in machine
+            // coordinates: the same spot on every run.
+            params["start_machine"] = serde_json::json!([r3(s.actual[0]), r3(s.actual[1]), r3(s.actual[2])]);
+        }
         Ok((name, params))
     }
 
@@ -716,6 +721,10 @@ impl Probe {
             self.note(format!("Probe routine failed: {e}"), true);
             return;
         }
+        // Putting the defaults back measures nothing: the last result stays.
+        if run.kind.is_empty() {
+            return;
+        }
         let num = |name: &str| results.iter().find(|(n, _)| n == name).and_then(|(_, v)| v.first().copied());
         let mut lines: Vec<String> = Vec::new();
         match run.flow_step {
@@ -806,7 +815,11 @@ impl Probe {
                 }
             }
         }
-        self.results.push((name, args));
+        // Kept only for a routine this page started: a job's probing
+        // steps print the same lines.
+        if self.run.is_some() {
+            self.results.push((name, args));
+        }
         true
     }
 

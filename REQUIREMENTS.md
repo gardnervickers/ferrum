@@ -70,6 +70,10 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
   CYCLE START and RUN FROM SELECTED refuse a soft-limit overrun (from the start line on); the
   table only warns. Moves after a program sets an offset itself are checked with today's value
   and the banner says so. The preview numbers each line (N<line>) so moves carry source lines.
+  2026-11-17: a move is judged where it ends (a G43 shifts the work position without moving the
+  machine, which used to refuse any program with a tool length); G53 moves use the offsets the
+  interpreter read them with; moves after a job's FIND probing step are not judged (the banner
+  names the line); a file written again under the same name is read again.
 - [x] BLOCK DELETE toggle on RUN › G-CODE (LinuxCNC starts with it on). RUN FROM SELECTED refuses
       when a "/" line comes before the start line.
 - [x] Run from line (RUN FROM SELECTED, hold): refused inside a job, after o-word code or
@@ -140,9 +144,16 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       pause out of tolerance. The JOB page check strip sets what it measures, nominal, tolerance,
       the op that cut it and pause/keep going; for a conversational helical bore it offers the tool
       diameter correction (as a wear adjustment, logged on the timeline). `jobcore/src/probe.rs`.
-- [ ] In the simulator, a job's auto stock walk once stopped with "Queue is not empty after probing"
-      (LinuxCNC, AUTO mode) and ran clean the next time; it never wrote an offset when it stopped.
-      Watch for it on the Pi.
+      2026-11-17: a FIND op starts at the taught machine position (the work offset it starts from
+      is the one it rewrites), a CHECK op at the taught work position (teach it with the offset
+      set); routine calls are skipped in the preview (`#<_task>`), so the rest of the job is still
+      drawn and checked; a check that pauses shows its message in full and its reading on the
+      running row; no tool correction is offered from an error over 0.5 mm or a missing result.
+- [x] "Queue is not empty after probing" (seen in the simulator, a job's auto stock walk): a timing
+      race inside LinuxCNC 2.9.10 between task and motion, not millgui or the job. It stops the
+      program before anything is written; starting again is the remedy and the error toast says
+      so. Cause, proof and the one-line LinuxCNC fix (not applied to the Pi):
+      `docs/reviews/2026-11-17-queue-not-empty-after-probing.md`.
 - [ ] Simulator ignores the skip and stop-after pins (it steps lines without interpreting).
 - [x] CAM ops (Fusion imports) into a job: JOB › ADD PROGRAM splits a Fusion program at its op-name comments (`jobcore/src/fusion.rs`). Anything it cannot account for (no op names, o-words or parameters, odd header lines, an op without tool, speed, M3/M4 or work offset before its first move, a first move that cuts) refuses the whole program with the reason; all ops are added or none.
 

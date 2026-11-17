@@ -96,6 +96,9 @@ pub struct Job {
     /// The last reading of each check op this session (op id -> value),
     /// from the job program's MYMILL-MEASURE lines.
     readings: HashMap<String, f64>,
+    /// The check measured while it is the running op (its id): that reading
+    /// is from this run, so the running row may show it.
+    fresh: Option<String>,
     /// Checks whose last reading already corrected a tool (not offered again).
     corrected: std::collections::HashSet<String>,
     machine: Handle,
@@ -139,6 +142,12 @@ impl Job {
     fn take(&mut self, r: &Value) {
         if let Some(s) = r.get("snap") {
             self.snap = s.clone();
+            // Another op (or none) is running now: a later run of the same
+            // check starts without a reading.
+            let current = self.ops().into_iter().find(|o| o["state"] == "current").and_then(|o| o["id"].as_str().map(String::from));
+            if self.fresh.is_some() && self.fresh != current {
+                self.fresh = None;
+            }
             if let Some(p) = &self.pins {
                 p.write(&s["pins"]);
             }
@@ -243,7 +252,15 @@ impl Job {
                     progress_text: if state == "current" {
                         let pct = format!("{:.0}%", s["op_fraction"].as_f64().unwrap_or(0.0) * 100.0);
                         let p = s["progress"].as_str().unwrap_or("");
-                        if p.is_empty() { pct } else { format!("{pct}  ·  {p}") }.into()
+                        let text = if p.is_empty() { pct } else { format!("{pct}  ·  {p}") };
+                        // A check that pauses out of tolerance: the reading
+                        // is what CYCLE START or STOP is decided on.
+                        let id = o["id"].as_str();
+                        match id.filter(|id| self.fresh.as_deref() == Some(id)).and_then(|id| self.readings.get(id)) {
+                            Some(v) => format!("{text}  ·  MEASURED {}", reading_text(*v, &o["probe"])),
+                            None => text,
+                        }
+                        .into()
                     } else {
                         SharedString::new()
                     },
@@ -271,7 +288,7 @@ impl Job {
             (s["note"].as_str().unwrap_or("").to_string(), s["note_tone"].as_str().unwrap_or("").to_string())
         };
         let note = if note.is_empty() && n == 0 {
-            "No ops yet. Use ADD PROGRAM for a Fusion program, ADD TO JOB on the CONV page, or ADD STEP.".to_string()
+            "No ops yet. Use ADD PROGRAM for a Fusion program, ADD TO JOB on the CONV page, + JOB on the PROBE page, or ADD STEP.".to_string()
         } else {
             note
         };
@@ -321,11 +338,17 @@ impl Job {
             return None;
         }
         let (v, n) = (*self.readings.get(id)?, p["nominal"].as_f64()?);
-        if (v - n).abs() < 0.0005 {
+        // No correction from a routine that left no result (the −999999
+        // placeholder), or from an error too big to be tool wear: that is a
+        // wrong nominal, the wrong feature or a bad probe, not the tool.
+        if (v - n).abs() < 0.0005 || (v - n).abs() > MAX_CORRECTION {
             return None;
         }
         let (t, d) = (p["tool"].as_i64()? as i32, p["diameter"].as_f64()?);
         let new = jobcore::probe::corrected_diameter(p["routine"].as_str()?, d, v, n)?;
+        if !(new > 0.0) {
+            return None;
+        }
         Some((t, new, format!("SET T{t} Ø {d:.3} → {new:.3}")))
     }
 
@@ -372,6 +395,7 @@ impl Job {
         }
         if let (Some(id), Some(v)) = (id, value) {
             self.corrected.remove(&id);
+            self.fresh = Some(id.clone());
             self.readings.insert(id, v);
             self.refresh();
         }
@@ -385,6 +409,9 @@ impl Job {
         self.pick = Some(pick);
     }
 }
+
+/// The largest size error (mm) a check offers to fix as tool wear.
+const MAX_CORRECTION: f64 = 0.5;
 
 fn value_name(v: &str) -> &'static str {
     match v {
@@ -400,9 +427,12 @@ fn reading_text(v: f64, probe: &Value) -> String {
     if v <= -999998.0 {
         return "NO RESULT".into();
     }
+    // Three decimals without a "-0.000".
+    let r = |x: f64| ((x * 1000.0).round() / 1000.0) + 0.0;
+    let v = r(v);
     match probe["nominal"].as_f64() {
         Some(n) => {
-            let d = v - n;
+            let d = r(v - n);
             let sign = if d < 0.0 { "−" } else { "+" };
             format!("{v:.3} ({sign}{:.3})", d.abs())
         }
@@ -495,6 +525,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         pick: None,
         pins,
         readings: HashMap::new(),
+        fresh: None,
         corrected: Default::default(),
         machine: machine.clone(),
         ui: ui.as_weak(),

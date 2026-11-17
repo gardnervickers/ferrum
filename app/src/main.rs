@@ -685,13 +685,28 @@ fn main() -> Result<(), slint::PlatformError> {
                         st.connected = true;
                         live.set_connected(true);
                         apply_status(ui, &mut st, &s, &axes);
+                        // A program that pauses right after a (MSG, ...) is
+                        // asking for something: the top bar cuts the text
+                        // off, so show it in full until the program goes on.
+                        let was = WAS_PAUSED.with(|p| p.replace(s.paused));
+                        if s.paused && !was {
+                            let said = LAST_MSG.with(|l| l.borrow_mut().take());
+                            if let Some((text, at)) = said {
+                                if at.elapsed() < Duration::from_secs(3) {
+                                    toast_until_tapped(ui, text);
+                                    live.set_toast_info(true);
+                                }
+                            }
+                        } else if was && !s.paused && live.get_toast_info() {
+                            live.set_toast("".into());
+                        }
                         with_manual(|mm| manual::apply_status(ui, mm, &s));
                         // An MDI command that calls a subroutine (the M6
                         // remap, probing) shows that file as the open one
                         // while it runs; the loaded program is unchanged.
                         let mdi_sub = s.mode == linuxcnc::Mode::Mdi;
                         if !mdi_sub {
-                            program::sync(ui, &s.file);
+                            program::sync(ui, &s.file, s.busy());
                         }
                         SIM_TC.with(|t| {
                             if let Some(t) = t.borrow().as_ref() {
@@ -699,7 +714,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             }
                         });
                         if !mdi_sub {
-                            plot::sync(ui, &s.file);
+                            plot::sync(ui, &s.file, s.busy());
                         }
                         // After the tools, which know the loaded tool's size.
                         TOOLS.with(|t| {
@@ -756,6 +771,15 @@ fn main() -> Result<(), slint::PlatformError> {
                         // shows in full until it is tapped away.
                         if m.kind == MessageKind::Error {
                             toast_until_tapped(ui, explain_error(m.text.trim()));
+                        } else if m.kind == MessageKind::Display {
+                            // Shown in full if the program pauses on it; the
+                            // pause can be seen before or after the text.
+                            if WAS_PAUSED.with(|p| p.get()) {
+                                toast_until_tapped(ui, m.text.trim().to_string());
+                                live.set_toast_info(true);
+                            } else {
+                                LAST_MSG.with(|l| *l.borrow_mut() = Some((m.text.trim().to_string(), Instant::now())));
+                            }
                         }
                     }
                     Event::Disconnected(e) => {
@@ -1051,7 +1075,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     mdi::wire(&ui, &handle, cfg, &mut Vec::new());
     files::wire(&ui, &handle, sample_dir());
     program::wire(&ui);
-    program::sync(&ui, &s.file);
+    program::sync(&ui, &s.file, false);
     let machine_cfg = machine_cfg::MachineCfg::load(cfg, &mut Vec::new());
     machine_cfg.apply(&ui);
     let plot = plot::wire(&ui, cfg, &machine_cfg.model);
@@ -1332,8 +1356,20 @@ fn wire_job_probing(ui: &MainWindow, j: &Rc<RefCell<job::Job>>) {
         let live = ui.global::<Live>();
         match r {
             Ok(m) => {
-                live.set_message(format!("{m} on the JOB page. It starts where the probe is now.").into());
+                // "ADDED BORE CENTER AS OP 2." -> one sentence with where it went.
+                // A check starts at a work position, so it only means
+                // something when taught with the work offset in place.
+                let start = if check {
+                    "It starts at this spot on the part, so add it with the work offset already set."
+                } else {
+                    "It starts where the probe is now."
+                };
+                let text = format!("{} on the JOB page. {start}", m.trim_end_matches('.'));
+                live.set_message(text.clone().into());
                 live.set_message_error(false);
+                // Too long for the top bar, and it says where the op went.
+                toast(&ui, text);
+                live.set_toast_info(true);
             }
             Err(e) => {
                 live.set_message(e.clone().into());
@@ -1403,6 +1439,8 @@ fn restart_status(ui: &MainWindow, s: &Status, m: &Handle) {
 
 thread_local! {
     static TOAST: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    static WAS_PAUSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LAST_MSG: RefCell<Option<(String, Instant)>> = const { RefCell::new(None) };
 }
 
 /// Show a refusal over the bottom bar for a few seconds.
@@ -1411,6 +1449,7 @@ thread_local! {
 fn toast_until_tapped(ui: &MainWindow, text: String) {
     // Moving the counter on cancels the timer of any earlier toast.
     TOAST.with(|t| t.set(t.get() + 1));
+    ui.global::<Live>().set_toast_info(false);
     ui.global::<Live>().set_toast(text.into());
 }
 
@@ -1422,6 +1461,9 @@ fn explain_error(text: &str) -> String {
         Some("G91 (incremental) is still on from MDI or a macro. Put G90 before the G53, or run G90 in MDI.")
     } else if lower.contains("cannot use g53 with cutter radius comp") {
         Some("Cutter compensation is still on. Put G40 before the G53, or run G40 in MDI.")
+    } else if lower.contains("queue is not empty after probing") {
+        // A timing fault inside LinuxCNC (docs/reviews/2026-11-17-queue-not-empty-after-probing.md).
+        Some("LinuxCNC lost track of the probe move. Nothing was written. Start the job or the probe again.")
     } else {
         None
     };
@@ -1432,6 +1474,7 @@ fn explain_error(text: &str) -> String {
 }
 
 fn toast(ui: &MainWindow, text: String) {
+    ui.global::<Live>().set_toast_info(false);
     ui.global::<Live>().set_toast(text.into());
     let n = TOAST.with(|t| {
         t.set(t.get() + 1);

@@ -562,7 +562,10 @@ impl Helper {
             out.insert("message".into(), Value::String(w.clone()));
             out.insert("tone".into(), Value::String("warn".into()));
         } else {
-            out.insert("message".into(), Value::String(format!("BUILT {} OPS AND LOADED THEM.", compiled.ranges.len())));
+            out.insert("message".into(), Value::String(match compiled.ranges.len() {
+                1 => "BUILT 1 OP AND LOADED IT.".to_string(),
+                n => format!("BUILT {n} OPS AND LOADED THEM."),
+            }));
             out.insert("tone".into(), Value::String("ready".into()));
         }
         Ok(out)

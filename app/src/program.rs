@@ -1,21 +1,43 @@
 //! The loaded program's G-code for the Run screen. Reloaded when LinuxCNC
-//! reports a different file (loads from FILES, the pendant or a remap).
+//! reports a different file (loads from FILES, the pendant or a remap) or
+//! the file was written again.
 
 use crate::{Actions, Live, MainWindow};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 
+/// What tells one loaded program from another: its path and, so that a
+/// file written again under the same name (a re-post from CAM, a rebuilt
+/// job) is read again, its modification time and size.
+pub type Stamp = (String, Option<std::time::SystemTime>, u64);
+
+pub fn stamp(file: &str) -> Stamp {
+    let meta = if file.is_empty() { None } else { std::fs::metadata(file).ok() };
+    (file.to_string(), meta.as_ref().and_then(|m| m.modified().ok()), meta.map_or(0, |m| m.len()))
+}
+
+/// Whether the program shown as `shown` should be read again for `file`.
+/// While something runs only a different path counts: the listing must
+/// not change under a running program.
+pub fn stale(shown: &Stamp, file: &str, running: bool) -> Option<Stamp> {
+    if shown.0 == file && running {
+        return None;
+    }
+    let now = stamp(file);
+    (*shown != now).then_some(now)
+}
+
 thread_local! {
-    static LOADED: RefCell<String> = RefCell::new(String::new());
+    static LOADED: RefCell<Stamp> = RefCell::new((String::new(), None, 0));
 }
 
 /// Lines beyond this are not shown (the program still runs in full).
 const MAX_LINES: usize = 500_000;
 
-pub fn sync(ui: &MainWindow, file: &str) {
+pub fn sync(ui: &MainWindow, file: &str, running: bool) {
     let changed = LOADED.with(|l| {
         let mut l = l.borrow_mut();
-        (*l != file).then(|| *l = file.to_string()).is_some()
+        stale(&l, file, running).map(|now| *l = now).is_some()
     });
     if !changed {
         return;
@@ -65,6 +87,21 @@ pub fn wire(ui: &MainWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_written_again_is_stale_unless_running() {
+        let f = std::env::temp_dir().join(format!("millgui-stamp-{}.ngc", std::process::id()));
+        std::fs::write(&f, "G0 X0\n").unwrap();
+        let name = f.to_string_lossy().into_owned();
+        let shown = stamp(&name);
+        assert_eq!(stale(&shown, &name, false), None);
+        std::fs::write(&f, "G0 X0\nG0 X1\n").unwrap();
+        assert_eq!(stale(&shown, &name, true), None);
+        assert!(stale(&shown, &name, false).is_some());
+        // Another program always counts.
+        assert!(stale(&shown, "", true).is_some());
+        std::fs::remove_file(f).unwrap();
+    }
 
     #[test]
     fn finds_tool_changes_not_comments() {

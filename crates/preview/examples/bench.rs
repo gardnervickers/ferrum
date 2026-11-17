@@ -16,7 +16,7 @@ fn main() {
         p = q;
     }
     let ops = (0..4).map(|i| Op { name: format!("op{i}"), tool: i, seconds: 0.0 }).collect();
-    let tp = Toolpath { segs, ops, error: None, frame: None, offsets: Vec::new() };
+    let tp = Toolpath { segs, ops, error: None, frame: None, offsets: Vec::new(), machine_lines: Vec::new(), find_lines: Vec::new() };
     let trail: Vec<_> = tp.segs.iter().take(2000).map(|s| s.to).collect();
     let (w, h) = (1300u32, 760u32);
     let mut r = Software::new();

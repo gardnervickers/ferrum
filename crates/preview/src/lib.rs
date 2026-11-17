@@ -63,6 +63,41 @@ pub struct Toolpath {
     /// first entry from 0). Canon positions are work positions; these turn
     /// them into machine positions (see `preflight`).
     pub offsets: Vec<(usize, Offsets)>,
+    /// Source lines (sorted) whose moves are in machine coordinates (G53).
+    pub machine_lines: Vec<u32>,
+    /// Source lines (sorted) where a job's probing step starts that finds
+    /// a work offset (`(MYMILL-PROBE FIND ...)`): what follows runs with
+    /// an offset nobody knows yet.
+    pub find_lines: Vec<u32>,
+}
+
+/// The 1-based numbers of the lines that start a FIND probing step.
+pub fn find_lines(text: &str) -> Vec<u32> {
+    text.lines().enumerate().filter(|(_, l)| l.trim_start().starts_with("(MYMILL-PROBE FIND")).map(|(i, _)| i as u32 + 1).collect()
+}
+
+/// The 1-based numbers of the lines in `text` that carry a G53 word
+/// (comments aside).
+pub fn machine_lines(text: &str) -> Vec<u32> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, l)| {
+            let mut code = String::new();
+            let mut depth = 0;
+            for c in l.chars() {
+                match c {
+                    ';' if depth == 0 => break,
+                    '(' => depth += 1,
+                    ')' => depth = (depth - 1).max(0),
+                    c if depth == 0 && !c.is_whitespace() => code.push(c.to_ascii_uppercase()),
+                    _ => {}
+                }
+            }
+            // "G53" not followed by another digit or a decimal (G53.1 is not a word, but be strict).
+            code.match_indices("G53").any(|(i, _)| !code[i + 3..].starts_with(|c: char| c.is_ascii_digit() || c == '.'))
+        })
+        .map(|(i, _)| i as u32 + 1)
+        .collect()
 }
 
 /// The offsets in effect for a stretch of moves, as the interpreter

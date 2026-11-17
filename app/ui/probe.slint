@@ -269,7 +269,8 @@ export component ProbeScreen inherits Rectangle {
             width: Layout.compact ? 380px : 420px;
             VerticalLayout {
                 padding: 14px;
-                spacing: 10px;
+                // Tight enough that the START buttons end inside the card.
+                spacing: 7px;
                 Step { text: "3 · SETTINGS"; }
                 // Write-to in FIND; what the mode does otherwise. Same slot.
                 Rectangle {

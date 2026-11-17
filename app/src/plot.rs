@@ -50,6 +50,8 @@ pub struct Plot {
     setup: Option<rs274::Setup>,
     rapid: f64,
     file: String,
+    /// The file's path, time and size when it was read (see program::stale).
+    stamp: crate::program::Stamp,
     /// Slint draws with OpenGL and the GPU backplot is ready: frames are
     /// drawn in the rendering notifier instead of on the CPU.
     gpu: bool,
@@ -252,7 +254,11 @@ fn check_text(r: &Report, tp: &Toolpath, live: Option<&preflight::Live>) -> (Str
         return (text, level, p.line);
     }
     if let Some(line) = r.sets_offsets.first() {
-        let text = format!("OK with today's offsets. The program sets an offset itself from line {line}");
+        let text = if tp.find_lines.contains(line) {
+            format!("OK to line {line} · the job probes its offset from there")
+        } else {
+            format!("OK with today's offsets · sets its own from line {line}")
+        };
         return (text, 1, *line);
     }
     (format!("OK in {} · every move inside the limits", crate::offsets::CODES[wcs]), 0, 0)
@@ -295,7 +301,11 @@ pub fn check_details(plot: &Rc<RefCell<Plot>>) -> Option<(String, u32)> {
         })
         .collect();
     if let Some(l) = r.sets_offsets.first() {
-        lines.push(format!("The program sets a work offset or G92 itself from line {l}; moves after it were checked with today's values"));
+        lines.push(if st.tp.find_lines.contains(l) {
+            format!("The job probes its work offset from line {l}; moves after it are not checked, because where they land is not known until the probe has run")
+        } else {
+            format!("The program sets a work offset or G92 itself from line {l}; moves after it were checked with today's values")
+        });
     }
     let line = r.problems.first().map(|p| p.line).or(r.sets_offsets.first().copied()).unwrap_or(0);
     Some((lines.join("\n"), line))
@@ -477,6 +487,7 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         setup: setup(cfg),
         rapid: rapid(cfg),
         file: String::new(),
+        stamp: (String::new(), None, 0),
         gpu: false,
         gpu_frame: false,
         want_pixels: false,
@@ -637,12 +648,13 @@ pub fn with_ret<R>(f: impl FnOnce(&Rc<RefCell<Plot>>) -> R) -> Option<R> {
 }
 
 /// Reload the toolpath when LinuxCNC reports a different program.
-pub fn sync(ui: &MainWindow, file: &str) {
+pub fn sync(ui: &MainWindow, file: &str, running: bool) {
     with(|p| {
-        if p.borrow().file == file {
-            return;
-        }
-        p.borrow_mut().file = file.to_string();
+        let Some(now) = crate::program::stale(&p.borrow().stamp, file, running) else { return };
+        let mut st = p.borrow_mut();
+        st.file = file.to_string();
+        st.stamp = now;
+        drop(st);
         load(ui, p, file);
     });
 }
