@@ -23,9 +23,13 @@ wait prop.job-ops.len == 2 within 5
 shot job-built-list
 do job-build
 wait stat.file contains .ngc within 20
+# The estimate: the whole job's time in the title, the CAM op's first in its row.
+wait prop.job-title contains OPS  ·  0: within 30
+expect prop.job-ops[1].detail contains 0:
 shot job-built
 do cycle-start
 wait stat.interp_state != 1 within 10
+expect prop.job-title contains LEFT
 # Op 1 probes the top face, then op 2's M6 asks for T4.
 wait prop.tc-open == true within 180
 expect prop.tc-tool contains T4

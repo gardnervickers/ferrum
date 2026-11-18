@@ -85,7 +85,16 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
                 ('G', 18) => plane = Plane::Xz,
                 ('G', 19) => plane = Plane::Yz,
                 ('F', _) => b.feed_rate(v),
-                ('T', _) => b.tool(v as i32),
+                ('T', _) => {
+                    b.io_wait();
+                    b.tool(v as i32)
+                }
+                ('G', 4) => b.dwell(get('P').unwrap_or(0.0)),
+                ('G', 61) => b.set_blend(-1.0),
+                ('G', 64) => b.set_blend(get('P').unwrap_or(0.0)),
+                // M-codes and spindle speeds wait for motion to finish.
+                ('M', 6) | ('M', 7) | ('M', 8) | ('M', 9) => b.io_wait(),
+                ('M', _) | ('S', _) => b.stop(),
                 _ => {}
             }
         }

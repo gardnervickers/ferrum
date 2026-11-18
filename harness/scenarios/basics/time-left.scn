@@ -1,0 +1,26 @@
+title Run a program: the time left counts down for the program and the op
+include ../common/ready.scn
+include ../common/work-zero.scn
+screen files
+tap files name h_time.ngc files-tap
+do files-load
+wait stat.file contains h_time.ngc within 10
+screen run
+wait prop.plot-summary contains " OP" within 30     # preview and estimate done
+expect prop.time-label == TIME                      # the estimate before the run
+expect prop.time-left contains :
+expect prop.time-fraction == -1
+shot loaded
+do cycle-start
+wait stat.interp_state != 1 within 10
+sleep 4
+expect prop.time-label == LEFT
+expect prop.plot-summary contains OP 1/2 · 2D ADAPTIVE1
+expect prop.plot-summary contains LEFT IN OP
+expect prop.time-fraction > 0
+shot running
+wait prop.plot-summary contains OP 2/2 · 2D CONTOUR2 within 120
+shot second-op
+idle 180
+expect prop.time-label == TIME
+expect prop.running == false

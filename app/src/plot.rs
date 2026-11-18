@@ -6,7 +6,7 @@ use crate::{Actions, CubeFace, Live, MainWindow};
 use preview::machine::{Machine, Pose};
 use preview::software::{Base, View, Zoom};
 use preview::preflight::{self, Limits, Report};
-use preview::{rs274, Toolpath, P4};
+use preview::{rs274, timing, Toolpath, P4};
 use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer};
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -75,6 +75,15 @@ pub struct Plot {
     live: Option<preflight::Live>,
     check: Option<Report>,
     summary: String,
+    /// The machine's speed and acceleration limits, for the run-time
+    /// estimate (`preview::timing`).
+    timing: timing::Limits,
+    /// Where the running program is along the toolpath (None: not running).
+    tracker: Option<timing::Tracker>,
+    /// Ops the run skips (a JOB's turned-off ops), by index.
+    skip: Vec<bool>,
+    /// The feed and rapid overrides at the last status.
+    scales: (f64, f64),
 }
 
 /// The preview INI: the machine INI without REMAP lines. Remaps read HAL
@@ -128,6 +137,22 @@ fn a_sign(cfg: &Config) -> f64 {
         None if cfg.get("TRAJ", "COORDINATES").is_some_and(|c| c.to_ascii_uppercase().contains('A')) => 1.0,
         None => 0.0,
     }
+}
+
+/// The limits LinuxCNC's planner works to, from the INI (machine units).
+fn timing_limits(cfg: &Config) -> timing::Limits {
+    let mut l = timing::Limits::default();
+    for (i, a) in ["X", "Y", "Z", "A"].iter().enumerate() {
+        let sec = format!("AXIS_{a}");
+        l.vel[i] = cfg.get_f64(&sec, "MAX_VELOCITY").unwrap_or(if i < 3 { l.vel[i] } else { 0.0 });
+        l.acc[i] = cfg.get_f64(&sec, "MAX_ACCELERATION").unwrap_or(if i < 3 { l.acc[i] } else { 0.0 });
+    }
+    l.max_linear_vel = cfg.get_f64("TRAJ", "MAX_LINEAR_VELOCITY").unwrap_or(0.0);
+    l.max_linear_acc = cfg.get_f64("TRAJ", "MAX_LINEAR_ACCELERATION").unwrap_or(0.0);
+    l.servo_period = cfg.get_f64("EMCMOT", "SERVO_PERIOD").map_or(0.001, |ns| ns * 1e-9);
+    l.depth = cfg.get_f64("TRAJ", "ARC_BLEND_OPTIMIZATION_DEPTH").map_or(50, |d| d.max(0.0) as usize);
+    l.io_wait = cfg.get_f64("EMCIO", "CYCLE_TIME").map_or(l.io_wait, |c| c * 1.2);
+    l
 }
 
 /// Machine units per second.
@@ -246,6 +271,13 @@ impl Plot {
             format!("{} OP{} · ~{}", ops, if ops == 1 { "" } else { "S" }, fmt_time(secs))
         };
         live.set_plot_summary(self.summary.clone().into());
+        // The estimate shows until a run starts (`progress` takes over).
+        self.skip.clear();
+        if self.tracker.is_none() {
+            live.set_time_label("TIME".into());
+            live.set_time_left(if tp.t_end.is_empty() || secs <= 0.0 { String::new() } else { fmt_clock(secs) }.into());
+            live.set_time_fraction(-1.0);
+        }
         if let Some(e) = &tp.error {
             live.set_message(format!("Preview: {e}").into());
             live.set_message_error(true);
@@ -367,10 +399,125 @@ pub fn fmt_time(s: f64) -> String {
     }
 }
 
+/// A time as a clock: "4:05", "1:02:30".
+pub fn fmt_clock(s: f64) -> String {
+    let s = s.max(0.0).ceil() as u64;
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else {
+        format!("{}:{:02}", s / 60, s % 60)
+    }
+}
+
+/// A JOB's ops the run will skip (turned off), by op id.
+pub fn set_skip(plot: &Rc<RefCell<Plot>>, off: &std::collections::HashSet<String>) {
+    let mut st = plot.borrow_mut();
+    st.skip = st.tp.ops.iter().map(|o| !o.id.is_empty() && off.contains(&o.id)).collect();
+}
+
+/// Times of a JOB program's ops, by op id (estimates at 100 %), and the
+/// running op: its id, its share done (by time) and its time left with
+/// today's overrides. Empty when the loaded program has no JOB ops.
+pub struct JobTimes {
+    pub by_id: std::collections::HashMap<String, f64>,
+    pub now: Option<(String, f64, f64)>,
+}
+
+pub fn job_times(plot: &Rc<RefCell<Plot>>) -> JobTimes {
+    let st = plot.borrow();
+    let tp = &st.tp;
+    let timed = !tp.t_end.is_empty();
+    let by_id = if timed { tp.ops.iter().filter(|o| !o.id.is_empty()).map(|o| (o.id.clone(), o.seconds)).collect() } else { Default::default() };
+    let now = st.tracker.as_ref().filter(|_| timed).and_then(|t| {
+        let at100 = t.left(tp, 1.0, 1.0, &st.skip);
+        let left = t.left(tp, st.scales.0, st.scales.1, &st.skip);
+        let op = tp.ops.get(left.op).filter(|o| !o.id.is_empty())?;
+        let frac = if op.seconds > 0.0 { (1.0 - at100.op_left / op.seconds).clamp(0.0, 1.0) } else { 0.0 };
+        Some((op.id.clone(), frac, left.op_left))
+    });
+    JobTimes { by_id, now }
+}
+
+/// Counts toolpath changes (a new program read), so pages showing its
+/// estimates know when to look again.
+pub fn toolpath_id(plot: &Rc<RefCell<Plot>>) -> u64 {
+    plot.borrow().id as u64
+}
+
+/// The time left in the whole run, with today's overrides (None: not running).
+pub fn run_left(plot: &Rc<RefCell<Plot>>) -> Option<f64> {
+    let st = plot.borrow();
+    let t = st.tracker.as_ref()?;
+    Some(t.left(&st.tp, st.scales.0, st.scales.1, &st.skip).total)
+}
+
+/// What a running program has left, from the line motion is on and the
+/// tool's position; `running` is false when no program runs (MDI included).
+/// Sets the Run screen's time and progress, and the op line over the
+/// backplot.
+pub fn progress(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, running: bool, line: u32, feed_scale: f64, rapid_scale: f64) {
+    let mut st = plot.borrow_mut();
+    st.scales = (feed_scale, rapid_scale);
+    let live = ui.global::<Live>();
+    let tp = st.tp.clone();
+    let timed = !tp.t_end.is_empty() && tp.t_end.len() == tp.segs.len();
+    if !running || !timed {
+        st.tracker = None;
+        let total = if timed { timing::total(&tp, 1.0, 1.0, &st.skip) } else { 0.0 };
+        set_if(live.get_time_label() != "TIME", || live.set_time_label("TIME".into()));
+        let text = if timed && total > 0.0 { fmt_clock(total) } else { String::new() };
+        if live.get_time_left() != text.as_str() {
+            live.set_time_left(text.into());
+        }
+        if live.get_time_fraction() != -1.0 {
+            live.set_time_fraction(-1.0);
+        }
+        if live.get_plot_summary() != st.summary.as_str() && live.get_plot_summary() != "READING PROGRAM…" {
+            live.set_plot_summary(st.summary.clone().into());
+        }
+        return;
+    }
+    let near = crate::machine_info::get().units.pick(2.0, 0.08);
+    let tool = st.tool.unwrap_or_default();
+    let mut tracker = st.tracker.take().unwrap_or_default();
+    tracker.update(&tp, line, tool, near);
+    let left = tracker.left(&tp, feed_scale, rapid_scale, &st.skip);
+    let at = tracker.at;
+    st.tracker = Some(tracker);
+    set_if(live.get_time_label() != "LEFT", || live.set_time_label("LEFT".into()));
+    let text = fmt_clock(left.total);
+    if live.get_time_left() != text.as_str() {
+        live.set_time_left(text.into());
+    }
+    // In steps of 0.2 %: the bar must not cost a frame every status tick.
+    let full = tp.t_end.last().copied().unwrap_or(0.0) as f64;
+    let frac = if full > 0.0 { ((at / full).clamp(0.0, 1.0) * 500.0).round() as f32 / 500.0 } else { 0.0 };
+    if live.get_time_fraction() != frac {
+        live.set_time_fraction(frac);
+    }
+    let n = tp.ops.len();
+    let name = tp.ops.get(left.op).map(|o| o.name.clone()).unwrap_or_default();
+    let summary = if n > 1 {
+        format!("OP {}/{n} · {} · {} LEFT IN OP", left.op + 1, name, fmt_clock(left.op_left))
+    } else {
+        format!("{} LEFT", fmt_clock(left.total))
+    };
+    if live.get_plot_summary() != summary.as_str() {
+        live.set_plot_summary(summary.into());
+    }
+}
+
+fn set_if(cond: bool, f: impl FnOnce()) {
+    if cond {
+        f()
+    }
+}
+
 /// Read `path` through the interpreter (or the stand-in) on a worker
 /// thread; `done` runs on the UI thread with the result.
 pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpath) + Send + 'static) {
     let a_sign = plot.borrow().a_sign;
+    let lim = plot.borrow().timing.clone();
     let done = move |mut tp: Toolpath| {
         tp.set_rotary(a_sign);
         done(tp)
@@ -378,7 +525,9 @@ pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpa
     if plot.borrow().inline {
         // Headless screenshots have no event loop to come back on.
         let rapid = plot.borrow().rapid;
-        done(std::fs::read_to_string(&path).map(|t| preview::mini::parse(&t, rapid)).unwrap_or_default());
+        let mut tp = std::fs::read_to_string(&path).map(|t| preview::mini::parse(&t, rapid)).unwrap_or_default();
+        timing::estimate(&mut tp, &lim);
+        done(tp);
         return;
     }
     let (setup, rapid) = {
@@ -386,13 +535,14 @@ pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpa
         (p.setup.as_ref().map(|s| rs274::Setup { ini: s.ini.clone(), config_dir: s.config_dir.clone(), var_file: s.var_file.clone(), tool_table: s.tool_table.clone(), rapid_mm_s: s.rapid_mm_s, inch: s.inch }), p.rapid)
     };
     std::thread::spawn(move || {
-        let tp = match &setup {
+        let mut tp = match &setup {
             Some(s) => rs274::run(s, &path),
             None => match std::fs::read_to_string(&path) {
                 Ok(t) => preview::mini::parse(&t, rapid),
                 Err(e) => Toolpath { error: Some(e.to_string()), ..Default::default() },
             },
         };
+        timing::estimate(&mut tp, &lim);
         let _ = slint::invoke_from_event_loop(move || done(tp));
     });
 }
@@ -550,6 +700,10 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         live: None,
         check: None,
         summary: String::new(),
+        timing: timing_limits(cfg),
+        tracker: None,
+        skip: Vec::new(),
+        scales: (1.0, 1.0),
         drawn_at: None,
         gpu_shown: None,
     }));
@@ -703,6 +857,7 @@ pub fn load_now(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
     plot.borrow_mut().inline = true;
     plot.borrow_mut().file = file.to_string();
     let mut tp = std::fs::read_to_string(file).map(|t| preview::mini::parse(&t, rapid)).unwrap_or_default();
+    timing::estimate(&mut tp, &plot.borrow().timing);
     tp.set_rotary(plot.borrow().a_sign);
     plot.borrow_mut().set_toolpath(ui, tp);
 }

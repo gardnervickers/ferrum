@@ -15,7 +15,7 @@ fn main() {
         segs.push(Seg { kind: if i % 4000 == 0 { Kind::Rapid } else { Kind::Feed }, from: p, to: q, op: (i * 4) / n, line: 0, rate: 1000.0 });
         p = q;
     }
-    let ops = (0..4).map(|i| Op { name: format!("op{i}"), tool: i, seconds: 0.0 }).collect();
+    let ops = (0..4).map(|i| Op { name: format!("op{i}"), tool: i, ..Default::default() }).collect();
     let tp = Toolpath { segs, ops, error: None, frame: None, offsets: Vec::new(), machine_lines: Vec::new(), find_lines: Vec::new(), ..Default::default() };
     let trail: Vec<_> = tp.segs.iter().take(2000).map(|s| s.to).collect();
     let (w, h) = (1300u32, 760u32);

@@ -899,6 +899,10 @@ fn main() -> Result<(), slint::PlatformError> {
                         plot::with(|p| {
                             plot::tool_moved_homed(p, tool_tip(&s), s.all_homed());
                             plot::machine_pose(p, machine_pose(ui, &s));
+                            // Time left: a program running in AUTO (not an MDI line or macro).
+                            let running = s.mode == machine::Mode::Auto && s.busy() && s.interp != Interp::Idle;
+                            let line = if s.motion_line > 0 { s.motion_line } else { s.current_line };
+                            plot::progress(ui, p, running, line.max(0) as u32, s.feed_scale, s.rapid_scale);
                         });
                         OFFSETS.with(|o| {
                             if let Some(o) = o.borrow().as_ref() {

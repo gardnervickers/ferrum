@@ -242,6 +242,22 @@ component ProgramCard inherits Card {
                 text: min(Live.line, Live.gcode-count) + " / " + Live.gcode-count;
                 font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink;
             }
+            // Time left while running, the estimate before: the same pair
+            // as LINE, a fixed width so the ticking clock doesn't nudge it.
+            if Live.time-left != "": Rectangle {
+                width: 22px;
+            }
+            if Live.time-left != "": Rectangle {
+                width: time-cap.preferred-width;
+                time-cap := Label { y: 2px; height: parent.height; vertical-alignment: center; text: Live.time-label; font-size: 16px; color: Theme.dim; }
+            }
+            if Live.time-left != "": Text {
+                min-width: 92px;
+                vertical-alignment: center;
+                horizontal-alignment: right;
+                text: Live.time-left;
+                font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink;
+            }
         }
         Rectangle {
             height: 6px;
@@ -249,7 +265,9 @@ component ProgramCard inherits Card {
             background: Theme.well;
             Rectangle {
                 x: 0;
-                width: Live.gcode-count == 0 ? 0 : parent.width * min(1, Live.line / Live.gcode-count);
+                // By time while a run is timed, else by line.
+                width: Live.time-fraction >= 0 ? parent.width * Live.time-fraction
+                    : Live.gcode-count == 0 ? 0 : parent.width * min(1, Live.line / Live.gcode-count);
                 border-radius: 3px;
                 background: Theme.sel;
                 // No easing: it moves with every line in a run, and an

@@ -61,17 +61,18 @@ pub fn parse(text: &str, rapid_per_s: f64, machine_inch: bool) -> Toolpath {
         let inner = rest.strip_suffix(')').unwrap_or(rest);
         match name {
             "USE_LENGTH_UNITS" => way = to_machine(inner.contains("INCHES")),
-            "COMMENT" | "MESSAGE" => {
-                if name == "COMMENT" {
-                    b.comment(inner.trim_matches('"'));
-                }
-            }
+            "COMMENT" => b.comment(inner.trim_matches('"')),
             // SELECT_TOOL carries the T number. CHANGE_TOOL's argument is
             // the tool's place in the stand-alone interpreter's table, which
             // is a different number once the table skips one (T23 came out
             // as 22), so the selected number is the one to show.
-            "SELECT_TOOL" => selected = args(inner).first().map(|t| *t as i32),
+            "FLOOD_ON" | "FLOOD_OFF" | "MIST_ON" | "MIST_OFF" => b.io_wait(),
+            "SELECT_TOOL" => {
+                b.io_wait();
+                selected = args(inner).first().map(|t| *t as i32)
+            }
             "CHANGE_TOOL" => {
+                b.io_wait();
                 if let Some(t) = selected.or_else(|| args(inner).first().map(|t| *t as i32)) {
                     b.tool(t);
                 }
@@ -108,6 +109,23 @@ pub fn parse(text: &str, rapid_per_s: f64, machine_inch: bool) -> Toolpath {
                     b.set_offsets(o);
                 }
             }
+            "DWELL" => b.dwell(args(inner).first().copied().unwrap_or(0.0)),
+            // G64 [P..] blends (0: no tolerance); G61 and G61.1 stop at corners.
+            "SET_MOTION_CONTROL_MODE" => {
+                b.set_blend(if inner.contains("CONTINUOUS") {
+                    args(inner).first().map_or(0.0, |t| k(way, *t))
+                } else if inner.contains("EXACT_STOP") {
+                    -2.0
+                } else {
+                    -1.0
+                })
+            }
+            // Calls that change no motion and leave the moves before them
+            // running (everything else waits for motion to finish).
+            "SET_FEED_REFERENCE" | "ON_RESET" | "SET_NAIVECAM_TOLERANCE" | "SET_FEED_MODE" | "SET_TRAVERSE_RATE" | "ENABLE_FEED_OVERRIDE"
+            | "ENABLE_SPEED_OVERRIDE" | "ENABLE_ADAPTIVE_FEED" | "ENABLE_FEED_HOLD" | "DISABLE_FEED_OVERRIDE" | "DISABLE_SPEED_OVERRIDE"
+            | "DISABLE_ADAPTIVE_FEED" | "DISABLE_FEED_HOLD" | "SET_SPINDLE_MODE" | "START_CHANGE" | "SET_CUTTER_RADIUS_COMPENSATION"
+            | "START_CUTTER_RADIUS_COMPENSATION" | "STOP_CUTTER_RADIUS_COMPENSATION" => {}
             "SET_FEED_RATE" => {
                 if let Some(f) = args(inner).first() {
                     b.feed_rate(k(way, *f));
@@ -135,7 +153,15 @@ pub fn parse(text: &str, rapid_per_s: f64, machine_inch: bool) -> Toolpath {
                     continue;
                 }
                 let kind = if name == "STRAIGHT_TRAVERSE" { Kind::Rapid } else { Kind::Feed };
+                // Probing and tapping start and end at rest.
+                let alone = name == "STRAIGHT_PROBE" || name == "RIGID_TAP";
+                if alone {
+                    b.stop();
+                }
                 b.line(kind, p);
+                if alone {
+                    b.stop();
+                }
                 if name == "RIGID_TAP" {
                     // The tap returns to its start.
                 }
@@ -150,7 +176,7 @@ pub fn parse(text: &str, rapid_per_s: f64, machine_inch: bool) -> Toolpath {
                 let aa = a.get(6).copied().unwrap_or(b.position()[3]);
                 arc(&mut b, plane, fe, se, fc, sc, rot, ae, aa);
             }
-            _ => {}
+            _ => b.stop(),
         }
     }
     b.finish()
@@ -175,11 +201,14 @@ pub(crate) fn arc(b: &mut Builder, plane: Plane, fe: f64, se: f64, fc: f64, sc: 
         }
     };
     let start = b.position();
-    let mut sub = Builder::new(to_plane(start), 1.0);
+    let q = to_plane(start);
+    let mut sub = Builder::new(q, 1.0);
     sub.arc_xy([fe, se, ae, a], (fc, sc), rot);
+    b.begin_arc(((q[0] - fc).powi(2) + (q[1] - sc).powi(2)).sqrt());
     for s in sub.finish().segs {
         b.line(Kind::Feed, from_plane(s.to));
     }
+    b.end_arc();
 }
 
 #[cfg(test)]

@@ -91,6 +91,8 @@ pub struct Job {
     pinned: Option<(String, String)>,
     status: Option<Status>,
     polls: u32,
+    /// The backplot's toolpath when the page was last shown (its op times).
+    plot_id: u64,
     pick: Option<Pick>,
     pins: Option<Pins>,
     /// The last reading of each check op this session (op id -> value),
@@ -226,6 +228,21 @@ impl Job {
         let ops = self.ops();
         let sel = if running { None } else { self.selected_index() };
         let position = s["position"].as_i64().unwrap_or(0);
+        // Run-time estimates from the loaded program, when it is this job's
+        // build (its ops carry the job's op ids).
+        let off: std::collections::HashSet<String> =
+            ops.iter().filter(|o| o["enabled"] == json!(false)).filter_map(|o| o["id"].as_str().map(|id| id.to_uppercase())).collect();
+        let times = crate::plot::with_ret(|p| {
+            crate::plot::set_skip(p, &off);
+            (crate::plot::job_times(p), crate::plot::run_left(p))
+        });
+        let (times, run_left) = match times {
+            Some((t, l)) => (Some(t), l),
+            None => (None, None),
+        };
+        // The program's markers carry the ids in capitals.
+        let op_time = |o: &Value| times.as_ref().and_then(|t| t.by_id.get(&o["id"].as_str()?.to_uppercase()).copied()).filter(|s| *s > 0.0);
+        let now = |o: &Value| times.as_ref().and_then(|t| t.now.clone()).filter(|n| o["id"].as_str().is_some_and(|id| id.eq_ignore_ascii_case(&n.0)));
         let rows: Vec<JobOp> = ops
             .iter()
             .enumerate()
@@ -238,9 +255,14 @@ impl Job {
                     name: o["name"].as_str().unwrap_or("").into(),
                     detail: {
                         let d = o["detail"].as_str().unwrap_or("");
-                        match o["id"].as_str().and_then(|id| self.readings.get(id)) {
+                        let d = match o["id"].as_str().and_then(|id| self.readings.get(id)) {
                             Some(v) => format!("LAST {}  ·  {d}", reading_text(*v, &o["probe"])),
                             None => d.to_string(),
+                        };
+                        // The op's estimated run time first, so it never elides.
+                        match op_time(o).filter(|_| state != "done" && state != "skipped") {
+                            Some(t) => format!("{}  ·  {d}", crate::plot::fmt_clock(t)),
+                            None => d,
                         }
                         .into()
                     },
@@ -248,9 +270,13 @@ impl Job {
                     state: state.into(),
                     can_toggle: o["can_toggle"].as_bool().unwrap_or(false),
                     selected: sel == Some(i),
-                    progress: if state == "current" { s["op_fraction"].as_f64().unwrap_or(0.0) as f32 } else { 0.0 },
+                    // By time when the run is timed, else by line.
+                    progress: if state == "current" { now(o).map_or(s["op_fraction"].as_f64().unwrap_or(0.0), |n| n.1) as f32 } else { 0.0 },
                     progress_text: if state == "current" {
-                        let pct = format!("{:.0}%", s["op_fraction"].as_f64().unwrap_or(0.0) * 100.0);
+                        let pct = match now(o) {
+                            Some((_, frac, left)) => format!("{:.0}%  ·  {} LEFT", frac * 100.0, crate::plot::fmt_clock(left)),
+                            None => format!("{:.0}%", s["op_fraction"].as_f64().unwrap_or(0.0) * 100.0),
+                        };
                         let p = s["progress"].as_str().unwrap_or("");
                         let text = if p.is_empty() { pct } else { format!("{pct}  ·  {p}") };
                         // A check that pauses out of tolerance: the reading
@@ -273,7 +299,18 @@ impl Job {
         live.set_job_selected(sel.map_or(-1, |i| i as i32));
         live.set_job_title(match &self.down {
             Some(_) if self.snap.is_null() => "JOB".into(),
-            _ => format!("{}  ·  {} OP{}", s["name"].as_str().unwrap_or("JOB"), n, if n == 1 { "" } else { "S" }).into(),
+            _ => {
+                // The whole job's time: what is left while it runs, else the
+                // estimate of the ops it includes.
+                let time = match (running, run_left) {
+                    (true, Some(l)) => format!("  ·  {} LEFT", crate::plot::fmt_clock(l)),
+                    _ => {
+                        let total: f64 = ops.iter().filter(|o| o["enabled"] != json!(false)).filter_map(op_time).sum();
+                        if total > 0.0 { format!("  ·  {}", crate::plot::fmt_clock(total)) } else { String::new() }
+                    }
+                };
+                format!("{}  ·  {} OP{}{time}", s["name"].as_str().unwrap_or("JOB"), n, if n == 1 { "" } else { "S" }).into()
+            }
         });
         live.set_job_state(s["state"].as_str().unwrap_or("NOT BUILT").into());
         live.set_job_tone(s["tone"].as_str().unwrap_or("").into());
@@ -528,6 +565,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         pinned: None,
         status: None,
         polls: 0,
+        plot_id: 0,
         pick: None,
         pins,
         readings: HashMap::new(),
@@ -716,7 +754,11 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         jb.polls += 1;
         let req = json!({"cmd": "poll", "stat": jb.stat(), "publish": jb.polls % 4 == 0});
         let before = jb.snap.clone();
-        if jb.call(req).is_ok() && jb.snap != before {
+        // While running, the time left moves on even when the snapshot
+        // doesn't; a newly read program brings its op times.
+        let plot_id = crate::plot::with_ret(|p| crate::plot::toolpath_id(p)).unwrap_or(0);
+        if jb.call(req).is_ok() && (jb.snap != before || jb.running() || plot_id != jb.plot_id) {
+            jb.plot_id = plot_id;
             jb.refresh();
         }
     });

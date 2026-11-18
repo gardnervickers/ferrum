@@ -15,6 +15,7 @@ pub mod preflight;
 pub mod rs274;
 pub mod raster;
 pub mod software;
+pub mod timing;
 pub use tiny_skia::Pixmap;
 #[cfg(feature = "gpu")]
 pub mod gpu;
@@ -44,10 +45,39 @@ pub struct Seg {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Op {
     pub name: String,
+    /// The JOB page's op id, from its `(MYMILL-OP n/N ID=...)` marker.
+    pub id: String,
     pub tool: i32,
-    /// Estimated: feed length over feed rate plus rapids at the rapid rate,
-    /// without acceleration, so it reads short on short moves.
+    /// Estimated run time. The builder's first guess is feed length over
+    /// feed rate plus rapids at the rapid rate; `timing::estimate` replaces
+    /// it with one that follows LinuxCNC's planner (accelerations, corner
+    /// blending, stops and dwells).
     pub seconds: f64,
+    /// The part of `seconds` spent in rapids (set by `timing::estimate`).
+    pub rapid_seconds: f64,
+}
+
+/// One programmed move (a line, or an arc cut into chords): what the
+/// planner sees as one segment. `timing` works on these.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Move {
+    /// Index of its first piece in `Toolpath::segs` (the move runs to the
+    /// next move's start).
+    pub start: usize,
+    /// Arc radius; 0 for a straight move.
+    pub radius: f64,
+    /// Motion stops before it: a tool change, spindle or coolant command,
+    /// M-code, message, dwell or probe come between it and the move before.
+    pub stop_before: bool,
+    /// Seconds of dwell (G4) before it.
+    pub dwell_before: f64,
+    /// Commands before it that wait for the I/O controller (coolant, tool
+    /// prepare and change), each about one [EMCIO]CYCLE_TIME.
+    pub io_waits: u16,
+    /// Path blending in force: 0 = G64 with no tolerance, > 0 = G64 P,
+    /// -1 = exact path (G61: corners stop, straight joins don't),
+    /// -2 = exact stop (G61.1: every move stops).
+    pub blend: f64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -79,6 +109,14 @@ pub struct Toolpath {
     pub a_wrap: f64,
     /// `drawn_bounds` when wrapped, worked out once by `set_rotary`.
     pub wrap_bounds: Option<([f64; 3], [f64; 3])>,
+    /// The programmed moves the pieces in `segs` belong to.
+    pub moves: Vec<Move>,
+    /// Estimated seconds from the start to the end of each piece in
+    /// `segs`, dwells included (`timing::estimate`; empty until then).
+    pub t_end: Vec<f32>,
+    /// As `t_end`, counting only rapid moves (feed override does not
+    /// change those).
+    pub t_rapid_end: Vec<f32>,
 }
 
 /// A point of the part on the rotary (about X, through work Y0 Z0), from
@@ -220,6 +258,11 @@ impl Toolpath {
         self.ops.iter().map(|o| o.seconds).sum()
     }
 
+    /// Estimated seconds at the start of piece `i` (0 before timing).
+    pub fn t_start(&self, i: usize) -> f64 {
+        if i == 0 { 0.0 } else { self.t_end.get(i - 1).copied().unwrap_or(0.0) as f64 }
+    }
+
     /// (min, max) over feed moves, or over all moves when there are none,
     /// or `frame` when there are no moves at all.
     pub fn bounds(&self) -> Option<(P4, P4)> {
@@ -262,6 +305,13 @@ pub struct Builder {
     offsets: Offsets,
     /// Rapid rate of A in degrees/min, for moves that only turn A.
     rapid_a: f64,
+    /// Inside an arc: its radius, and whether its move is started.
+    arc: Option<(f64, bool)>,
+    /// What the next move starts with (see `Move`).
+    stop: bool,
+    dwell: f64,
+    io: u16,
+    blend: f64,
 }
 
 /// Longest turn of A drawn as one straight piece: wrapped, a move that
@@ -284,6 +334,11 @@ impl Builder {
             line: 0,
             offsets: Offsets::default(),
             rapid_a: 180.0 * 60.0,
+            arc: None,
+            stop: false,
+            dwell: 0.0,
+            io: 0,
+            blend: 0.0,
         }
     }
 
@@ -322,7 +377,8 @@ impl Builder {
         if let Some(rest) = t.strip_prefix("MYMILL-OP") {
             // "1/22 ID=A62CA28A FACE 100 X 60 T14" -> "FACE 100 X 60 T14"
             let name = rest.split_whitespace().skip(2).collect::<Vec<_>>().join(" ");
-            self.tp.ops.push(Op { name, tool: 0, seconds: 0.0 });
+            let id = rest.split_whitespace().nth(1).and_then(|w| w.strip_prefix("ID=")).unwrap_or("").to_string();
+            self.tp.ops.push(Op { name, id, tool: 0, ..Default::default() });
             self.op_has_motion = true;
             self.marked = true;
             self.pending = None;
@@ -361,10 +417,55 @@ impl Builder {
         self.feed = f;
     }
 
+    /// Motion comes to a stop before the next move (a command LinuxCNC
+    /// runs only once the moves before it are done).
+    pub fn stop(&mut self) {
+        self.stop = true;
+    }
+
+    /// A command the I/O controller runs (coolant, tool change): a stop
+    /// and a wait for its next cycle.
+    pub fn io_wait(&mut self) {
+        self.stop = true;
+        self.io = self.io.saturating_add(1);
+    }
+
+    /// G4: stop, then wait `seconds`.
+    pub fn dwell(&mut self, seconds: f64) {
+        self.stop = true;
+        self.dwell += seconds.max(0.0);
+    }
+
+    /// Path blending from here on (see `Move::blend`).
+    pub fn set_blend(&mut self, blend: f64) {
+        self.blend = blend;
+    }
+
+    /// The following `line` calls are the chords of one arc of `radius`.
+    pub fn begin_arc(&mut self, radius: f64) {
+        self.arc = Some((radius, false));
+    }
+
+    pub fn end_arc(&mut self) {
+        self.arc = None;
+    }
+
+    fn start_move(&mut self) {
+        let radius = match &mut self.arc {
+            Some((_, true)) => return,
+            Some((r, started)) => {
+                *started = true;
+                *r
+            }
+            None => 0.0,
+        };
+        self.tp.moves.push(Move { start: self.tp.segs.len(), radius, stop_before: std::mem::take(&mut self.stop), dwell_before: std::mem::take(&mut self.dwell), io_waits: std::mem::take(&mut self.io), blend: self.blend });
+    }
+
     fn current_op(&mut self) -> usize {
         if !self.op_has_motion || self.tp.ops.is_empty() {
             let name = self.pending.take().unwrap_or_else(|| format!("OP {}", self.tp.ops.len() + 1));
-            self.tp.ops.push(Op { name, tool: self.tool, seconds: 0.0 });
+            self.tp.ops.push(Op { name, tool: self.tool, ..Default::default() });
             self.op_has_motion = true;
             self.op_cut = false;
         }
@@ -387,6 +488,7 @@ impl Builder {
         let (d, rapid) = if d > 1e-9 { (d, self.rapid) } else { (turn, self.rapid_a) };
         let rate = if kind == Kind::Rapid || self.feed <= 0.0 { rapid } else { self.feed };
         self.tp.ops[op].seconds += (d / rate).max(turn / self.rapid_a) * 60.0;
+        self.start_move();
         let from = self.pos;
         let n = ((turn / A_STEP_DEG).ceil() as usize).clamp(1, 3600);
         for i in 1..=n {

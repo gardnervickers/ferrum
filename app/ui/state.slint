@@ -130,6 +130,12 @@ export global Live {
     in-out property <string> run-tab: "program";
     in property <image> plot;
     in property <string> plot-summary;
+    // Run time: "LEFT" and the time left while a program runs, "TIME" and
+    // the estimate when one is loaded ("" when there is none); how far the
+    // run is by time (-1: not running, the bar follows the line).
+    in property <string> time-label: "TIME";
+    in property <string> time-left;
+    in property <float> time-fraction: -1;
     // The travel check of the loaded program: what it found (empty when
     // nothing loaded), 0 clear, 1 a note, 2 a problem; the line to show.
     in property <string> plot-check;
