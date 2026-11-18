@@ -1,0 +1,3 @@
+#!/bin/sh
+# A stock 3-axis inch machine (LINEAR_UNITS = inch).
+exec python3 "$(dirname "$0")/../stock.py" "$1" --units inch --axes XYZ

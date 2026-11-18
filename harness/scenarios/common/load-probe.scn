@@ -1,0 +1,10 @@
+# Load the probe (T99 on mymill) through the PROBE screen's LOAD and the tool-change dialog.
+screen probe
+do probe-load
+wait prop.tc-open == true within 60
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+idle 60
+expect stat.tool_in_spindle == 99
+wait prop.tc-open == false within 5

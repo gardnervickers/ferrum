@@ -1,0 +1,16 @@
+# Variables for scenarios (${name}) and tags for `needs`/`xfail`.
+tags = mm probe-basic mymill-hal xyza drawbar pendant
+units = mm
+# A comfortable move in machine units, and a spot well inside travel (work = machine after G54 clear).
+dist = 10
+safe_x = 200
+safe_y = -90
+safe_z = -50
+feed = 600
+# Machine position after HOME ALL.
+home_x = 215
+home_y = 0
+home_z = 0
+# The jog step label the JOG screen shows, and X after one step from home.
+jog_label = 1
+jog_x_after = 216

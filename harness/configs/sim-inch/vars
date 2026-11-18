@@ -1,0 +1,12 @@
+tags = inch stock xyz
+units = inch
+dist = 0.5
+safe_x = 2
+safe_y = 1
+safe_z = -1
+feed = 20
+home_x = 0
+home_y = 0
+home_z = 0
+jog_label = .1in
+jog_x_after = 0.1

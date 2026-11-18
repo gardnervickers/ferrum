@@ -1,0 +1,14 @@
+[package]
+name = "millgui-harness"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+# End-to-end tests: boots the LinuxCNC simulator with a machine config,
+# drives millgui over its websocket and checks LinuxCNC's own state.
+# See README.md. Needs no LinuxCNC headers to build.
+
+[dependencies]
+serde_json = "1"
+tungstenite = "0.29"
+png = "0.17"

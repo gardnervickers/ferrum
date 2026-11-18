@@ -1,0 +1,20 @@
+title FIND TOP FACE Z sets G54 Z on the simulated stock
+needs probe-basic
+include ../common/ready.scn
+mdi G10 L2 P1 X0 Y0 Z0
+include ../common/load-probe.scn
+# Over the sim stock (machine X150..280 Y-140..-40), tip 10 mm above its top (-250).
+mdi G53 G0 X215 Y-90
+mdi G0 Z-240
+do probe-mode "find"
+do probe-shape "top"
+do probe-target "top"
+do probe-wcs "G54"
+shot probe-ready
+do probe-run
+wait stat.interp_state != 1 within 10
+idle 120
+expect stat.probe_tripped == true
+expect stat.g5x_offset[2] ~= -250 +- 0.05
+sleep 1
+shot probe-done

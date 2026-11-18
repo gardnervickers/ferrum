@@ -1,0 +1,5 @@
+title millgui starts and talks to LinuxCNC
+wait prop.connected == true within 30
+expect stat.task_state == 1   # E-stop at start
+expect prop.estop == true
+shot started

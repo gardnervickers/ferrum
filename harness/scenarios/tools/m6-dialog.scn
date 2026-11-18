@@ -1,0 +1,17 @@
+title M6 opens the tool-change dialog; RESUME finishes it
+needs drawbar
+include ../common/ready.scn
+do mdi-send "T4 M6"
+wait prop.tc-open == true within 60
+expect prop.tc-tool contains T4
+shot tool-change-dialog
+expect prop.tc-can-resume == false     # not seated yet
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+idle 60
+expect stat.tool_in_spindle == 4
+wait prop.tc-open == false within 5
+expect prop.tool == "T4"
+mdi G43
+expect stat.tool_offset[2] ~= 98.794101 +- 0.001

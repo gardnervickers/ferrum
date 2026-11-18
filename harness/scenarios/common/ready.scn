@@ -1,0 +1,12 @@
+# E-stop reset, machine on, HOME ALL, at the RUN screen.
+wait prop.connected == true within 30
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10
+do home-all
+wait prop.homed == true within 120
+expect stat.homed[0] == 1
+expect stat.homed[1] == 1
+expect stat.homed[2] == 1
+idle 30

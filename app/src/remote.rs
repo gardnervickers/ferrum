@@ -34,6 +34,14 @@ const FROM_REMOTE: &[&str] = &["mdi-text", "gcode-selected"];
 /// Actions each screen handles for itself.
 const LOCAL_ACTIONS: &[&str] = &["navigate", "plot-resize", "files-plot-resize", "exit"];
 
+/// `MILLGUI_HARNESS=1` (the test harness, millgui/harness, simulator only):
+/// the websocket also drives this screen's navigation, mirrors the
+/// per-screen properties, allows continuous jogs and may quit.
+fn harness() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("MILLGUI_HARNESS").is_ok_and(|v| v == "1"))
+}
+
 #[derive(Default)]
 struct Pending {
     props: Map<String, Value>,
@@ -100,7 +108,7 @@ impl Remote {
         let live = ui.global::<Live>();
         let mut diff = Map::new();
         for &name in mirror::PROPS {
-            if LOCAL.contains(&name) {
+            if LOCAL.contains(&name) && !harness() {
                 continue;
             }
             let Some(v) = mirror::get_prop(&live, name) else { continue };
@@ -296,10 +304,10 @@ fn handle(weak: &slint::Weak<MainWindow>, client: &Arc<Client>, text: &str) {
 /// Run a browser action here, after the checks only the Pi can make.
 fn admit(ui: &MainWindow, name: &str, args: &[Value]) {
     let live = ui.global::<Live>();
-    if LOCAL_ACTIONS.contains(&name) {
+    if LOCAL_ACTIONS.contains(&name) && !harness() {
         return;
     }
-    if name == "jog-start" && live.get_jog_step() == "CONT" {
+    if name == "jog-start" && live.get_jog_step() == "CONT" && !harness() {
         live.set_message("Remote jogs are step-only: pick a step size".into());
         live.set_message_error(true);
         return;

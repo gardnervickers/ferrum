@@ -3,3 +3,4 @@
 /sysroot/
 /web/dist/
 /target-*/
+/harness-out/

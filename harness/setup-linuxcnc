@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# One-time setup for the millgui test harness on Debian/Ubuntu (dev box, cloud
+# container or GitHub Actions): builds LinuxCNC v2.9.10 (the Pi's version) as a
+# run-in-place uspace sim, lays out the sysroot millgui's NML backend links
+# against, and installs the probe manager comp. Idempotent.
+#
+#   millgui/harness/setup-linuxcnc [LCNC_DIR]     (default: ~/lcnc)
+set -euo pipefail
+LCNC="${1:-${LCNC_DIR:-$HOME/lcnc}}"
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+SUDO=""; [ "$(id -u)" = 0 ] || SUDO="sudo"
+PY="${PYTHON:-$(command -v python3.12 || command -v python3)}"
+
+if [ -z "${SKIP_APT:-}" ]; then
+  export DEBIAN_FRONTEND=noninteractive
+  $SUDO apt-get update -qq
+  $SUDO apt-get install -y -qq --no-install-recommends \
+    build-essential autoconf automake libtool pkg-config git ca-certificates \
+    libudev-dev libmodbus-dev libusb-1.0-0-dev libtirpc-dev libedit-dev libreadline-dev \
+    libboost-python-dev libglu1-mesa-dev libgl1-mesa-dev libxmu-dev libxinerama-dev \
+    libepoxy-dev libxkbcommon-dev libxkbcommon-x11-0 libfontconfig-dev libfreetype-dev \
+    tcl-dev tk-dev bwidget tclx libtk-img python3-dev python3-tk python3-gi python3-yapps \
+    python3-opengl python3-xlib python3-numpy intltool gettext groff asciidoc psmisc procps \
+    xvfb openbox xdotool imagemagick docbook-xml docbook-xsl xsltproc libxml2-utils >/dev/null
+fi
+
+if [ ! -x "$LCNC/src/bin/milltask" ]; then
+  [ -d "$LCNC/src/.git" ] || git clone --branch v2.9.10 --depth 1 https://github.com/LinuxCNC/linuxcnc.git "$LCNC/src"
+  cd "$LCNC/src/src"
+  ./autogen.sh >/dev/null
+  ./configure --with-realtime=uspace --disable-gtk --disable-gtk2 --enable-non-distributable=yes \
+    --disable-check-runtime-deps PYTHON="$PY" >/dev/null
+  make -j"$(nproc)" >/dev/null
+fi
+
+mkdir -p "$LCNC/sysroot/usr/include"
+[ -e "$LCNC/sysroot/usr/include/linuxcnc" ] || ln -s "$LCNC/src/include" "$LCNC/sysroot/usr/include/linuxcnc"
+[ -e "$LCNC/sysroot/usr/lib" ] || ln -s "$LCNC/src/lib" "$LCNC/sysroot/usr/lib"
+
+# probe_manager comp (mymill.hal loads it).
+if ! ls "$LCNC/src/rtlib/probe_manager.so" >/dev/null 2>&1; then
+  (set +u; source "$LCNC/src/scripts/rip-environment"; cd "$REPO/hal_components" && halcompile --install probe_manager.comp >/dev/null)
+fi
+echo "LinuxCNC sim ready in $LCNC"
