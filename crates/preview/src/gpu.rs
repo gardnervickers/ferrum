@@ -11,7 +11,7 @@
 //! Works on desktop GL 3.2 core (macOS) and GL ES 3.0 (Raspberry Pi 5).
 
 use crate::machine::{Cylinder, Scene, Solid};
-use crate::software::{convex_hull, load_color, load_step, project, toward_viewer, Fit, View, Zoom, BG, LOAD_STEPS, OP_COLORS};
+use crate::software::{convex_hull, toward_viewer, load_color, load_step, project, rotary_axis, top_rim_shows, ROTARY_AXIS, Fit, View, Zoom, BG, LOAD_STEPS, OP_COLORS};
 use crate::{Kind, Toolpath, P4};
 use glow::HasContext;
 
@@ -32,10 +32,6 @@ struct Inst {
 
 fn inst(a: [f64; 3], b: [f64; 3], rgba: [u8; 4]) -> Inst {
     Inst { a: a.map(|v| v as f32), b: b.map(|v| v as f32), rgba }
-}
-
-fn xyz(p: P4) -> [f64; 3] {
-    [p[0], p[1], p[2]]
 }
 
 const LINE_VS: &str = r#"
@@ -129,11 +125,14 @@ pub struct Gpu {
     fill_vao: glow::VertexArray,
     fill_buf: glow::Buffer,
     tp_id: Option<usize>,
-    /// The texture the frame is drawn into. One is enough: it is drawn
-    /// before Slint renders the window, which then samples it. Keeping the
-    /// same texture lets the app keep the same image property, so a
-    /// backplot redraw does not cost the window an extra frame.
-    target: Option<Target>,
+    /// The textures frames are drawn into, used in turn (see `slot`).
+    /// Slint draws an image again only when the image property changes, so
+    /// a frame drawn into the texture already shown stays unseen; the app
+    /// sets the image to the other texture before the window renders
+    /// (`texture`), which costs no extra frame.
+    targets: [Option<Target>; 2],
+    /// The texture the next frame is drawn into.
+    pub slot: usize,
 }
 
 struct Target {
@@ -345,7 +344,7 @@ impl Gpu {
         }
         gl.bind_vertex_array(None);
         restore(&gl, saved);
-        Ok(Gpu { gl, line_prog, fill_prog, rapids, feeds, scratch, fill_vao, fill_buf, tp_id: None, target: None })
+        Ok(Gpu { gl, line_prog, fill_prog, rapids, feeds, scratch, fill_vao, fill_buf, tp_id: None, targets: [None, None], slot: 0 })
     }
 
     /// "renderer (version)" of the GL driver.
@@ -362,9 +361,9 @@ impl Gpu {
         let mut feeds = Vec::with_capacity(tp.segs.len());
         for s in &tp.segs {
             if s.kind == Kind::Rapid {
-                rapids.push(inst(xyz(s.from), xyz(s.to), RAPID));
+                rapids.push(inst(tp.drawn(s.from), tp.drawn(s.to), RAPID));
             } else {
-                feeds.push(inst(xyz(s.from), xyz(s.to), rgba(OP_COLORS[s.op % OP_COLORS.len()], 230)));
+                feeds.push(inst(tp.drawn(s.from), tp.drawn(s.to), rgba(OP_COLORS[s.op % OP_COLORS.len()], 230)));
             }
         }
         unsafe {
@@ -375,7 +374,7 @@ impl Gpu {
 
     unsafe fn target(&mut self, w: u32, h: u32) -> Result<(glow::Framebuffer, glow::Texture), String> {
         let gl = &self.gl;
-        let slot = &mut self.target;
+        let slot = &mut self.targets[self.slot];
         if slot.as_ref().is_some_and(|t| t.size != (w, h)) {
             let t = slot.take().expect("target");
             gl.delete_framebuffer(t.fbo);
@@ -400,7 +399,12 @@ impl Gpu {
         Ok((t.fbo, t.tex))
     }
 
-    /// Draw one frame into a texture and return its GL name. Call from
+    /// The texture `slot` and its size, once one has been drawn into.
+    pub fn texture(&self, slot: usize) -> Option<(glow::Texture, [u32; 2])> {
+        self.targets[slot % 2].as_ref().map(|t| (t.tex, [t.size.0, t.size.1]))
+    }
+
+    /// Draw one frame into texture `slot` and return its GL name. Call from
     /// Slint's `BeforeRendering` notifier (the context is current there).
     pub fn render(&mut self, tp: &Toolpath, tp_id: usize, f: &Frame) -> Result<glow::Texture, String> {
         let (w, h) = (f.width.max(16), f.height.max(16));
@@ -408,13 +412,13 @@ impl Gpu {
         let fit = Fit::new(tp, f.view, w, h, f.zoom);
         unsafe {
             let saved = save(&self.gl);
-            let out = self.draw(&fit, w, h, f);
+            let out = self.draw(&fit, w, h, f, rotary_axis(tp));
             restore(&self.gl, saved);
             out
         }
     }
 
-    unsafe fn draw(&mut self, fit: &Fit, w: u32, h: u32, f: &Frame) -> Result<glow::Texture, String> {
+    unsafe fn draw(&mut self, fit: &Fit, w: u32, h: u32, f: &Frame, axis: Option<([f64; 3], [f64; 3])>) -> Result<glow::Texture, String> {
         let (fbo, tex) = self.target(w, h)?;
         let gl = &self.gl;
         gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
@@ -463,6 +467,20 @@ impl Gpu {
                     v.push(inst([0.0; 3], e, rgba(rgb, 255)));
                 }
             }
+            // Dashed as in software: 8 px on, 5 px off.
+            if let Some((a, b)) = axis {
+                let len = (b[0] - a[0]).abs();
+                let (on, period) = (8.0 / fit.scale, 13.0 / fit.scale);
+                if len / period > 2000.0 {
+                    v.push(inst(a, b, ROTARY_AXIS));
+                }
+                let mut x = 0.0;
+                while x < len && len / period <= 2000.0 {
+                    let e = (x + on).min(len);
+                    v.push(inst([a[0] + x, 0.0, 0.0], [a[0] + e, 0.0, 0.0], ROTARY_AXIS));
+                    x += period;
+                }
+            }
         });
         // The tool: its outline and top rim in image pixels.
         let mut cyl = None;
@@ -491,14 +509,14 @@ impl Gpu {
         let loaded = range(&mut lines, &mut |v| {
             for i in 1..f.trail.len() {
                 if let Some(s) = step(i) {
-                    v.push(inst(xyz(f.trail[i - 1]), xyz(f.trail[i]), rgba(load_color(s as f32 / (LOAD_STEPS - 1) as f32), 255)));
+                    v.push(inst(fit.world(f.trail[i - 1]), fit.world(f.trail[i]), rgba(load_color(s as f32 / (LOAD_STEPS - 1) as f32), 255)));
                 }
             }
         });
         let plain = range(&mut lines, &mut |v| {
             for i in 1..f.trail.len() {
                 if step(i).is_none() {
-                    v.push(inst(xyz(f.trail[i - 1]), xyz(f.trail[i]), [0xff, 0xff, 0xff, 200]));
+                    v.push(inst(fit.world(f.trail[i - 1]), fit.world(f.trail[i]), [0xff, 0xff, 0xff, 200]));
                 }
             }
         });
@@ -572,7 +590,7 @@ impl Gpu {
 
     /// The last drawn frame's pixels, RGBA top row first (for the web mirror).
     pub fn read_back(&mut self, tex: glow::Texture, w: u32, h: u32) -> Option<Vec<u8>> {
-        let t = self.target.as_ref().filter(|t| t.tex == tex)?;
+        let t = self.targets.iter().flatten().find(|t| t.tex == tex)?;
         let gl = &self.gl;
         let mut px = vec![0u8; (w * h * 4) as usize];
         unsafe {
@@ -626,13 +644,13 @@ fn cylinder(fit: &Fit, c: &Cylinder) -> (Vec<(f32, f32)>, Option<Vec<(f32, f32)>
         (0..N)
             .map(|i| {
                 let a = i as f64 * std::f64::consts::TAU / N as f64;
-                fit.map([c.center[0] + c.r * a.cos(), c.center[1] + c.r * a.sin(), z, 0.0])
+                fit.map(c.at(c.center[0] + c.r * a.cos(), c.center[1] + c.r * a.sin(), z))
             })
             .collect()
     };
     let (bottom, top) = (ring(c.z0), ring(c.z1));
     let hull = convex_hull(bottom.iter().chain(top.iter()).copied().collect());
-    (hull, (toward_viewer(fit.view)[2] > 0.05).then_some(top))
+    (hull, top_rim_shows(fit, c).then_some(top))
 }
 
 fn push_vertex(fills: &mut Vec<u8>, p: [f64; 3], rgba: [u8; 4]) {
@@ -676,7 +694,7 @@ impl Drop for Gpu {
             gl.delete_buffer(self.fill_buf);
             gl.delete_program(self.line_prog);
             gl.delete_program(self.fill_prog);
-            if let Some(t) = &self.target {
+            for t in self.targets.iter().flatten() {
                 gl.delete_framebuffer(t.fbo);
                 gl.delete_texture(t.tex);
             }

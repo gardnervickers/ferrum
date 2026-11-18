@@ -49,6 +49,8 @@ pub struct Plot {
     inline: bool,
     setup: Option<rs274::Setup>,
     rapid: f64,
+    /// How the rotary turns the drawing (see `preview::wrap_a`).
+    a_sign: f64,
     file: String,
     /// The file's path, time and size when it was read (see program::stale).
     stamp: crate::program::Stamp,
@@ -116,11 +118,34 @@ pub fn limits(cfg: &Config) -> Option<Limits> {
     Some(l)
 }
 
+/// The rotary's sense for drawing: [DISPLAY]GEOMETRY as LinuxCNC's AXIS
+/// reads it ("XYZA" turns the drawing with A, "-A" the other way). Without
+/// GEOMETRY, a machine with an A axis wraps the plain way.
+fn a_sign(cfg: &Config) -> f64 {
+    match cfg.get("DISPLAY", "GEOMETRY") {
+        Some(g) => preview::geometry_a_sign(g),
+        None if cfg.get("TRAJ", "COORDINATES").is_some_and(|c| c.to_ascii_uppercase().contains('A')) => 1.0,
+        None => 0.0,
+    }
+}
+
 fn rapid(cfg: &Config) -> f64 {
     cfg.get_f64("TRAJ", "MAX_LINEAR_VELOCITY").unwrap_or(100.0)
 }
 
 impl Plot {
+    /// Point the backplot image at a GPU texture (no change if it already is).
+    fn show_gpu_texture(&mut self, ui: &MainWindow, tex: std::num::NonZeroU32, size: [u32; 2]) {
+        if self.gpu_shown == Some((tex.get(), size)) {
+            return;
+        }
+        self.gpu_shown = Some((tex.get(), size));
+        let img = unsafe { slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(tex, size.into()) }
+            .origin(slint::BorrowedOpenGLTextureOrigin::BottomLeft)
+            .build();
+        ui.global::<Live>().set_plot(img);
+    }
+
     fn redraw(&mut self, ui: &MainWindow) {
         self.dirty = false;
         self.drawn_at = Some(Instant::now());
@@ -132,6 +157,18 @@ impl Plot {
         }
         if self.gpu && !self.inline {
             self.gpu_frame = true;
+            // Draw into the other texture and show it: Slint draws the image
+            // again only when the property changes. Set here, before the
+            // frame, the change costs no frame of its own.
+            let next = GPU.with(|c| {
+                let mut c = c.borrow_mut();
+                let g = c.as_mut()?;
+                g.slot ^= 1;
+                g.texture(g.slot).map(|(t, size)| (t.0, size))
+            });
+            if let Some((tex, size)) = next.filter(|n| n.1 == [w, h]) {
+                self.show_gpu_texture(ui, tex, size);
+            }
             ui.window().request_redraw();
             return;
         }
@@ -330,6 +367,11 @@ pub fn fmt_time(s: f64) -> String {
 /// Read `path` through the interpreter (or the stand-in) on a worker
 /// thread; `done` runs on the UI thread with the result.
 pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpath) + Send + 'static) {
+    let a_sign = plot.borrow().a_sign;
+    let done = move |mut tp: Toolpath| {
+        tp.set_rotary(a_sign);
+        done(tp)
+    };
     if plot.borrow().inline {
         // Headless screenshots have no event loop to come back on.
         let rapid = plot.borrow().rapid;
@@ -397,7 +439,8 @@ pub fn tool_moved_homed(plot: &Rc<RefCell<Plot>>, p: P4, homed: bool) {
         st.dirty = true;
         return;
     }
-    let far = st.trail.last().is_none_or(|l| (0..3).map(|i| (l[i] - p[i]).abs()).fold(0.0, f64::max) > 0.05);
+    // A turn of the rotary counts too: wrapped, it moves the tool around the part.
+    let far = st.trail.last().is_none_or(|l| (0..3).map(|i| (l[i] - p[i]).abs()).fold(0.0, f64::max) > 0.05 || (l[3] - p[3]).abs() > 0.5);
     if far {
         if st.trail.len() >= TRAIL_MAX {
             st.trail.drain(..TRAIL_MAX / 10);
@@ -491,6 +534,7 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         inline: false,
         setup: setup(cfg),
         rapid: rapid(cfg),
+        a_sign: a_sign(cfg),
         file: String::new(),
         stamp: (String::new(), None, 0),
         gpu: false,
@@ -654,7 +698,8 @@ pub fn load_now(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
     let rapid = plot.borrow().rapid;
     plot.borrow_mut().inline = true;
     plot.borrow_mut().file = file.to_string();
-    let tp = std::fs::read_to_string(file).map(|t| preview::mini::parse(&t, rapid)).unwrap_or_default();
+    let mut tp = std::fs::read_to_string(file).map(|t| preview::mini::parse(&t, rapid)).unwrap_or_default();
+    tp.set_rotary(plot.borrow().a_sign);
     plot.borrow_mut().set_toolpath(ui, tp);
 }
 
@@ -753,16 +798,11 @@ fn gpu_frame(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) {
             }
             let size = [w.max(16), h.max(16)];
             let live = ui.global::<Live>();
-            // This runs while the frame renders, which draws the texture's
-            // new contents anyway. Setting an equal image would still count
-            // as a change (images compare by identity) and cost the whole
-            // screen a second frame; set it only when the texture changes.
+            // Normally `redraw` showed this texture already. The first time
+            // (and after a resize) it is new: show it now, which costs one
+            // more frame.
             if st.gpu_shown != Some((tex.0.get(), size)) {
-                st.gpu_shown = Some((tex.0.get(), size));
-                let img = unsafe { slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(tex.0, size.into()) }
-                    .origin(slint::BorrowedOpenGLTextureOrigin::BottomLeft)
-                    .build();
-                live.set_plot(img);
+                st.show_gpu_texture(ui, tex.0, size);
             }
             if live.get_plot_pan_seq() != st.pan_seq {
                 live.set_plot_pan_seq(st.pan_seq);

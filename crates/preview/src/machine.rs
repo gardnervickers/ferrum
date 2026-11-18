@@ -57,6 +57,16 @@ pub struct Cylinder {
     pub z0: f64,
     pub z1: f64,
     pub r: f64,
+    /// The rotary angle at the tool: drawn wrapped, the tool leans by it
+    /// around the part (see `crate::wrap_a`).
+    pub a: f64,
+}
+
+impl Cylinder {
+    /// A point of the tool (work X Y Z) as `wrap_a` takes it.
+    pub fn at(&self, x: f64, y: f64, z: f64) -> crate::P4 {
+        [x, y, z, self.a]
+    }
 }
 
 /// A line as (from, to) in work coordinates.
@@ -105,7 +115,7 @@ impl Machine {
         let tool = (pose.tool_dia > 0.0).then(|| {
             let r = pose.tool_dia / 2.0;
             let len = if pose.tool_len > 0.5 { pose.tool_len } else { (4.0 * pose.tool_dia).clamp(10.0, 40.0) };
-            Cylinder { center: [pose.tip[0], pose.tip[1]], z0: pose.tip[2], z1: pose.tip[2] + len, r }
+            Cylinder { center: [pose.tip[0], pose.tip[1]], z0: pose.tip[2], z1: pose.tip[2] + len, r, a: pose.tip[3] }
         });
         if !table {
             return Scene { table: None, slots: Vec::new(), tool };

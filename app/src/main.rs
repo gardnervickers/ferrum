@@ -1082,7 +1082,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
         Command::SetState(TaskState::EstopReset),
         Command::SetState(TaskState::On),
         Command::Home(-1),
-        Command::ProgramOpen(sample_dir().join("bracket-sample.ngc").to_string_lossy().into_owned()),
+        Command::ProgramOpen(args.open.clone().unwrap_or_else(|| sample_dir().join("bracket-sample.ngc")).to_string_lossy().into_owned()),
     ] {
         let _ = sim.send(&c);
     }

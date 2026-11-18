@@ -197,7 +197,19 @@ fn op_rows(tp: &Toolpath) -> Vec<FileOp> {
 fn extent(tp: &Toolpath) -> String {
     match tp.bounds() {
         Some((lo, hi)) if !tp.segs.is_empty() => {
-            format!("X {} to {}  ·  Y {} to {}  ·  lowest Z {}", num(lo[0]), num(hi[0]), num(lo[1]), num(hi[1]), num(lo[2]))
+            let xyz = format!("X {} to {}  ·  Y {} to {}  ·  lowest Z {}", num(lo[0]), num(hi[0]), num(lo[1]), num(hi[1]), num(lo[2]));
+            // A program on the rotary (drawn wrapped around it): how far A turns.
+            if tp.a_wrap == 0.0 {
+                return xyz;
+            }
+            let span = hi[3] - lo[3];
+            if span > 360.0 {
+                format!("{xyz}  ·  A turns {} times", num((span / 36.0).round() / 10.0))
+            } else {
+                // A wrapped rotary counts on past 360: show where on the dial.
+                let base = (lo[3] / 360.0).floor() * 360.0;
+                format!("{xyz}  ·  A {} to {}°", num(lo[3] - base), num(hi[3] - base))
+            }
         }
         _ => String::new(),
     }

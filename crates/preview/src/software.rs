@@ -46,6 +46,20 @@ impl View {
 pub const OP_COLORS: [[u8; 3]; 6] =
     [[0x6d, 0x7c, 0xff], [0xf3, 0xc4, 0x63], [0x7f, 0xd6, 0xa0], [0xe0, 0x7a, 0x7a], [0x8c, 0xc4, 0xef], [0xc4, 0x9c, 0xf0]];
 
+/// The rotary's centerline (RGBA), drawn when the toolpath wraps around it.
+pub const ROTARY_AXIS: [u8; 4] = [0xc4, 0x9c, 0xf0, 170];
+
+/// The rotary's centerline as drawn: along X through work Y0 Z0, a little
+/// past both ends of the wrapped toolpath. None unless the toolpath wraps.
+pub fn rotary_axis(tp: &Toolpath) -> Option<([f64; 3], [f64; 3])> {
+    if tp.a_wrap == 0.0 {
+        return None;
+    }
+    let (lo, hi) = tp.drawn_bounds()?;
+    let pad = 0.15 * (hi[0] - lo[0]).max(20.0);
+    Some(([lo[0].min(0.0) - pad, 0.0, 0.0], [hi[0].max(0.0) + pad, 0.0, 0.0]))
+}
+
 pub const BG: [u8; 3] = [0x0f, 0x12, 0x14];
 
 pub fn project(v: View, p: P4) -> (f64, f64) {
@@ -96,13 +110,15 @@ pub struct Fit {
     pub ox: f64,
     pub oy: f64,
     pub h: f64,
+    /// The toolpath's `a_wrap`: points are drawn wrapped around the rotary.
+    pub a_wrap: f64,
 }
 
 impl Fit {
     pub fn new(tp: &Toolpath, view: View, w: u32, h: u32, z: Zoom) -> Self {
         // The toolpath box, grown to take in the work origin.
         let (mut lo, mut hi) = ([0.0f64; 3], [0.0f64; 3]);
-        if let Some((a, b)) = tp.bounds() {
+        if let Some((a, b)) = tp.drawn_bounds() {
             for i in 0..3 {
                 lo[i] = a[i].min(0.0);
                 hi[i] = b[i].max(0.0);
@@ -122,7 +138,7 @@ impl Fit {
         let scale_z = scale * z.zoom;
         let ox = cx + (ox - cx) * z.zoom + z.pan.0;
         let oy = cy + (oy - cy) * z.zoom - z.pan.1;
-        Self { view, scale: scale_z, ox, oy, h: h as f64 }
+        Self { view, scale: scale_z, ox, oy, h: h as f64, a_wrap: tp.a_wrap }
     }
 
     /// A fixed view fitted to the toolpath's outline in that view (plus the
@@ -130,7 +146,7 @@ impl Fit {
     /// which leaves room to orbit; for pictures that never turn.
     pub fn outline(tp: &Toolpath, view: View, w: u32, h: u32, margin: f64) -> Self {
         let (mut lo, mut hi) = ([0.0f64; 3], [0.0f64; 3]);
-        if let Some((a, b)) = tp.bounds() {
+        if let Some((a, b)) = tp.drawn_bounds() {
             for i in 0..3 {
                 lo[i] = a[i].min(0.0);
                 hi[i] = b[i].max(0.0);
@@ -147,12 +163,19 @@ impl Fit {
         let scale = ((w as f64 - 2.0 * margin) / dx).min((h as f64 - 2.0 * margin) / dy).max(1e-6);
         let ox = w as f64 / 2.0 - (x0 + x1) / 2.0 * scale;
         let oy = h as f64 / 2.0 - (y0 + y1) / 2.0 * scale;
-        Self { view, scale, ox, oy, h: h as f64 }
+        Self { view, scale, ox, oy, h: h as f64, a_wrap: tp.a_wrap }
+    }
+
+    /// A point as drawn, in work X Y Z (wrapped around the rotary when the
+    /// toolpath is).
+    pub fn world(&self, p: P4) -> [f64; 3] {
+        crate::wrap_a(p, self.a_wrap)
     }
 
     /// Work coordinates to image pixels (y down).
     pub fn map(&self, p: P4) -> (f32, f32) {
-        let (x, y) = project(self.view, p);
+        let q = self.world(p);
+        let (x, y) = project(self.view, [q[0], q[1], q[2], 0.0]);
         ((self.ox + x * self.scale) as f32, (self.h - (self.oy + y * self.scale)) as f32)
     }
 }
@@ -242,6 +265,20 @@ impl Base {
             pb.line_to(e.0, e.1);
             if let Some(path) = pb.finish() {
                 pm.stroke_path(&path, &paint(rgb, 255), &stroke(2.0), Transform::identity(), None);
+            }
+        }
+
+        // The rotary's axis, when the drawing is wrapped around it.
+        if let Some((a, b)) = rotary_axis(tp) {
+            let (a, b) = (fit.map([a[0], a[1], a[2], 0.0]), fit.map([b[0], b[1], b[2], 0.0]));
+            let mut pb = PathBuilder::new();
+            pb.move_to(a.0, a.1);
+            pb.line_to(b.0, b.1);
+            if let Some(path) = pb.finish() {
+                let c = ROTARY_AXIS;
+                let mut stroke = stroke(1.5);
+                stroke.dash = tiny_skia::StrokeDash::new(vec![8.0, 5.0], 0.0);
+                pm.stroke_path(&path, &paint([c[0], c[1], c[2]], c[3]), &stroke, Transform::identity(), None);
             }
         }
 
@@ -403,7 +440,7 @@ fn draw_cylinder(pm: &mut Pixmap, fit: &Fit, c: &Cylinder) {
         (0..N)
             .map(|i| {
                 let a = i as f64 * std::f64::consts::TAU / N as f64;
-                fit.map([c.center[0] + c.r * a.cos(), c.center[1] + c.r * a.sin(), z, 0.0])
+                fit.map(c.at(c.center[0] + c.r * a.cos(), c.center[1] + c.r * a.sin(), z))
             })
             .collect()
     };
@@ -422,12 +459,20 @@ fn draw_cylinder(pm: &mut Pixmap, fit: &Fit, c: &Cylinder) {
         pm.fill_path(&path, &paint([0x9a, 0x7a, 0x30], 110), tiny_skia::FillRule::Winding, Transform::identity(), None);
         pm.stroke_path(&path, &paint(gold, 255), &stroke(1.5), Transform::identity(), None);
     }
-    if toward_viewer(fit.view)[2] > 0.05 {
+    if top_rim_shows(fit, c) {
         if let Some(path) = poly(&top) {
             pm.fill_path(&path, &paint([0xc8, 0x9e, 0x40], 90), tiny_skia::FillRule::Winding, Transform::identity(), None);
             pm.stroke_path(&path, &paint(gold, 255), &stroke(1.0), Transform::identity(), None);
         }
     }
+}
+
+/// Whether the tool's top rim faces the viewer (the tool leans with A
+/// when the drawing is wrapped).
+pub(crate) fn top_rim_shows(fit: &Fit, c: &Cylinder) -> bool {
+    let up = fit.world(c.at(0.0, 0.0, 1.0));
+    let n = toward_viewer(fit.view);
+    up[0] * n[0] + up[1] * n[1] + up[2] * n[2] > 0.05
 }
 
 /// Monotone chain; returns the hull counter-clockwise.

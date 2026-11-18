@@ -69,6 +69,35 @@ pub struct Toolpath {
     /// a work offset (`(MYMILL-PROBE FIND ...)`): what follows runs with
     /// an offset nobody knows yet.
     pub find_lines: Vec<u32>,
+    /// How A is drawn (see `wrap_a`): 0 ignores it; 1 or -1 wraps the path
+    /// around the rotary axis (X, through work Y0 Z0) in that sense.
+    pub a_wrap: f64,
+    /// `drawn_bounds` when wrapped, worked out once by `set_rotary`.
+    pub wrap_bounds: Option<([f64; 3], [f64; 3])>,
+}
+
+/// A point of the part on the rotary (about X, through work Y0 Z0), from
+/// where the tool is (work X Y Z) and the angle A. `sign` is the rotary's
+/// sense ([DISPLAY]GEOMETRY "A" or "-A"); 0 leaves the point as it is.
+/// Drawing the toolpath through this shows it wrapped around the part,
+/// as it is cut, instead of every pass flat on top of the last.
+pub fn wrap_a(p: P4, sign: f64) -> [f64; 3] {
+    if sign == 0.0 || p[3] == 0.0 {
+        return [p[0], p[1], p[2]];
+    }
+    let (s, c) = (sign * p[3]).to_radians().sin_cos();
+    [p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c]
+}
+
+/// The rotary's sense from [DISPLAY]GEOMETRY ("XYZA", "-A", ...): 1, -1,
+/// or 0 when A is not part of the geometry (as LinuxCNC's AXIS reads it).
+pub fn geometry_a_sign(geometry: &str) -> f64 {
+    let g = geometry.to_ascii_uppercase();
+    match g.find('A') {
+        Some(i) if g[..i].ends_with('-') => -1.0,
+        Some(_) => 1.0,
+        None => 0.0,
+    }
 }
 
 /// The 1-based numbers of the lines that start a FIND probing step.
@@ -115,6 +144,44 @@ pub struct Offsets {
 }
 
 impl Toolpath {
+    /// Wrap the drawing around the rotary (`sign` from `geometry_a_sign`)
+    /// when the program turns A or works at an angle; a program that
+    /// leaves A at 0 draws as it always has.
+    pub fn set_rotary(&mut self, sign: f64) {
+        let uses_a = self.segs.iter().any(|s| s.from[3] != 0.0 || s.to[3] != 0.0);
+        self.a_wrap = if uses_a { sign } else { 0.0 };
+        self.wrap_bounds = None;
+        if self.a_wrap != 0.0 {
+            self.wrap_bounds = self.wrapped_bounds();
+        }
+    }
+
+    /// A point as drawn (wrapped when `a_wrap` says so).
+    pub fn drawn(&self, p: P4) -> [f64; 3] {
+        wrap_a(p, self.a_wrap)
+    }
+
+    /// (min, max) of the drawing: as `bounds`, after wrapping.
+    pub fn drawn_bounds(&self) -> Option<([f64; 3], [f64; 3])> {
+        if self.a_wrap == 0.0 || self.segs.is_empty() {
+            return self.bounds().map(|(a, b)| ([a[0], a[1], a[2]], [b[0], b[1], b[2]]));
+        }
+        self.wrap_bounds.or_else(|| self.wrapped_bounds())
+    }
+
+    fn wrapped_bounds(&self) -> Option<([f64; 3], [f64; 3])> {
+        let feeds = self.segs.iter().any(|s| s.kind == Kind::Feed);
+        let mut it = self.segs.iter().filter(|s| !feeds || s.kind == Kind::Feed).flat_map(|s| [self.drawn(s.from), self.drawn(s.to)]);
+        let first = it.next()?;
+        Some(it.fold((first, first), |(mut lo, mut hi), p| {
+            for i in 0..3 {
+                lo[i] = lo[i].min(p[i]);
+                hi[i] = hi[i].max(p[i]);
+            }
+            (lo, hi)
+        }))
+    }
+
     pub fn seconds(&self) -> f64 {
         self.ops.iter().map(|o| o.seconds).sum()
     }
@@ -159,7 +226,13 @@ pub struct Builder {
     marked: bool,
     line: u32,
     offsets: Offsets,
+    /// Rapid rate of A in degrees/min, for moves that only turn A.
+    rapid_a: f64,
 }
+
+/// Longest turn of A drawn as one straight piece: wrapped, a move that
+/// turns A is a helix around the part, so it is cut into short chords.
+const A_STEP_DEG: f64 = 2.0;
 
 impl Builder {
     /// `rapid_mm_s`: [TRAJ]MAX_LINEAR_VELOCITY, for time estimates.
@@ -176,7 +249,13 @@ impl Builder {
             marked: false,
             line: 0,
             offsets: Offsets::default(),
+            rapid_a: 180.0 * 60.0,
         }
+    }
+
+    /// [AXIS_A]MAX_VELOCITY (degrees/s), for time estimates.
+    pub fn set_rotary_rapid(&mut self, deg_s: f64) {
+        self.rapid_a = deg_s.max(1.0) * 60.0;
     }
 
     /// The offsets now in effect (each change is recorded once).
@@ -266,11 +345,21 @@ impl Builder {
         if kind != Kind::Rapid {
             self.op_cut = true;
         }
+        // The feed is along X Y Z; a move that only turns A is fed in
+        // degrees/min (as LinuxCNC does, also for G93's inverse time). A
+        // turns no faster than its rapid rate either way.
         let d = dist(self.pos, to);
-        let rate = if kind == Kind::Rapid || self.feed <= 0.0 { self.rapid } else { self.feed };
-        self.tp.ops[op].seconds += d / rate * 60.0;
-        self.tp.segs.push(Seg { kind, from: self.pos, to, op, line: self.line, rate: rate as f32 });
-        self.pos = to;
+        let turn = (to[3] - self.pos[3]).abs();
+        let (d, rapid) = if d > 1e-9 { (d, self.rapid) } else { (turn, self.rapid_a) };
+        let rate = if kind == Kind::Rapid || self.feed <= 0.0 { rapid } else { self.feed };
+        self.tp.ops[op].seconds += (d / rate).max(turn / self.rapid_a) * 60.0;
+        let from = self.pos;
+        let n = ((turn / A_STEP_DEG).ceil() as usize).clamp(1, 3600);
+        for i in 1..=n {
+            let p = if i == n { to } else { std::array::from_fn(|k| from[k] + (to[k] - from[k]) * i as f64 / n as f64) };
+            self.tp.segs.push(Seg { kind, from: self.pos, to: p, op, line: self.line, rate: rate as f32 });
+            self.pos = p;
+        }
     }
 
     /// Arc in the XY plane (other planes map their axes before calling).
@@ -382,5 +471,55 @@ mod tests {
         assert!(tp.segs.len() >= 360);
         let (lo, hi) = tp.bounds().unwrap();
         assert!((lo[0] + 10.0).abs() < 0.01 && (hi[1] - 10.0).abs() < 0.01);
+    }
+}
+
+#[cfg(test)]
+mod rotary_tests {
+    use super::*;
+
+    #[test]
+    fn geometry_sign() {
+        assert_eq!(geometry_a_sign("xyza"), 1.0);
+        assert_eq!(geometry_a_sign("XYZ-A"), -1.0);
+        assert_eq!(geometry_a_sign("XYZ"), 0.0);
+    }
+
+    #[test]
+    fn wrap_turns_the_top_of_the_part_toward_minus_y_as_a_grows() {
+        // Tool over the axis at Z 10: at A 90 it is on the part's -Y side.
+        let q = wrap_a([5.0, 0.0, 10.0, 90.0], 1.0);
+        assert!((q[0] - 5.0).abs() < 1e-9 && (q[1] + 10.0).abs() < 1e-9 && q[2].abs() < 1e-9);
+        assert_eq!(wrap_a([5.0, 1.0, 10.0, 90.0], 0.0), [5.0, 1.0, 10.0]);
+    }
+
+    #[test]
+    fn a_turn_is_cut_into_chords_and_timed_in_degrees() {
+        let mut b = Builder::new([0.0, 0.0, 10.0, 0.0], 100.0);
+        b.feed_rate(360.0);
+        // A full turn of A alone at F360 (degrees/min): one minute.
+        b.line(Kind::Feed, [0.0, 0.0, 10.0, 360.0]);
+        let mut tp = b.finish();
+        assert_eq!(tp.segs.len(), 180);
+        assert!((tp.seconds() - 60.0).abs() < 1e-6);
+        assert!(tp.segs.iter().all(|s| s.line == 0 && s.op == 0));
+        // Ten turns along 60 mm at F900: X takes 4 s, but A at 180 deg/s takes 20 s.
+        let mut b = Builder::new([0.0; 4], 100.0);
+        b.feed_rate(900.0);
+        b.line(Kind::Feed, [60.0, 0.0, 0.0, 3600.0]);
+        assert!((b.finish().seconds() - 20.0).abs() < 1e-6);
+        tp.set_rotary(1.0);
+        let (lo, hi) = tp.drawn_bounds().unwrap();
+        assert!((lo[1] + 10.0).abs() < 0.01 && (hi[1] - 10.0).abs() < 0.01 && (lo[2] + 10.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_program_that_leaves_a_alone_does_not_wrap() {
+        let mut b = Builder::new([0.0; 4], 100.0);
+        b.feed_rate(100.0);
+        b.line(Kind::Feed, [10.0, 0.0, 0.0, 0.0]);
+        let mut tp = b.finish();
+        tp.set_rotary(1.0);
+        assert_eq!(tp.a_wrap, 0.0);
     }
 }
