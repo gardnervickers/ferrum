@@ -2,7 +2,12 @@
 
 // `hint`: for a row that is not OK, what it means or what to do.
 export struct PillData { text: string, kind: string, hint: string }
-export struct DroRow { axis: string, work: string, mach: string, dtg: string, homed: bool }
+// A DRO row's axis and homed state, which change rarely, apart from its
+// numbers (DroPos), which change with every status while the machine moves:
+// animated bindings (the ZERO button, the axis colour) read only DroRow, so
+// a moving axis does not restart their animations (an extra frame each time).
+export struct DroRow { axis: string, homed: bool }
+export struct DroPos { work: string, mach: string, dtg: string }
 export struct NavItem { id: string, label: string, icon: string }
 export struct MsgRow { time: string, text: string, kind: string }
 export struct MdiCard { label: string, desc: string, fill: string, moves: bool }
@@ -59,6 +64,7 @@ export global Live {
     in property <string> clock;
 
     in property <[DroRow]> dro;
+    in property <[DroPos]> dro-pos;
     in property <string> wcs: "G54";
     in property <string> tool: "T0";
     in property <string> tool-dia: "-";

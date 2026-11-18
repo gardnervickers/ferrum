@@ -29,11 +29,12 @@ mod probe;
 mod probe_anim;
 mod tools;
 mod util;
+mod models;
 
 use config::Config;
 use linuxcnc::{Command, Event, Handle, Interp, MessageKind, Status, TaskState, AXIS_LETTERS};
 use modules::{Module, Pill};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::process::Command as Proc;
@@ -309,7 +310,7 @@ fn refresh_pills(ui: &MainWindow, st: &UiState, modules: &[Box<dyn Module>], axe
     live.set_status_kind(kind.into());
     live.set_status_flash(flash);
     let model: Vec<PillData> = rows.into_iter().map(|p| PillData { text: p.text.into(), kind: p.kind.into(), hint: p.hint.into() }).collect();
-    live.set_pills(ModelRc::new(VecModel::from(model)));
+    crate::models::sync(live.get_pills(), model, |m| live.set_pills(m));
 }
 
 /// The one status pill: ALL OK, or the worst row (faults before warnings)
@@ -343,21 +344,22 @@ fn tool_tip(s: &Status) -> [f64; 4] {
 fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     let live = ui.global::<Live>();
     let work = s.work_position();
-    let rows: Vec<DroRow> = axes
+    // Joint i maps to axis i on this trivkins machine.
+    let rows: Vec<DroRow> =
+        axes.iter().map(|&i| DroRow { axis: AXIS_LETTERS[i].to_string().into(), homed: s.homed.get(i).copied().unwrap_or(false) }).collect();
+    let pos: Vec<DroPos> = axes
         .iter()
         .map(|&i| {
             let l = AXIS_LETTERS[i];
-            // Joint i maps to axis i on this trivkins machine.
-            DroRow {
-                axis: l.to_string().into(),
+            DroPos {
                 work: fmt_axis(work[i], l).into(),
                 mach: fmt_axis(s.actual[i], l).trim_end_matches('°').into(),
                 dtg: fmt_axis(s.dtg[i], l).trim_end_matches('°').into(),
-                homed: s.homed.get(i).copied().unwrap_or(false),
             }
         })
         .collect();
-    live.set_dro(ModelRc::new(VecModel::from(rows)));
+    crate::models::sync(live.get_dro(), rows, |m| live.set_dro(m));
+    crate::models::sync(live.get_dro_pos(), pos, |m| live.set_dro_pos(m));
     live.set_estop(s.estop());
     live.set_power(s.power_on());
     live.set_homed(axes.iter().all(|&i| s.homed.get(i).copied().unwrap_or(false)));
@@ -770,6 +772,8 @@ fn main() -> Result<(), slint::PlatformError> {
                                 job::apply_status(j, &s);
                             }
                         });
+                        // The backplot follows the tool in this same frame.
+                        plot::with(|p| plot::redraw_due(ui, p, Duration::from_millis(15)));
                     }
                     Event::Message(m) => {
                         if std::env::var_os("MILLGUI_LOG_MESSAGES").is_some() {
@@ -1004,7 +1008,7 @@ fn set_nav(ui: &MainWindow, modules: &[Box<dyn Module>], screen: Option<&str>) {
         .collect();
     let first = nav.first().map(|n| n.id.clone()).unwrap_or_default();
     live.set_screen(screen.map(SharedString::from).unwrap_or(first));
-    live.set_nav(ModelRc::new(VecModel::from(nav)));
+    crate::models::sync(live.get_nav(), nav, |m| live.set_nav(m));
 }
 
 /// Scale for a desktop window of `w` x `h` pixels. The layout is designed

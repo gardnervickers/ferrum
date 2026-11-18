@@ -472,6 +472,11 @@ thread_local! {
 
 const FRAME: Duration = Duration::from_millis(33);
 const IDLE: Duration = Duration::from_millis(250);
+/// Loops played before the preview rests on its last frame. A preview that
+/// loops forever redraws the whole screen 30 times a second for as long as
+/// PROBE is open; a new shape, target or option (or coming back to PROBE)
+/// plays it again.
+const PLAYS: f64 = 2.0;
 
 /// Hold the preview at `ms` into its loop (headless screenshots).
 pub fn freeze(ui: &MainWindow, ms: f64) {
@@ -504,7 +509,16 @@ fn tick(ui: &MainWindow) {
             p.started = Instant::now();
             p.timer.set_interval(FRAME);
         }
-        let ms = FIXED_MS.with(|f| f.get()).unwrap_or_else(|| p.started.elapsed().as_secs_f64() * 1e3);
+        let ms = FIXED_MS.with(|f| f.get()).unwrap_or_else(|| {
+            let ms = p.started.elapsed().as_secs_f64() * 1e3;
+            let end = PLAYS * p.script.loop_ms();
+            if ms < end {
+                return ms;
+            }
+            // Done: rest on the finished routine and tick slowly.
+            p.timer.set_interval(IDLE);
+            end - 1.0
+        });
         let Some(f) = p.script.at(ms) else { return };
         live.set_pr_tip_on(true);
         live.set_pr_tip_x(f.x as f32);

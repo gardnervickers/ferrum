@@ -1,5 +1,5 @@
 import { Theme, Layout } from "theme.slint";
-import { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow, JobOp, ConvField, HistoryRow } from "state.slint";
+import { Live, Actions, PillData, DroRow, DroPos, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow, JobOp, ConvField, HistoryRow } from "state.slint";
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
 import { Placeholder, RunScreen } from "screens.slint";
 
@@ -13,7 +13,7 @@ import { Keypad, TextKeyboard, MessageDrawer, ToolChange, Picker } from "overlay
 import { JobScreen } from "job.slint";
 import { ConvScreen } from "conv.slint";
 
-export { Live, Actions, PillData, DroRow, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow, JobOp, ConvField, HistoryRow }
+export { Live, Actions, PillData, DroRow, DroPos, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow, JobOp, ConvField, HistoryRow }
 
 // Drawn at the mill's 1920x1080. Each screen is only instantiated while it
 // is shown, so a disabled module's screen never exists.

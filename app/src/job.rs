@@ -11,7 +11,7 @@ use crate::config::Config;
 use crate::{Actions, JobOp, Live, MainWindow};
 use linuxcnc::{Command, Handle, Interp, Status};
 use serde_json::{json, Value};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -269,7 +269,7 @@ impl Job {
             })
             .collect();
         let n = ops.len();
-        live.set_job_ops(ModelRc::new(VecModel::from(rows)));
+        crate::models::sync(live.get_job_ops(), rows, |m| live.set_job_ops(m));
         live.set_job_selected(sel.map_or(-1, |i| i as i32));
         live.set_job_title(match &self.down {
             Some(_) if self.snap.is_null() => "JOB".into(),

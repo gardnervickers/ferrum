@@ -1,6 +1,6 @@
 // The fixed machine frame: status bar, DRO column, nav and cycle bar.
 import { Theme, Layout } from "theme.slint";
-import { Live, Actions, DroRow } from "state.slint";
+import { Live, Actions, DroRow, DroPos } from "state.slint";
 import { Btn, Pill, Label, Card } from "widgets.slint";
 
 export component StatusBar inherits Rectangle {
@@ -79,6 +79,7 @@ export component StatusBar inherits Rectangle {
                         kind: Live.status-kind;
                         min-width: 150px;
                         lit: Live.status-flash && root.blink;
+                        blinking: Live.status-flash;
                     }
                 }
                 TouchArea {
@@ -142,6 +143,7 @@ component DroSub inherits Rectangle {
 
 component DroLine inherits Rectangle {
     in property <DroRow> data;
+    in property <DroPos> pos;
     in property <bool> last;
     // Space the ZERO button takes from the number's left edge.
     property <length> zero-w: Layout.compact ? 76px : 88px;
@@ -190,7 +192,7 @@ component DroLine inherits Rectangle {
         width: parent.width - self.x;
         horizontal-alignment: right;
         overflow: elide;
-        text: data.work;
+        text: pos.work;
         font-family: Theme.body;
         font-weight: 600;
         font-size: 60px;
@@ -203,8 +205,8 @@ component DroLine inherits Rectangle {
         height: 22px;
         alignment: end;
         spacing: 22px;
-        DroSub { label: "MACH"; value: data.mach; value-width: 74px; }
-        DroSub { label: "DTG"; value: data.dtg; value-width: 62px; }
+        DroSub { label: "MACH"; value: pos.mach; value-width: 74px; }
+        DroSub { label: "DTG"; value: pos.dtg; value-width: 62px; }
     }
 }
 
@@ -291,7 +293,7 @@ export component LeftColumn inherits Rectangle {
                 padding-right: 18px;
                 padding-top: 6px;
                 padding-bottom: 6px;
-                for r[i] in Live.dro: DroLine { data: r; last: i == Live.dro.length - 1; }
+                for r[i] in Live.dro: DroLine { data: r; pos: Live.dro-pos[i]; last: i == Live.dro.length - 1; }
             }
         }
         GridLayout {

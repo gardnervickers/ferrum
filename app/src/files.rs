@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::{Actions, FileOp, FileRow, Live, MainWindow};
 use linuxcnc::{Command, Handle};
 use preview::Toolpath;
-use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
+use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer, SharedString};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -92,7 +92,7 @@ impl Files {
                 size: if e.dir { SharedString::new() } else { size(e.size).into() },
             })
             .collect();
-        live.set_files(ModelRc::new(VecModel::from(rows)));
+        crate::models::sync(live.get_files(), rows, |m| live.set_files(m));
         live.set_files_path(self.rel().into());
         live.set_files_selected(self.selected.map_or(-1, |i| i as i32));
         live.set_files_can_up(self.cwd != self.root);
@@ -246,7 +246,7 @@ fn draw(ui: &MainWindow) {
 /// Nothing to show for the selection yet (or at all).
 fn clear(live: &Live, status: &str) {
     live.set_files_summary(SharedString::new());
-    live.set_files_ops(ModelRc::new(VecModel::from(Vec::<FileOp>::new())));
+    crate::models::sync(live.get_files_ops(), Vec::<FileOp>::new(), |m| live.set_files_ops(m));
     live.set_files_op(-1);
     live.set_files_extent(SharedString::new());
     live.set_files_warning(SharedString::new());
@@ -282,7 +282,7 @@ fn summarize(ui: &MainWindow, path: Option<PathBuf>) {
             let Some(ui) = weak.upgrade() else { return };
             let live = ui.global::<Live>();
             live.set_files_summary(summary_line(&tp).into());
-            live.set_files_ops(ModelRc::new(VecModel::from(op_rows(&tp))));
+            crate::models::sync(live.get_files_ops(), op_rows(&tp), |m| live.set_files_ops(m));
             live.set_files_extent(extent(&tp).into());
             live.set_files_status(
                 match &tp.error {

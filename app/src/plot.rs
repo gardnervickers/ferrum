@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const TRAIL_MAX: usize = 50_000;
 
@@ -62,6 +62,10 @@ pub struct Plot {
     pixels: Option<SharedPixelBuffer<Rgba8Pixel>>,
     /// Counts redraws, so the web mirror knows when the picture changed.
     version: u64,
+    /// When it was last redrawn (redraws are paced, see `redraw_due`).
+    drawn_at: Option<Instant>,
+    /// The GL texture and size the image property shows (GPU backplot).
+    gpu_shown: Option<(u32, [u32; 2])>,
     /// Soft limits from the INI, for the travel check (None: no check).
     limits: Option<Limits>,
     /// The machine's offsets now, and the travel check of the toolpath
@@ -119,6 +123,7 @@ fn rapid(cfg: &Config) -> f64 {
 impl Plot {
     fn redraw(&mut self, ui: &MainWindow) {
         self.dirty = false;
+        self.drawn_at = Some(Instant::now());
         self.version += 1;
         self.pixels = None;
         let (w, h) = self.size;
@@ -455,7 +460,7 @@ fn show_view(ui: &MainWindow, v: View) {
             on: f.on,
         })
         .collect();
-    live.set_cube_faces(slint::ModelRc::new(slint::VecModel::from(faces)));
+    crate::models::sync(live.get_cube_faces(), faces, |m| live.set_cube_faces(m));
 }
 
 thread_local! {
@@ -497,6 +502,8 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         live: None,
         check: None,
         summary: String::new(),
+        drawn_at: None,
+        gpu_shown: None,
     }));
     PLOT.with(|p| *p.borrow_mut() = Some(plot.clone()));
     let actions = ui.global::<Actions>();
@@ -613,16 +620,31 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
     plot
 }
 
-/// Redraw at most ten times a second while the tool moves.
+/// The least time between two redraws: at most ten a second while the tool moves.
+const REDRAW_EVERY: Duration = Duration::from_millis(100);
+
+/// Redraw if something changed and the last redraw is old enough. Called
+/// from the status handler, so a redraw lands in the same frame as the DRO
+/// update instead of costing a frame of its own; the timer covers changes
+/// that come without a status (view, pan, an idle machine). Only while the
+/// backplot can be seen: on another screen it stays dirty until RUN shows.
+pub fn redraw_due(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, slack: Duration) {
+    let mut st = plot.borrow_mut();
+    if !st.dirty || st.drawn_at.is_some_and(|t| t.elapsed() + slack < REDRAW_EVERY) {
+        return;
+    }
+    if !st.inline && ui.global::<Live>().get_screen() != "run" && !crate::remote::watching() {
+        return;
+    }
+    st.redraw(ui);
+}
+
 pub fn start_timer(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) -> slint::Timer {
     let t = slint::Timer::default();
     let (p, weak) = (plot.clone(), ui.as_weak());
-    t.start(slint::TimerMode::Repeated, Duration::from_millis(100), move || {
+    t.start(slint::TimerMode::Repeated, REDRAW_EVERY, move || {
         let Some(ui) = weak.upgrade() else { return };
-        let mut st = p.borrow_mut();
-        if st.dirty {
-            st.redraw(&ui);
-        }
+        redraw_due(&ui, &p, Duration::ZERO);
     });
     t
 }
@@ -678,6 +700,7 @@ pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> 
                         with(|p| {
                             let mut st = p.borrow_mut();
                             st.gpu = true;
+                            st.gpu_shown = None;
                             st.base = None;
                             st.dirty = true;
                         });
@@ -691,6 +714,7 @@ pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> 
                 with(|p| {
                     let mut st = p.borrow_mut();
                     st.gpu = false;
+                    st.gpu_shown = None;
                     st.dirty = true;
                 });
             }
@@ -727,12 +751,19 @@ fn gpu_frame(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) {
                 st.want_pixels = false;
                 st.pixels = Some(SharedPixelBuffer::clone_from_slice(&px, w.max(16), h.max(16)));
             }
-            let size = [w.max(16), h.max(16)].into();
-            let img = unsafe { slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(tex.0, size) }
-                .origin(slint::BorrowedOpenGLTextureOrigin::BottomLeft)
-                .build();
+            let size = [w.max(16), h.max(16)];
             let live = ui.global::<Live>();
-            live.set_plot(img);
+            // This runs while the frame renders, which draws the texture's
+            // new contents anyway. Setting an equal image would still count
+            // as a change (images compare by identity) and cost the whole
+            // screen a second frame; set it only when the texture changes.
+            if st.gpu_shown != Some((tex.0.get(), size)) {
+                st.gpu_shown = Some((tex.0.get(), size));
+                let img = unsafe { slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(tex.0, size.into()) }
+                    .origin(slint::BorrowedOpenGLTextureOrigin::BottomLeft)
+                    .build();
+                live.set_plot(img);
+            }
             if live.get_plot_pan_seq() != st.pan_seq {
                 live.set_plot_pan_seq(st.pan_seq);
                 live.set_plot_landed(live.get_plot_landed() + 1);

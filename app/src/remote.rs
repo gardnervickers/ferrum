@@ -23,7 +23,7 @@ use tungstenite::Message;
 
 #[allow(unused_parens, clippy::all)]
 mod mirror {
-    use crate::{Actions, CheckRow, CubeFace, DroRow, FileOp, FileRow, GotoRow, HistoryRow, Live, MdiCard, MsgRow, NavItem, ConvField, JobOp, OffsetRow, PillData, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot, StatusRow, ToolRow, WarmStage};
+    use crate::{Actions, CheckRow, CubeFace, DroPos, DroRow, FileOp, FileRow, GotoRow, HistoryRow, Live, MdiCard, MsgRow, NavItem, ConvField, JobOp, OffsetRow, PillData, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot, StatusRow, ToolRow, WarmStage};
     include!(concat!(env!("OUT_DIR"), "/mirror.rs"));
 }
 
@@ -171,6 +171,11 @@ thread_local! {
 
 pub fn install(r: std::rc::Rc<std::cell::RefCell<Remote>>) {
     REMOTE.with(|x| *x.borrow_mut() = Some(r));
+}
+
+/// A browser is connected (it mirrors screens this one may not show).
+pub fn watching() -> bool {
+    REMOTE.with(|x| x.borrow().as_ref().is_some_and(|r| !r.borrow().shared.lock().unwrap().clients.is_empty()))
 }
 
 fn serve(stream: TcpStream, shared: Arc<Mutex<Shared>>, weak: slint::Weak<MainWindow>, root: PathBuf) {

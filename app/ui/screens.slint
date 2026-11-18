@@ -174,8 +174,11 @@ component GLine inherits Rectangle {
     in property <bool> picked;
     callback tapped();
     height: 32px;
-    background: current ? Theme.sel-soft : picked ? Theme.raised : transparent;
-    animate background { duration: Theme.quick; }
+    // A tapped line fades in. The executing line moves many times a second,
+    // so its tint has no animation: an animated binding that read `current`
+    // would cost the whole screen an extra frame at every line.
+    Rectangle { background: picked ? Theme.raised : transparent; animate background { duration: Theme.quick; } }
+    Rectangle { background: current ? Theme.sel-soft : transparent; }
     if current: Rectangle { x: 0; width: 4px; background: Theme.sel; }
     HorizontalLayout {
         padding-left: 8px;
@@ -215,7 +218,8 @@ component ProgramCard inherits Card {
                 width: Live.gcode-count == 0 ? 0 : parent.width * min(1, Live.line / Live.gcode-count);
                 border-radius: 3px;
                 background: Theme.sel;
-                animate width { duration: Theme.settle; easing: ease-out; }
+                // No easing: it moves with every line in a run, and an
+                // animated width would cost an extra frame each time.
             }
         }
         plot-area := Rectangle {

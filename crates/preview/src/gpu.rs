@@ -129,9 +129,11 @@ pub struct Gpu {
     fill_vao: glow::VertexArray,
     fill_buf: glow::Buffer,
     tp_id: Option<usize>,
-    /// Two targets, drawn alternately, so the one on screen isn't redrawn.
-    targets: [Option<Target>; 2],
-    next: usize,
+    /// The texture the frame is drawn into. One is enough: it is drawn
+    /// before Slint renders the window, which then samples it. Keeping the
+    /// same texture lets the app keep the same image property, so a
+    /// backplot redraw does not cost the window an extra frame.
+    target: Option<Target>,
 }
 
 struct Target {
@@ -343,7 +345,7 @@ impl Gpu {
         }
         gl.bind_vertex_array(None);
         restore(&gl, saved);
-        Ok(Gpu { gl, line_prog, fill_prog, rapids, feeds, scratch, fill_vao, fill_buf, tp_id: None, targets: [None, None], next: 0 })
+        Ok(Gpu { gl, line_prog, fill_prog, rapids, feeds, scratch, fill_vao, fill_buf, tp_id: None, target: None })
     }
 
     /// "renderer (version)" of the GL driver.
@@ -373,7 +375,7 @@ impl Gpu {
 
     unsafe fn target(&mut self, w: u32, h: u32) -> Result<(glow::Framebuffer, glow::Texture), String> {
         let gl = &self.gl;
-        let slot = &mut self.targets[self.next];
+        let slot = &mut self.target;
         if slot.as_ref().is_some_and(|t| t.size != (w, h)) {
             let t = slot.take().expect("target");
             gl.delete_framebuffer(t.fbo);
@@ -395,7 +397,6 @@ impl Gpu {
             *slot = Some(Target { fbo, tex, size: (w, h) });
         }
         let t = slot.as_ref().expect("target");
-        self.next = 1 - self.next;
         Ok((t.fbo, t.tex))
     }
 
@@ -571,7 +572,7 @@ impl Gpu {
 
     /// The last drawn frame's pixels, RGBA top row first (for the web mirror).
     pub fn read_back(&mut self, tex: glow::Texture, w: u32, h: u32) -> Option<Vec<u8>> {
-        let t = self.targets.iter().flatten().find(|t| t.tex == tex)?;
+        let t = self.target.as_ref().filter(|t| t.tex == tex)?;
         let gl = &self.gl;
         let mut px = vec![0u8; (w * h * 4) as usize];
         unsafe {
@@ -675,7 +676,7 @@ impl Drop for Gpu {
             gl.delete_buffer(self.fill_buf);
             gl.delete_program(self.line_prog);
             gl.delete_program(self.fill_prog);
-            for t in self.targets.iter().flatten() {
+            if let Some(t) = &self.target {
                 gl.delete_framebuffer(t.fbo);
                 gl.delete_texture(t.tex);
             }

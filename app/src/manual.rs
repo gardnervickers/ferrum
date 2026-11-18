@@ -114,7 +114,7 @@ impl Manual {
         live.set_pf_feed(fmt(pf.feed).into());
         live.set_pf_dist(fmt(pf.dist).into());
         live.set_pf_wcs(pf.wcs_code().into());
-        live.set_pf_axis_enabled(ModelRc::new(VecModel::from((0..3).map(|a| pf.axis_enabled(a)).collect::<Vec<_>>())));
+        crate::models::sync(live.get_pf_axis_enabled(), (0..3).map(|a| pf.axis_enabled(a)).collect::<Vec<_>>(), |m| live.set_pf_axis_enabled(m));
         live.set_gt_x(format!("{:.3}", pf.gt_x).into());
         live.set_gt_y(format!("{:.3}", pf.gt_y).into());
         live.set_gt_feed(fmt(pf.gt_feed).into());
@@ -131,7 +131,7 @@ impl Manual {
                 py,
             })
             .collect();
-        live.set_gotos(ModelRc::new(VecModel::from(rows)));
+        crate::models::sync(live.get_gotos(), rows, |m| live.set_gotos(m));
         live.set_goto_selected(pf.selected.map_or(-1, |i| i as i32));
         live.set_gt_px(target.0);
         live.set_gt_py(target.1);
@@ -410,7 +410,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
                 .collect()
         })
         .unwrap_or_else(|| ["CONT", "0.01", "0.1", "1", "10"].map(SharedString::from).to_vec());
-    live.set_jog_steps(ModelRc::new(VecModel::from(steps)));
+    crate::models::sync(live.get_jog_steps(), steps, |m| live.set_jog_steps(m));
 
     let (mc, mm) = (machine.clone(), manual.clone());
     actions.on_jog_start(move |axis, dir| {

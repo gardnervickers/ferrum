@@ -2,7 +2,7 @@
 //! choices). One picker is open at a time; its owner gets the index.
 
 use crate::{Actions, Live, MainWindow};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
 
 type Handler = Box<dyn Fn(usize)>;
@@ -17,7 +17,7 @@ pub fn open(ui: &MainWindow, owner: &str, title: &str, items: Vec<String>, curre
     let live = ui.global::<Live>();
     live.set_pick_title(title.into());
     let items: Vec<SharedString> = items.into_iter().map(SharedString::from).collect();
-    live.set_pick_items(ModelRc::new(VecModel::from(items)));
+    crate::models::sync(live.get_pick_items(), items, |m| live.set_pick_items(m));
     live.set_pick_current(current.map_or(-1, |i| i as i32));
     live.set_pick_open(true);
 }

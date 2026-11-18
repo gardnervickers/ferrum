@@ -15,7 +15,7 @@ use crate::manual::KeypadTarget;
 use crate::settings::Settings;
 use crate::{Actions, ConvField, Live, MainWindow, ProbeItem};
 use serde_json::{json, Value};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
 use std::f64::consts::PI;
 use std::rc::Rc;
@@ -557,31 +557,31 @@ impl Conv {
     fn show(&self, ui: &MainWindow) {
         let live = ui.global::<Live>();
         let types: Vec<ProbeItem> = TYPES.iter().map(|(id, label, _)| ProbeItem { id: (*id).into(), label: (*label).into(), on: *id == self.ty }).collect();
-        live.set_conv_types(ModelRc::new(VecModel::from(types)));
+        crate::models::sync(live.get_conv_types(), types, |m| live.set_conv_types(m));
         live.set_conv_title(TYPES.iter().find(|t| t.0 == self.ty).map_or("", |t| t.1).into());
         live.set_conv_tool(self.tool_label().into());
         let sections: Vec<ProbeItem> = SECTIONS.iter().map(|(id, label)| ProbeItem { id: (*id).into(), label: (*label).into(), on: *id == self.section }).collect();
-        live.set_conv_sections(ModelRc::new(VecModel::from(sections)));
+        crate::models::sync(live.get_conv_sections(), sections, |m| live.set_conv_sections(m));
         live.set_conv_section(self.section.as_str().into());
         let fields: Vec<ConvField> = section_keys(&self.ty, &self.section).iter().filter_map(|k| self.find(k)).filter(|f| self.visible(f)).map(|f| self.row(f)).collect();
-        live.set_conv_fields(ModelRc::new(VecModel::from(fields)));
+        crate::models::sync(live.get_conv_fields(), fields, |m| live.set_conv_fields(m));
         let recap: Vec<ConvField> = SECTIONS
             .iter()
             .map(|(id, label)| ConvField { key: (*id).into(), label: (*label).into(), value: self.recap(id).into(), unit: "".into(), choice: false })
             .collect();
-        live.set_conv_recap(ModelRc::new(VecModel::from(recap)));
+        crate::models::sync(live.get_conv_recap(), recap, |m| live.set_conv_recap(m));
         let levels: Vec<ConvField> = [("z_clear", "CLEARANCE Z"), ("retract", "RETRACT ABOVE START"), ("z_start", "Z START"), ("z_end", "Z END")]
             .iter()
             .map(|(k, label)| ConvField { key: (*k).into(), label: (*label).into(), value: self.get(k).into(), unit: self.get("units").to_lowercase().into(), choice: false })
             .collect();
-        live.set_conv_levels(ModelRc::new(VecModel::from(levels)));
+        crate::models::sync(live.get_conv_levels(), levels, |m| live.set_conv_levels(m));
         live.set_conv_show_holes(self.ty == "xy" && self.section == "shape");
         let holes: Vec<SharedString> = if self.ty == "xy" {
             self.holes().iter().enumerate().map(|(i, (x, y))| format!("{}   X {}   Y {}", i + 1, fmt(*x), fmt(*y)).into()).collect()
         } else {
             Vec::new()
         };
-        live.set_conv_holes(ModelRc::new(VecModel::from(holes)));
+        crate::models::sync(live.get_conv_holes(), holes, |m| live.set_conv_holes(m));
         live.set_conv_hole_sel(self.hole_sel.map_or(-1, |i| i as i32));
         let (outline, path, swept) = self.picture();
         live.set_conv_swept(swept as f32);

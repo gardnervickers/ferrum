@@ -24,7 +24,7 @@ use crate::settings::Settings;
 use crate::toolchange::Io;
 use crate::{Actions, Live, MainWindow, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot};
 use linuxcnc::{Command, Handle, Message, MessageKind, Status};
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -846,7 +846,7 @@ impl Probe {
         live.set_pr_mode(self.mode.into());
         let shapes = SHAPES.iter().find(|(m, _)| *m == self.mode).map_or(&[][..], |(_, s)| s);
         let items: Vec<ProbeItem> = shapes.iter().map(|(id, l)| ProbeItem { id: (*id).into(), label: (*l).into(), on: *id == self.shape }).collect();
-        live.set_pr_shapes(ModelRc::new(VecModel::from(items)));
+        crate::models::sync(live.get_pr_shapes(), items, |m| live.set_pr_shapes(m));
         live.set_pr_shape_label(
             match self.mode {
                 "find" => "WHAT ARE YOU PROBING?",
@@ -901,15 +901,15 @@ impl Probe {
         } else {
             Vec::new()
         };
-        live.set_pr_spots(ModelRc::new(VecModel::from(spots)));
+        crate::models::sync(live.get_pr_spots(), spots, |m| live.set_pr_spots(m));
         // Choices under the picture: two labelled rows, always the same
         // buttons for a target (a choice that doesn't apply is disabled, not
         // removed), so nothing moves under the finger.
         let (l1, o1, l2, o2) = self.options(&sel);
         live.set_pr_opts_label(l1.into());
-        live.set_pr_opts(ModelRc::new(VecModel::from(o1)));
+        crate::models::sync(live.get_pr_opts(), o1, |m| live.set_pr_opts(m));
         live.set_pr_opts2_label(l2.into());
-        live.set_pr_opts2(ModelRc::new(VecModel::from(o2)));
+        crate::models::sync(live.get_pr_opts2(), o2, |m| live.set_pr_opts2(m));
         // Values
         let key = self.key_params(sel.kind);
         let row = |n: u16| {
@@ -958,17 +958,17 @@ impl Probe {
         for (f, slot) in fields.into_iter().zip(slot_of) {
             placed[slot] = f;
         }
-        live.set_pr_params(ModelRc::new(VecModel::from(placed)));
+        crate::models::sync(live.get_pr_params(), placed, |m| live.set_pr_params(m));
         let more: Vec<ProbeParam> = self.used_params(sel.kind).into_iter().filter(|n| !key.contains(n)).map(row).collect();
-        live.set_pr_more(ModelRc::new(VecModel::from(more)));
+        crate::models::sync(live.get_pr_more(), more, |m| live.set_pr_more(m));
         live.set_pr_changed(!self.runv.is_empty() || !self.locv.is_empty());
-        live.set_pr_defaults(ModelRc::new(VecModel::from(PARAMS.iter().map(|p| {
+        crate::models::sync(live.get_pr_defaults(), PARAMS.iter().map(|p| {
             let mut r = row(p.n);
             r.value = fmt_value(p.n, self.defaults.get(&p.n).copied().unwrap_or(0.0)).into();
             r.changed = false;
             r.def = p.group.into();
             r
-        }).collect::<Vec<_>>())));
+        }).collect::<Vec<_>>(), |m| live.set_pr_defaults(m));
         // Routine note and buttons
         let what = match sel.kind {
             "corner" => "outside top corner (touches top Z first)".to_string(),

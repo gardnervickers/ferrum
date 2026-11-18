@@ -162,7 +162,7 @@ export component ToolsScreen inherits Rectangle {
                     Label { width: Layout.compact ? 110px : 150px; vertical-alignment: center; text: "WEAR " + Live.tools-sel-label; }
                     Btn { max-width: 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1; font-size: Layout.compact ? 19px : 22px; text: Layout.compact ? "ADJ LENGTH" : "ADJUST LENGTH"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-z"); } }
                     Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; font-size: Layout.compact ? 19px : 22px; text: Layout.compact ? "ADJ DIA" : "ADJUST DIA"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-d"); } }
-                    if !Layout.compact: Note { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; vertical-alignment: center; font-size: 18px; text: "Adds to the table value; the total shows in amber beside it. Length +: cuts shallower. Dia matters only with G41/G42. Undo on OFFSETS, TIMELINE."; }
+                    if !Layout.compact: Note { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; vertical-alignment: center; font-size: 18px; text: "Adds to the table value. Length +: cuts shallower. Dia: G41/G42 only."; }
                 }
                 HorizontalLayout {
                     spacing: 12px;

@@ -13,7 +13,7 @@ use crate::settings::Settings;
 use crate::toolchange::Io;
 use crate::{Actions, Live, MainWindow, StatusRow, WarmStage};
 use linuxcnc::{Command, Handle, Message, Status, TaskState};
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -177,7 +177,7 @@ impl Util {
                 .into(),
             })
             .collect();
-        live.set_wu_stages(ModelRc::new(VecModel::from(stages)));
+        crate::models::sync(live.get_wu_stages(), stages, |m| live.set_wu_stages(m));
         live.set_wu_secure(self.secure);
         live.set_wu_running(self.warm.is_some());
         let total = self.total();
@@ -227,7 +227,7 @@ impl Util {
             row("Tool setter", if h.triggered.get() { "TRIPPED" } else { "READY" }.into(), if h.triggered.get() { "warn" } else { "good" });
             row("Setter blast", if h.blast_active.get() { "ON" } else { "OFF" }.into(), "");
         }
-        live.set_ut_status(ModelRc::new(VecModel::from(rows)));
+        crate::models::sync(live.get_ut_status(), rows, |m| live.set_ut_status(m));
     }
 
     fn refresh(&self) {

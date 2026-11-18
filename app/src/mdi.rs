@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::{Actions, Live, MainWindow, MdiCard};
 use linuxcnc::{Command, Handle};
 use serde::Deserialize;
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -168,7 +168,7 @@ impl Mdi {
 
     fn show(&self, live: &Live) {
         live.set_mdi_category(self.category.clone().into());
-        live.set_mdi_cards(ModelRc::new(VecModel::from(self.cards())));
+        crate::models::sync(live.get_mdi_cards(), self.cards(), |m| live.set_mdi_cards(m));
         live.set_mdi_help(help(&self.lib, live.get_mdi_text().as_str()).into());
     }
 }
@@ -180,7 +180,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, notes: &mut Vec<Str
     let first = lib.categories.first().cloned().unwrap_or_else(|| RECENT.into());
     let state = Rc::new(RefCell::new(Mdi { lib, category: first, history: Vec::new() }));
     let live = ui.global::<Live>();
-    live.set_mdi_categories(ModelRc::new(VecModel::from(cats)));
+    crate::models::sync(live.get_mdi_categories(), cats, |m| live.set_mdi_categories(m));
     state.borrow().show(&live);
 
     let actions = ui.global::<Actions>();

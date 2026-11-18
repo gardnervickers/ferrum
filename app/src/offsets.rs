@@ -13,7 +13,7 @@ use crate::history::{self, Target};
 use crate::manual::KeypadTarget;
 use crate::{Actions, Live, MainWindow, OffsetRow};
 use linuxcnc::{Command, Handle, Status};
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -163,7 +163,7 @@ impl Offsets {
                 }
             })
             .collect();
-        live.set_offsets(ModelRc::new(VecModel::from(rows)));
+        crate::models::sync(live.get_offsets(), rows, |m| live.set_offsets(m));
         live.set_offsets_selected(self.selected as i32);
         live.set_offsets_sel_label(CODES[self.selected].into());
         let g92 = self.status.as_ref().map(|s| s.g92_offset).unwrap_or_default();

@@ -15,7 +15,7 @@
 use crate::{Actions, HistoryRow, Live, MainWindow};
 use chrono::{Local, TimeZone};
 use serde::{Deserialize, Serialize};
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::io::Write;
 use std::path::PathBuf;
@@ -232,7 +232,7 @@ impl History {
                 cause: e.cause.as_str().into(),
             })
             .collect();
-        live.set_history(ModelRc::new(VecModel::from(rows)));
+        crate::models::sync(live.get_history(), rows, |m| live.set_history(m));
         let sel = self.selected.and_then(|id| self.entries.iter().rev().position(|e| e.id == id));
         live.set_history_selected(sel.map_or(-1, |i| i as i32));
         let picked = self.selected.and_then(|id| self.entries.iter().find(|e| e.id == id));

@@ -18,7 +18,7 @@ use crate::manual::KeypadTarget;
 use crate::toolchange::{Io, SCRATCH};
 use crate::{Actions, CheckRow, Live, MainWindow, ToolRow};
 use linuxcnc::{Command, Handle, Status};
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -251,7 +251,7 @@ impl Tools {
                 scratch: SCRATCH.contains(&t.t),
             })
             .collect();
-        live.set_tools(ModelRc::new(VecModel::from(rows)));
+        crate::models::sync(live.get_tools(), rows, |m| live.set_tools(m));
         let sel = self.selected.and_then(|s| self.tools.iter().position(|t| t.t == s)).map_or(-1, |i| i as i32);
         live.set_tools_selected(sel);
         live.set_tools_sel_label(self.selected.map(|t| format!("T{t}")).unwrap_or_default().into());
@@ -277,7 +277,7 @@ impl Tools {
             })
             .collect();
         live.set_tools_missing(check.iter().any(|c| c.status == "MISSING"));
-        live.set_tools_check(ModelRc::new(VecModel::from(check)));
+        crate::models::sync(live.get_tools_check(), check, |m| live.set_tools_check(m));
     }
 
     /// Drawbar outside a tool change.
