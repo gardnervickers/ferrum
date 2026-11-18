@@ -119,11 +119,33 @@ Expressions are `SOURCE.path OP VALUE`:
 - `hal.` a pin or signal: `hal.halui.mode.is-auto == TRUE`.
 - `errors` / `ui-errors`: LinuxCNC's error messages / millgui's error rows so far.
 - `.len` gives a length: `prop.files.len > 0`.
+- A path may end in `{TEXT}`: the number after the last TEXT in a text
+  value, or in the last list item containing it:
+  `prop.pr-result{X width} ~= 40 +- 0.01`, `prop.messages{P3032=} ~= 0.059`.
 - OPs: `==` `!=` `<` `<=` `>` `>=`, `~=` for numbers (`~= 10 +- 0.01`;
   default tolerance 0.002), `contains` / `!contains`.
 
 At the end of every scenario, any LinuxCNC error-channel error or millgui
 error message not covered by `allow-error` fails it.
+
+## PROBE routines against known geometry (`scenarios/probe-routines`)
+
+On `mymill` the simulated card (`millgui/sim/sim_card.py`) has workpieces at
+known machine coordinates: the STOCK block (edges, corners, top, auto stock,
+two faces) with an X and a Y slot, a PLATE with a round and a rect boss, an
+X and a Y ridge, a rect pocket and a bore, a block turned +2 deg (edge
+angles) and a D20 ring gauge (CAL). The probe is a ball of T99's diameter
+less `probe_pretravel` (= `#3032`), so the expected results are the true
+geometry; the numbers are in `configs/mymill/vars`. One scenario per
+routine family runs it from the PROBE screen and checks the work offset
+written and the sizes reported (`needs probe-basic probe-geometry`).
+
+The same scenarios against millgui's own macros (`millgui/macros`, searched
+first; routines it lacks still come from Probe Basic and `subroutines/`):
+
+```sh
+millgui/harness/run -c mymill-own probe-routines
+```
 
 ## How it drives millgui
 

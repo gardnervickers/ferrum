@@ -1,0 +1,67 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; MEASURE rotary runout: o<probe_a_measure_runout> call [dia] [dir]. Needs
+; work Y0 Z0 on the A axis (parallel to X); the probe starts above the
+; cylinder near Y0 at the X station to measure. dia = diameter estimate
+; (> 0); dir 1 when +A moves the top of the work towards the operator, -1
+; the other way (0 counts as 1). After a guarded move to Y0 it touches the
+; top at A start + k x dir x 90, k = 0..3, rising to the first top + dia +
+; #3021 between; each radius (= probed Z) must be within max(25 %, 2 mm) of
+; dia/2. Reports measure_runout_tir_value (max - min),
+; measure_runout_high_angle_value (k x dir x 90 of the first highest
+; touch) and measure_runout_diameter_value (2 x mean). Ends with A back at
+; its start, at Y0, at that height. No offset write. Modes are restored.
+o<probe_a_measure_runout> sub
+o10 if [#<_task> EQ 0]
+    o<probe_a_measure_runout> return
+o10 endif
+o<millgui_rotary_ready> call [0]
+M73
+M50 P0
+G90 G94
+#<dia> = #1
+#<dir> = #2
+o20 if [#<dia> LE 0]
+    (ABORT, Diameter estimate must be positive)
+o20 endif
+o21 if [#<dir> EQ 0]
+    #<dir> = 1
+o21 endif
+#<a0> = #5423
+#<nom> = [#<dia> / 2]
+#<span> = [#<dia> + [2 * #3021]]
+o<millgui_guarded_move> call [0] [0 - #5421] [0]
+#<k> = 0
+#<sum> = 0
+o100 while [#<k> LT 4]
+    o<millgui_rotary_top> call [#<a0> + [#<k> * #<dir> * 90]] [#<span>]
+    #<z> = #<_value>
+    o110 if [#<k> EQ 0]
+        o<millgui_rotary_plausible> call [#<z>] [#<nom>] [0]
+        #<clear> = [#<z> + #<dia> + #3021]
+        #<lo> = #<z>
+        #<hi> = #<z>
+        #<high_angle> = 0
+    o110 else
+        o<millgui_rotary_plausible> call [#<z>] [#<nom>] [#<k> + 2]
+        o111 if [#<z> LT #<lo>]
+            #<lo> = #<z>
+        o111 endif
+        o112 if [#<z> GT #<hi>]
+            #<hi> = #<z>
+            #<high_angle> = [#<k> * #<dir> * 90]
+        o112 endif
+    o110 endif
+    #<sum> = [#<sum> + #<z>]
+    o<millgui_guarded_move> call [0] [0] [#<clear> - #5422]
+    #<k> = [#<k> + 1]
+o100 endwhile
+#<tir> = [#<hi> - #<lo>]
+#<diameter> = [2 * [#<sum> / 4]]
+(DEBUG, EVAL[vcp.getWidget{"measure_runout_tir_value"}.setValue{#<tir>}])
+(DEBUG, EVAL[vcp.getWidget{"measure_runout_high_angle_value"}.setValue{#<high_angle>}])
+(DEBUG, EVAL[vcp.getWidget{"measure_runout_diameter_value"}.setValue{#<diameter>}])
+G90 G1 A#<a0> F#3017
+o<millgui_guarded_move> call [0] [0 - #5421] [0]
+G90
+o<probe_a_measure_runout> endsub
+M2

@@ -379,20 +379,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
         };
         v.push(Check::new("probe.tool", G::Probe, L::Info, format!("The probe is T{tool}")).detail(format!("From {src}.")).fix(Fix::Setting("probe.tool")));
         v.extend(defaults_row(&pdefs, false));
-        let missing = missing_subs(cfg, crate::probe::MACROS);
-        if missing.len() == crate::probe::MACROS.len() {
-            v.push(
-                Check::new("probe.macros", G::Probe, L::Blocks(vec![Feature::Probe]), "The probe macros are not on SUBROUTINE_PATH")
-                    .detail("PROBE runs Probe Basic's probe_*.ngc macros, and none were found on [RS274NGC]SUBROUTINE_PATH. Add their folder to it and restart LinuxCNC."),
-            );
-        } else if !missing.is_empty() {
-            v.push(
-                Check::new("probe.macros", G::Probe, L::Attention, format!("{} probe macros not found", missing.len()))
-                    .detail(format!("Routines that call them stop with a message: {}.", missing.join(", "))),
-            );
-        } else {
-            v.push(Check::new("probe.macros", G::Probe, L::Ok, "Probe macros found"));
-        }
+        v.push(macros_row(cfg, &macros_dir()));
         match i.hal.pin_signal("motion.probe-input") {
             Some(Some(s)) if s.is_empty() => v.push(
                 Check::new("probe.input", G::Probe, L::Blocks(vec![Feature::Probe]), "motion.probe-input is not connected: a probe move would never stop")
@@ -461,6 +448,66 @@ pub fn run(i: &Inputs) -> Vec<Check> {
         v.push(Check::new("hal.up", G::Hal, L::Info, "LinuxCNC is not running: HAL wiring was not checked"));
     }
     v
+}
+
+/// millgui's probe macros (millgui/macros): `MILLGUI_MACROS`, else a
+/// `macros` folder beside the binary or up to three folders above it (a
+/// source checkout's target/release/millgui), else /usr/share/millgui/macros.
+pub fn macros_dir() -> Option<PathBuf> {
+    let has = |d: &Path| d.join("millgui_touch.ngc").is_file();
+    if let Some(d) = std::env::var_os("MILLGUI_MACROS").map(PathBuf::from) {
+        return has(&d).then_some(d);
+    }
+    let exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
+    if let Some(exe) = exe {
+        for dir in exe.ancestors().skip(1).take(4) {
+            for d in [dir.join("macros"), dir.join("share/millgui/macros")] {
+                if has(&d) {
+                    return Some(d);
+                }
+            }
+        }
+    }
+    Some(PathBuf::from("/usr/share/millgui/macros")).filter(|d| has(d))
+}
+
+/// Where PROBE's macros come from. `ours` is millgui's macro folder.
+fn macros_row(cfg: &Config, ours: &Option<PathBuf>) -> Check {
+    let dirs = subroutine_dirs(cfg);
+    let found = |n: &str| dirs.iter().find(|d| d.join(format!("{n}.ngc")).is_file()).cloned();
+    let missing = missing_subs(cfg, crate::probe::MACROS);
+    let same = |a: &Path, b: &Path| a.canonicalize().ok().zip(b.canonicalize().ok()).is_some_and(|(a, b)| a == b);
+    let ours_first = ours.as_ref().is_some_and(|o| found("millgui_touch").is_some_and(|d| same(&d, o)));
+    // The INI line that puts millgui's folder first.
+    let fix = |o: &Path| {
+        let rest = cfg.get("RS274NGC", "SUBROUTINE_PATH").map(str::trim).filter(|r| !r.is_empty());
+        Fix::IniLines {
+            section: "RS274NGC",
+            lines: vec![format!("SUBROUTINE_PATH = {}{}", o.display(), rest.map(|r| format!(":{r}")).unwrap_or_default())],
+        }
+    };
+    if missing.len() == crate::probe::MACROS.len() {
+        let c = Check::new("probe.macros", Group::Probe, Level::Blocks(vec![Feature::Probe]), "The probe macros are not on SUBROUTINE_PATH");
+        return match ours {
+            Some(o) => c.detail(format!("millgui's probe macros are in {}. Put that folder first on [RS274NGC]SUBROUTINE_PATH and restart LinuxCNC.", o.display())).fix(fix(o)),
+            None => c.detail("PROBE runs millgui's probe macros (millgui/macros), and they were not found. Put that folder first on [RS274NGC]SUBROUTINE_PATH and restart LinuxCNC."),
+        };
+    }
+    if !missing.is_empty() {
+        return Check::new("probe.macros", Group::Probe, Level::Attention, format!("{} probe macros not found", missing.len()))
+            .detail(format!("Routines that call them stop with a message: {}.", missing.join(", ")));
+    }
+    if ours_first {
+        return Check::new("probe.macros", Group::Probe, Level::Ok, "millgui's probe macros found");
+    }
+    // Another set (Probe Basic's, the machine's own) answers first.
+    let from = found("probe_x_plus_wco").map(|d| d.display().to_string()).unwrap_or_default();
+    let c = Check::new("probe.macros", Group::Probe, Level::Info, format!("Probe macros from {from}"))
+        .detail("Not millgui's own: PROBE expects their results in millgui's format (millgui/macros/SPEC.md).");
+    match ours {
+        Some(o) => c.fix(fix(o)),
+        None => c,
+    }
 }
 
 /// The probe's (or the tool setter's) stored values: missing ones stop the

@@ -1,0 +1,23 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; FIND single edge (millgui's LEFT EDGE). The probe starts at probing depth
+; beside the left face, within #3018 of it, and moves +X to touch
+; it once (o<millgui_edge>: fast touch, back off #3019, slow touch). The
+; edge is the contact plus the effective tip radius #5410 / 2 - #3032 and
+; is reported as x_plus_probed_position / #1006. With #3030 = 0
+; the active work offset's X is set so that the edge reads 0; no other
+; axis is written. No Z motion. Ends #3019 off the face at the same Z, with
+; the modal state as it was.
+o<probe_x_plus_wco> sub
+o10 if [#<_task> EQ 0]
+    o<probe_x_plus_wco> return
+o10 endif
+o<millgui_probe_ready> call
+M73
+M50 P0
+G90 G94
+o<millgui_edge> call [0] [1] [#3018]
+o20 if [#3030 EQ 0]
+    G10 L20 P0 X[#5420 - #<_millgui_edge>]
+o20 endif
+o<probe_x_plus_wco> endsub
+M2

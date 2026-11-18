@@ -8,8 +8,16 @@ latches all run as written. It never talks to the mill.
 
 The pretend stock is a block at machine X150..280, Y-140..-40 whose top the
 tool tip reaches at machine Z -250 (the tip is the spindle nose minus the
-tool table length of the tool in the spindle). The tool setter sits at the
-G30 spot with its top where `tool_touch_off.ngc` expects it (#3010).
+tool table length of the tool in the spindle). Beside it are a plate with
+bosses, ridges and pockets, a block turned 2 degrees and a ring gauge, for
+every PROBE routine; the table of them is at the top of `sim_card.py`
+(`python3 sim/sim_card.py --describe`). The probe tip is a ball of the
+tool's table diameter less a pretravel equal to `#3032`, so calibrated
+macros report the true geometry. The tool setter sits at the
+G30 spot with its top where `tool_touch_off.ngc` expects it (#3010); the
+tool's (or with no tool, the spindle nose's) face trips it. The sim's T7
+is 111.0 long whatever the tool table says (`SIM_TOOL_LENGTHS`).
+`make-config --macros DIR` puts DIR first on `SUBROUTINE_PATH`.
 Homing runs the INI's real search and latch moves: each home switch closes
 40 mm (`SIM_HOME_TRAVEL`) from where its joint started, in the search
 direction.

@@ -1,0 +1,28 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Preconditions for the tool setter macros (tool_touch_off,
+; probe_spindle_nose): o<millgui_setter_ready> call. No motion, no state
+; change. Aborts unless the coordinates are ready (o<millgui_coords_ready>:
+; G40, machine units, no G52/G92, no rotation), the setter fast feed #3004,
+; traverse feed #3006, max Z travel #3007 and retract #3009 are positive,
+; the slow feed #3005 is not negative (0 skips the slow touch), tool
+; diameter probing #3011 is off (not implemented), and, in diameter offset
+; mode #3012 = 1, the offset direction #3013 is 0 X-, 1 X+, 2 Y- or 3 Y+.
+o<millgui_setter_ready> sub
+o<millgui_coords_ready> call
+o100 if [[#3004 LE 0] OR [#3006 LE 0]]
+    (ABORT, Tool setter fast and traverse feeds must be positive)
+o100 endif
+o110 if [#3005 LT 0]
+    (ABORT, Tool setter slow feed must not be negative)
+o110 endif
+o120 if [[#3007 LE 0] OR [#3009 LE 0]]
+    (ABORT, Tool setter max Z travel and retract distance must be positive)
+o120 endif
+o130 if [#3011 EQ 1]
+    (ABORT, Tool diameter probing is not implemented: set it off)
+o130 endif
+o140 if [[#3012 EQ 1] AND [[#3013 LT 0] OR [#3013 GT 3] OR [FIX[#3013] NE #3013]]]
+    (ABORT, Tool setter offset direction must be 0 X-, 1 X+, 2 Y- or 3 Y+)
+o140 endif
+o<millgui_setter_ready> endsub
+M2

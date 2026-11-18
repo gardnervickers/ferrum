@@ -1,5 +1,5 @@
 # Variables for scenarios (${name}) and tags for `needs`/`xfail`.
-tags = mm probe-basic mymill-hal xyza drawbar pendant
+tags = mm probe-basic mymill-hal xyza drawbar pendant probe-geometry
 units = mm
 # A comfortable move in machine units, and a spot well inside travel (work = machine after G54 clear).
 dist = 10
@@ -27,3 +27,127 @@ probe_tol = 0.05
 # probe_basic.var's probe values.
 seed_slow = 80
 seed_xy_clear = 4
+
+# ---- PROBE routine geometry (scenarios/probe-routines) ----------------------
+# The sim's workpieces, from millgui/sim/sim_card.py (keep the two in step;
+# `python3 millgui/sim/sim_card.py --describe` prints them). Machine
+# coordinates, mm. Expected results are the true geometry: the sim's probe
+# ball is T99's D/2 less probe_pretravel, which #3032 in probe_basic.var
+# takes out again.
+probe_len = 125.7175                # T99's table length: machine Z = tip Z + this
+probe_pretravel = 0.059025          # = #3032 (calibration offset) in probe_basic.var
+geom_tol = 0.02                     # tolerance on a probed edge, width or offset (the sim trips 1-5 ms late: up to ~0.007 per touch)
+angle_tol = 0.02                    # degrees
+# A G54 to start from, not zero, so that a macro that drops the WCS's own offset shows.
+wcs0_x = 12.5
+wcs0_y = -7.25
+wcs0_z = -30
+# Travel height (machine Z; the tip is then at -175.7, above everything).
+travel_z = -50
+# STOCK block: X150..280 Y-140..-40, top -250.
+stock_x_min = 150
+stock_x_max = 280
+stock_y_min = -140
+stock_y_max = -40
+stock_cx = 215
+stock_cy = -90
+stock_w = 130
+stock_h = 100
+stock_top = -250
+stock_above_mz = -119.2825          # tip 5 above the top (-245)
+stock_depth_mz = -129.2825          # tip 5 below the top (-255)
+# Starts 15 outside each face, and 3 in from each corner (over the top).
+edge_left_x = 135
+edge_right_x = 292
+edge_front_y = -155
+edge_back_y = -25
+corner_l_x = 153
+corner_r_x = 277
+corner_f_y = -137
+corner_b_y = -43
+# Slots cut 10 deep into the STOCK top (floor -260): X valley 14 wide in X,
+# Y valley 14 wide in Y; start at their middle, tip 5 below the top.
+xvalley_x = 180
+xvalley_y = -90
+yvalley_x = 247.5
+yvalley_y = -65
+valley_w = 14
+# PLATE: X295..425 Y-175..-5, top -260, with the features below.
+plate_top = -260
+plate_above_mz = -124.2825          # tip 10 above the plate top (-250): Z top start
+plate_depth_mz = -139.2825          # tip 5 below the plate top (-265): in a pocket
+feature_top = -250                  # bosses and ridges stand 10 above the plate
+feature_above_mz = -119.2825        # tip 5 above a boss or ridge (-245)
+ztop_x = 415                        # a clear corner of the plate top
+ztop_y = -165
+boss_x = 325                        # round boss D30
+boss_y = -35
+boss_d = 30
+xridge_x = 325                      # X ridge: 12 wide in X, 40 long
+xridge_y = -145
+yridge_x = 380                      # Y ridge: 12 wide in Y, 40 long
+yridge_y = -145
+ridge_w = 12
+pocket_x = 325                      # rect pocket 40 (X) x 30 (Y), floor -270
+pocket_y = -90
+pocket_w = 40
+pocket_h = 30
+pocket_x_min = 305
+pocket_x_max = 345
+pocket_y_min = -105
+pocket_y_max = -75
+ipocket_l_x = 302                   # inside corner starts: 3 outside each corner, over the plate
+ipocket_r_x = 348
+ipocket_f_y = -108
+ipocket_b_y = -72
+bore_x = 380                        # bore D30, floor -270
+bore_y = -90
+bore_d = 30
+# TILTED block: 80 x 80 at (85,-125) turned +2 deg, top -255. Edge angles
+# start 3 inside an edge, 15 from a corner, the tip 5 above the top; the
+# second touch is #3024 (50) along. Edges are as the macros report them
+# (D/2 - #3032 added square to the probing axis: 0.0009 off the slanted
+# face's true point, well inside geom_tol).
+tilt_top = -255
+tilt_above_mz = -124.2825
+tilt_angle = 2.0
+tilt_delta = 1.746                  # 50 tan 2deg
+tilt_left_x = 47.1                  # left edge (X+), start Y -100, second Y -150
+tilt_left_y = -100
+tilt_left_edge = 44.1017
+tilt_right_x = 122.9                # right edge (X-), start Y -150, second Y -100
+tilt_right_y = -150
+tilt_right_edge = 125.8983
+tilt_front_x = 60                   # front edge (Y+), start X 60, second X 110
+tilt_front_y = -162.9
+tilt_front_edge = -165.8983
+tilt_back_x = 110                   # back edge (Y-), start X 110, second X 60
+tilt_back_y = -87.1
+tilt_back_edge = -84.1017
+# What Probe Basic's edge-angle macros write to the other axis: the start's
+# *work* coordinate (start - wcs0), not the machine one (see edge-angle.scn).
+tilt_left_wy = -92.75
+tilt_right_wy = -142.75
+tilt_front_wx = 47.5
+tilt_back_wx = 97.5
+# RING gauge: bore D20 at (45,-60), top -265. CAL starts over the ring
+# 13 left of its centre, the tip 5 above the top.
+ring_x = 45
+ring_y = -60
+ring_d = 20
+ring_top = -265
+ring_start_x = 32
+ring_above_mz = -134.2825
+# CAL measures the ring before applying the new offset (#3032 = 0 meanwhile),
+# so its diameter reads ring_d + 2 x probe_pretravel.
+ring_d_uncal = 20.118
+# The sim trips a servo period or two late (about 3 um per touch at the
+# 80 mm/min slow feed), and CAL turns that straight into #3032: it reads
+# about 0.062 here.
+cal_tol = 0.01
+# Tool setter: the sim's T7 is physically 111.0 long (its table says
+# 109.232434), and the setter top is 286.873159 below machine Z0 (#3010).
+setter_tool = 7
+setter_tool_len = 111.0
+setter_depth = 286.873159
+setter_zmax = 287.160032            # #3007 the nose macro writes: 1.001 x #3010

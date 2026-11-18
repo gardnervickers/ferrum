@@ -1,0 +1,16 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Rotary top touch: o<millgui_rotary_top> call [A] [span]. Turns A to [A]
+; (absolute, at the current height, feed #3017), then touches down with
+; o<millgui_touch> for up to min([span], #3020). Returns the probed Z (tip
+; bottom, current work coordinates) in #<_value>; the probe is left where
+; millgui_touch leaves it, above the surface.
+o<millgui_rotary_top> sub
+G90 G1 A#1 F#3017
+#<span> = #2
+o100 if [#<span> GT #3020]
+    #<span> = #3020
+o100 endif
+o<millgui_touch> call [2] [-1] [#<span>]
+G90
+o<millgui_rotary_top> endsub [#<_millgui_hit>]
+M2

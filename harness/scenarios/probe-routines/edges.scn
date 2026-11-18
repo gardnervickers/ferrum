@@ -1,0 +1,48 @@
+title FIND single edges X+ X- Y+ Y- on the sim STOCK block write that axis of G54
+needs probe-basic probe-geometry
+# Each run starts 15 outside a face with the tip 5 below the top and writes
+# only its own axis: the face (D/2 - #3032 added), in machine coordinates.
+include ../common/probe-start.scn
+do probe-shape "block"
+do probe-opt "angle-off"
+do probe-wcs "G54"
+
+# LEFT EDGE: probe_x_plus_wco, toward +X onto X${stock_x_min}.
+mdi G53 G0 X${edge_left_x} Y${stock_cy}
+mdi G53 G1 Z${stock_depth_mz} F2000
+do probe-target "e-l"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${stock_x_min} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+expect prop.pr-result contains "Written to G54"
+
+# RIGHT EDGE: probe_x_minus_wco, toward -X onto X${stock_x_max}.
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${edge_right_x} Y${stock_cy}
+mdi G53 G1 Z${stock_depth_mz} F2000
+do probe-target "e-r"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${stock_x_max} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+
+# FRONT EDGE: probe_y_plus_wco, toward +Y onto Y${stock_y_min}.
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${stock_cx} Y${edge_front_y}
+mdi G53 G1 Z${stock_depth_mz} F2000
+do probe-target "e-f"
+include ../common/probe-run.scn
+expect stat.g5x_offset[1] ~= ${stock_y_min} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+
+# BACK EDGE: probe_y_minus_wco, toward -Y onto Y${stock_y_max}.
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${stock_cx} Y${edge_back_y}
+mdi G53 G1 Z${stock_depth_mz} F2000
+do probe-target "e-b"
+include ../common/probe-run.scn
+expect stat.g5x_offset[1] ~= ${stock_y_max} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot edges-done

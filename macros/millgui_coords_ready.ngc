@@ -1,0 +1,28 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Coordinate readiness shared by every millgui probe, tool setter and nose
+; macro: o<millgui_coords_ready> call [allow rotation]. Aborts, without
+; moving or changing anything, when cutter compensation is on, when the
+; program units are not the machine's own units (all #30xx values, the G30
+; position and tool table lengths are in machine units, so the macros work
+; in them and never switch G20/G21 themselves), when a G52/G92 offset is
+; in effect, or when the active work system is rotated. [allow rotation] = 1
+; skips only the rotation check (an edge-angle run that rewrites it).
+o<millgui_coords_ready> sub
+#<allow_rotation> = #1
+o100 if [#<_ccomp> NE 400]
+    (ABORT, Cancel cutter compensation with G40 before probing)
+o100 endif
+; #<_metric_machine> is 1 or 0 from [TRAJ]LINEAR_UNITS, -1 without an INI
+; file (stand-alone interpreter), where the check is skipped. LinuxCNC
+; only recognises the spelling "inch" there as inch.
+o110 if [[#<_metric_machine> GE 0] AND [#<_metric> NE #<_metric_machine>]]
+    (ABORT, Select the machine's own units with G20 or G21 before probing: probe settings are in machine units)
+o110 endif
+o120 if [[ABS[#5211] + ABS[#5212] + ABS[#5213] + ABS[#5214] + ABS[#5215] + ABS[#5216] + ABS[#5217] + ABS[#5218] + ABS[#5219]] GT 0]
+    (ABORT, Clear G52 and G92 offsets before probing)
+o120 endif
+o130 if [[#<allow_rotation> EQ 0] AND [#[5210 + 20 * #5220] NE 0]]
+    (ABORT, Probing needs an unrotated work coordinate system)
+o130 endif
+o<millgui_coords_ready> endsub
+M2

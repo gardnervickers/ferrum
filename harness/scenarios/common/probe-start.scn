@@ -1,0 +1,6 @@
+# For scenarios/probe-routines: ready, the probe (T99) loaded from the PROBE
+# screen, G54 at a known offset that is not zero (${wcs0_*}), at travel height.
+include ready.scn
+include load-probe.scn
+include probe-wcs0.scn
+do probe-mode "find"

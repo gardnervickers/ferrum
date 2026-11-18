@@ -1,0 +1,35 @@
+title CAL probe tip in the sim ring gauge: #3032 comes back as the probe's pretravel
+needs probe-basic probe-geometry
+# RING gauge: bore D${ring_d} at (${ring_x},${ring_y}), top ${ring_top}. The
+# sim's ball is D/2 - ${probe_pretravel}, so a correct calibration finds
+# #3032 = ${probe_pretravel}. Start over the ring 13 left of its centre, the
+# tip 5 above it: the macro touches the ring top, steps 6 into the bore and
+# measures it twice.
+include ../common/probe-start.scn
+# A wrong offset first, so a pass means the routine worked it out.
+mdi #3032=0.5
+do probe-mode "cal"
+do probe-shape "ring"
+do edit "prun-3033"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "2"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${ring_start_x} Y${ring_y}
+mdi G53 G1 Z${ring_above_mz} F2000
+include ../common/probe-run.scn
+# The macro measures with #3032 = 0, so the diameter it reports is the
+# ring plus twice the pretravel (Probe Basic's real behaviour).
+expect prop.pr-result{Diameter} ~= ${ring_d_uncal} +- ${geom_tol}
+expect prop.pr-result{Calibration offset (saved)} ~= ${probe_pretravel} +- ${cal_tol}
+mdi (DEBUG,P3032=#3032)
+wait prop.messages contains "P3032=" within 5
+expect prop.messages{P3032=} ~= ${probe_pretravel} +- ${cal_tol}
+# CAL runs report only (millgui sets #3030 = 1): G54 is untouched.
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot cal-ring-done

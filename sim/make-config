@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a LinuxCNC *simulator* config for millgui from the mill's own files.
 
-    millgui/sim/make-config OUT_DIR [--probe-basic DIR]
+    millgui/sim/make-config OUT_DIR [--probe-basic DIR] [--macros DIR]
 
 OUT_DIR gets mymill.ini and mymill.hal rewritten for the simulator, the
 repo's millgui.ini, and links to subroutines, python, scripts and millgui.
@@ -10,6 +10,9 @@ What changes from the real config:
   position command is looped straight back as its feedback (no stepgens, no
   PID). Every other line of mymill.hal runs as written: the drawbar and
   spindle interlocks, HLFB arming, probe manager, touch-off latches.
+- `--macros DIR` puts DIR first on [RS274NGC]SUBROUTINE_PATH, so its
+  probe macros (millgui/macros) are found before the mill's subroutines and
+  Probe Basic's; any routine it lacks still comes from those.
 - Homing is immediate (no switch search), the pendant HAL file is replaced by
   a stand-in driver (sim_pendant.py) with the nets millgui cares about,
   and PROGRAM_PREFIX points at OUT_DIR/nc_files.
@@ -26,7 +29,7 @@ REPO = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 
 
-def ini(text: str, out: Path) -> str:
+def ini(text: str, out: Path, macros: Path | None = None) -> str:
     lines, section = [], ""
     for line in text.splitlines():
         s = line.strip()
@@ -39,6 +42,9 @@ def ini(text: str, out: Path) -> str:
                 lines.append("HALFILE = sim_pendant.hal")
             continue
         if section == "[HMOT]":
+            continue
+        if section == "[RS274NGC]" and key == "SUBROUTINE_PATH" and macros is not None:
+            lines.append(f"SUBROUTINE_PATH = {macros}:{s.split('=', 1)[1].strip()}")
             continue
         if key == "PROGRAM_PREFIX":
             lines.append(f"PROGRAM_PREFIX = {out / 'nc_files'}")
@@ -93,11 +99,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out", type=Path)
     ap.add_argument("--probe-basic", type=Path, help="probe_basic checkout, if vendor/probe_basic is empty")
+    ap.add_argument("--macros", type=Path, help="a folder of probe macros searched before all others")
     a = ap.parse_args()
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     (out / "nc_files").mkdir(exist_ok=True)
-    (out / "mymill.ini").write_text(ini((REPO / "mymill.ini").read_text(), out))
+    macros = a.macros.resolve() if a.macros else None
+    if macros is not None and not macros.is_dir():
+        ap.error(f"--macros {macros}: no such folder")
+    (out / "mymill.ini").write_text(ini((REPO / "mymill.ini").read_text(), out, macros))
     (out / "mymill.hal").write_text(hal((REPO / "mymill.hal").read_text()))
     # The display is whatever millgui build MILLGUI_BIN names (NML backend).
     gui = (REPO / "millgui.ini").read_text().replace("DISPLAY = ./millgui/run", "DISPLAY = ./display")

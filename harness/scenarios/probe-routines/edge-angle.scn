@@ -1,0 +1,67 @@
+title FIND edge + angle on the four edges of the sim TILTED block (+2 deg)
+needs probe-basic probe-geometry
+# The TILTED block (80 x 80 at (80,-85), turned +2 deg CCW, top -255).
+# Each run starts over the top 3 in from the edge, the tip 5 above it;
+# the macro touches the top (Z), steps off, touches the edge, moves #3024
+# (50) along it and touches again: angle = atan(delta / 50), +2 on every
+# edge. It writes X (or Y) so the first touch is 0 and Z at the top.
+#
+# Probe Basic quirk (SPEC.md Q5), recorded as its real behaviour: the
+# other axis gets the start's *work* coordinate as its offset
+# (G10 L2 Y[#<y_start_position>] with no + offset), so with G54 at
+# wcs0 it is start - wcs0 (tilt_*_wy / tilt_*_wx), not a machine value.
+# millgui's own macros leave that axis alone: configs/mymill-own/vars.extra
+# sets tilt_*_wy / tilt_*_wx to its wcs0 value.
+include ../common/probe-start.scn
+do probe-shape "block"
+do probe-opt "angle-on"
+do probe-wcs "G54"
+
+# LEFT edge: probe_top_left_edge_angle (X+, second touch 50 toward -Y).
+mdi G53 G0 X${tilt_left_x} Y${tilt_left_y}
+mdi G53 G1 Z${tilt_above_mz} F2000
+do probe-target "e-l"
+include ../common/probe-run.scn
+expect prop.pr-result{Edge angle (not applied)} ~= ${tilt_angle} +- ${angle_tol}
+expect prop.pr-result{Edge delta} ~= ${tilt_delta} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${tilt_left_edge} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${tilt_left_wy} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${tilt_top} +- ${geom_tol}
+
+# RIGHT edge: probe_top_right_edge_angle (X-, second touch 50 toward +Y).
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${tilt_right_x} Y${tilt_right_y}
+mdi G53 G1 Z${tilt_above_mz} F2000
+do probe-target "e-r"
+include ../common/probe-run.scn
+expect prop.pr-result{Edge angle (not applied)} ~= ${tilt_angle} +- ${angle_tol}
+expect prop.pr-result{Edge delta} ~= ${tilt_delta} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${tilt_right_edge} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${tilt_right_wy} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${tilt_top} +- ${geom_tol}
+
+# FRONT edge: probe_top_front_edge_angle (Y+, second touch 50 toward +X).
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${tilt_front_x} Y${tilt_front_y}
+mdi G53 G1 Z${tilt_above_mz} F2000
+do probe-target "e-f"
+include ../common/probe-run.scn
+expect prop.pr-result{Edge angle (not applied)} ~= ${tilt_angle} +- ${angle_tol}
+expect prop.pr-result{Edge delta} ~= ${tilt_delta} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${tilt_front_edge} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${tilt_front_wx} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${tilt_top} +- ${geom_tol}
+
+# BACK edge: probe_top_back_edge_angle (Y-, second touch 50 toward -X).
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${tilt_back_x} Y${tilt_back_y}
+mdi G53 G1 Z${tilt_above_mz} F2000
+do probe-target "e-b"
+include ../common/probe-run.scn
+expect prop.pr-result{Edge angle (not applied)} ~= ${tilt_angle} +- ${angle_tol}
+expect prop.pr-result{Edge delta} ~= ${tilt_delta} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${tilt_back_edge} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${tilt_back_wx} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${tilt_top} +- ${geom_tol}
+mdi G53 G0 Z${travel_z}
+shot edge-angle-done

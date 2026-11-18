@@ -103,7 +103,7 @@ const PARAMS: &[Param] = &[
     p(3033, "Ring gauge diameter", "mm", "cal"),
     p(3034, "Cal block X width", "mm", "cal"),
     p(3035, "Cal block Y width", "mm", "cal"),
-    s(3036, "Cal axis", &["X", "Y", "X+Y"], "cal"),
+    s(3036, "Cal axis", &["X+Y", "X", "Y"], "cal"),
     p(3037, "Breakage tolerance", "mm", "cal"),
 ];
 
@@ -674,8 +674,10 @@ impl Probe {
         // Run values that differ from the defaults; FIND writes the WCO,
         // MEASURE and CAL report only.
         let mut run: BTreeMap<u16, f64> = self.runv.clone();
-        if self.mode == "find" && Self::needs(t.kind) == Needs::Probe {
-            run.insert(3030, 0.0);
+        // FIND writes the work offset; MEASURE and CAL only report (the
+        // ring calibration would otherwise move the active work zero).
+        if Self::needs(t.kind) == Needs::Probe {
+            run.insert(3030, if self.mode == "find" { 0.0 } else { 1.0 });
         }
         run.retain(|n, v| self.defaults.get(n) != Some(v));
         // Defaults LinuxCNC does not hold yet (the quiet-time write has not
@@ -691,6 +693,12 @@ impl Probe {
             self.mark_dirty(true);
         }
         steps.push(call);
+        // mymill.hal latches "nose reference valid" from digital out 7;
+        // millgui's own nose macro uses no HAL, so millgui pulses it after a
+        // nose run that succeeded (only where that latch exists).
+        if t.kind == "nose" && self.io.as_ref().is_some_and(|io| io.read().nose_reference.is_some()) {
+            steps.extend(["M64 P7", "G4 P0.1", "M65 P7"].map(String::from));
+        }
         if target != active {
             restore.push(WCS[active].to_string());
         }

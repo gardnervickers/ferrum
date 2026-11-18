@@ -1,0 +1,19 @@
+title CAL spindle nose on the sim setter measures #3010 (and sets #3007)
+needs probe-basic probe-geometry
+# Empty spindle; the nose (D40 from [TOOL_SETTER]) comes down over the
+# setter, offset by its radius, and trips at ${setter_depth} below Z0.
+include ../common/ready.scn
+sleep 4                                   # millgui's default write runs 3 s after things go still
+idle 30
+# A wrong value first, so a pass means the routine measured it.
+mdi #3010=280
+screen probe
+do probe-mode "cal"
+do probe-shape "nose"
+include ../common/probe-run.scn
+expect prop.pr-result{Spindle zero height (saved)} ~= ${setter_depth} +- ${geom_tol}
+mdi (DEBUG,P3010=#3010 P3007=#3007)
+wait prop.messages contains "P3010=" within 5
+expect prop.messages{P3010=} ~= ${setter_depth} +- ${geom_tol}
+expect prop.messages{P3007=} ~= ${setter_zmax} +- ${geom_tol}
+shot spindle-nose-done

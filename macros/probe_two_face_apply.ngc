@@ -1,0 +1,44 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Applies a completed two-face measurement (probe_two_face stages 1 and 2):
+; o<probe_two_face_apply> call [token], token = the one stage 2 was called
+; with. No motion. The stored result is used up first, so a failed or
+; repeated apply needs a new measurement. Aborts unless stage 2 completed
+; with this token, the setup is unchanged and #3030 = 0 (write work
+; offset). Then sets the active work offset on the measured axis so the
+; centre between the faces reads 0, and reports
+; two_face_probe_panel.receive_result{3, token, first, second, width,
+; centre}. Does nothing in preview. Modes are restored on return (M73).
+o<probe_two_face_apply> sub
+o10 if [#<_task> EQ 0]
+    o<probe_two_face_apply> return
+o10 endif
+M73
+o100 if [EXISTS[#<_millgui_tf_valid>]]
+    #<previous> = #<_millgui_tf_valid>
+o100 else
+    #<previous> = 0
+o100 endif
+#<_millgui_tf_valid> = 0
+o101 if [#<previous> NE 2]
+    (ABORT, Two completed faces are required)
+o101 endif
+o102 if [#1 NE #<_millgui_tf_token>]
+    (ABORT, Stale two-face result - start over)
+o102 endif
+o<millgui_two_face_context> call [0]
+o103 if [#3030 NE 0]
+    (ABORT, Result mode is position only - select WRITE WCO to set zero)
+o103 endif
+G90
+o110 if [#<_millgui_tf_axis> EQ 0]
+    G10 L20 P0 X[#5420 - #<_millgui_tf_center>]
+o110 else
+    G10 L20 P0 Y[#5421 - #<_millgui_tf_center>]
+o110 endif
+#<f> = #<_millgui_tf_first>
+#<s> = #<_millgui_tf_second>
+#<w> = #<_millgui_tf_width>
+#<c> = #<_millgui_tf_center>
+(DEBUG, EVAL[vcp.getWidget{"two_face_probe_panel"}.receive_result{3,#1,#<f>,#<s>,#<w>,#<c>}])
+o<probe_two_face_apply> endsub
+M2

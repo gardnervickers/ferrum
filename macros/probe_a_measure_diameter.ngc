@@ -1,0 +1,68 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; MEASURE rotary diameter: o<probe_a_measure_diameter> call [dia] [dir].
+; Needs work Y0 Z0 on the A axis (parallel to X); the probe starts above
+; the cylinder near Y0 at the X station to measure. dia = diameter estimate
+; (> 0); dir 1 when +A moves the top of the work towards the operator, -1
+; the other way (0 counts as 1). Touches the top at A start (radius = Z),
+; then the side from -Y at A start + dir x 90 and from +Y at A start -
+; dir x 90 (radius = |Y|), the sides with the ball's centre at work Z0;
+; every radius must
+; be within max(25 %, 2 mm) of dia/2. Reports measure_diameter_value
+; (2 x mean radius) and measure_diameter_spread_value (2 x (max - min)).
+; Ends with A back at its start, at Y0, above the cylinder. No offset
+; write. Modes are restored (M73).
+o<probe_a_measure_diameter> sub
+o10 if [#<_task> EQ 0]
+    o<probe_a_measure_diameter> return
+o10 endif
+o<millgui_rotary_ready> call [1]
+M73
+M50 P0
+G90 G94
+#<dia> = #1
+#<dir> = #2
+o20 if [#<dia> LE 0]
+    (ABORT, Diameter estimate must be positive)
+o20 endif
+o21 if [#<dir> EQ 0]
+    #<dir> = 1
+o21 endif
+#<a0> = #5423
+#<nom> = [#<dia> / 2]
+#<r> = [[#5410 / 2] - #3032]
+o<millgui_guarded_move> call [0] [0 - #5421] [0]
+o<millgui_rotary_top> call [#<a0>] [#<dia> + [2 * #3021]]
+#<rt> = #<_value>
+o<millgui_rotary_plausible> call [#<rt>] [#<nom>] [0]
+#<clear> = [#<rt> + #<dia> + #3021]
+#<standoff> = [#<nom> + #3019 + #<r> + [2 * #<_millgui_mm>]]
+#<span> = [#<dia> + [2 * #3019] + [2 * #<r>] + [4 * #<_millgui_mm>]]
+o<millgui_rotary_side> call [1] [#<a0> + [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [0]
+#<r1> = ABS[#<_value>]
+o<millgui_rotary_plausible> call [#<r1>] [#<nom>] [1]
+o<millgui_rotary_side> call [-1] [#<a0> - [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [0]
+#<r2> = ABS[#<_value>]
+o<millgui_rotary_plausible> call [#<r2>] [#<nom>] [2]
+#<lo> = #<rt>
+#<hi> = #<rt>
+o30 if [#<r1> LT #<lo>]
+    #<lo> = #<r1>
+o30 endif
+o31 if [#<r2> LT #<lo>]
+    #<lo> = #<r2>
+o31 endif
+o32 if [#<r1> GT #<hi>]
+    #<hi> = #<r1>
+o32 endif
+o33 if [#<r2> GT #<hi>]
+    #<hi> = #<r2>
+o33 endif
+#<diameter> = [2 * [[#<rt> + #<r1> + #<r2>] / 3]]
+#<spread> = [2 * [#<hi> - #<lo>]]
+(DEBUG, EVAL[vcp.getWidget{"measure_diameter_value"}.setValue{#<diameter>}])
+(DEBUG, EVAL[vcp.getWidget{"measure_diameter_spread_value"}.setValue{#<spread>}])
+G90 G1 A#<a0> F#3017
+o<millgui_guarded_move> call [0] [0 - #5421] [0]
+G90
+o<probe_a_measure_diameter> endsub
+M2

@@ -1,0 +1,39 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Applies a completed automatic stock measurement (probe_auto_stock_center):
+; o<probe_auto_stock_apply> call [token], token = the one the measurement
+; was made with. No motion. The stored result is used up first, so a
+; failed or repeated apply needs a new measurement. Aborts unless the
+; measurement completed with this token, the setup and Z height are
+; unchanged, both widths are positive and #3030 = 0 (write work offset).
+; Then sets the active work offset so the stock centre reads X0 Y0 and
+; reports auto_stock_panel.receive_applied{token, center_x, center_y}.
+; Does nothing in preview. Modes are restored on return (M73).
+o<probe_auto_stock_apply> sub
+o10 if [#<_task> EQ 0]
+    o<probe_auto_stock_apply> return
+o10 endif
+M73
+o100 if [EXISTS[#<_millgui_as_valid>]]
+    #<was_valid> = #<_millgui_as_valid>
+o100 else
+    #<was_valid> = 0
+o100 endif
+#<_millgui_as_valid> = 0
+o101 if [#<was_valid> NE 1]
+    (ABORT, No completed automatic stock measurement)
+o101 endif
+o102 if [#1 NE #<_millgui_as_token>]
+    (ABORT, Stale automatic stock result)
+o102 endif
+o<millgui_stock_context> call [0]
+o103 if [[#<_millgui_as_width_x> LE 0] OR [#<_millgui_as_width_y> LE 0]]
+    (ABORT, Automatic stock widths are invalid)
+o103 endif
+o104 if [#3030 NE 0]
+    (ABORT, Result mode is position only - select WRITE WCO to set zero)
+o104 endif
+G90
+G10 L20 P0 X[#5420 - #<_millgui_as_center_x>] Y[#5421 - #<_millgui_as_center_y>]
+(DEBUG, EVAL[vcp.getWidget{"auto_stock_panel"}.receive_applied{#1,#<_millgui_as_center_x>,#<_millgui_as_center_y>}])
+o<probe_auto_stock_apply> endsub
+M2

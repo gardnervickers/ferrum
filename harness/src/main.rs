@@ -105,7 +105,9 @@ fn load_configs(root: &Path) -> Vec<Config> {
         }
         let name = e.file_name().to_string_lossy().to_string();
         let mut vars = HashMap::from([("config".to_string(), name.clone())]);
-        if let Ok(t) = std::fs::read_to_string(dir.join("vars")) {
+        // `vars`, then `vars.extra` on top (a config that shares another's
+        // vars through a link overrides a few there).
+        for t in ["vars", "vars.extra"].iter().filter_map(|f| std::fs::read_to_string(dir.join(f)).ok()) {
             for l in t.lines() {
                 let l = l.split(" #").next().unwrap_or("").trim();
                 if l.starts_with('#') {

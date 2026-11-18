@@ -1,0 +1,181 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; FIND stock centre: measures an axis-aligned rectangular block by walking
+; round its outside at one depth. o<probe_auto_stock_center> call [side]
+; [span] [token]; side = the face the probe starts beside (0 LEFT, 1 RIGHT,
+; 2 FRONT, 3 BACK), span = largest stock size to search (> 0), token =
+; positive integer receipt for millgui. The probe starts at depth outside
+; that face, within #3018 of it. It touches the face, scans along it both
+; ways with short exploratory touches until they miss (the face's ends),
+; moves just inside the near face beyond each end and touches the two side
+; faces, follows one side face outwards to find the far face's end, and
+; touches the far face at the middle. No Z motion, no move across the
+; stock, every positioning move guarded, no work offset write. Reports
+; auto_stock_panel.receive_result{token, x_min, x_max, y_min, y_max,
+; width_x, width_y, center_x, center_y} (compensated faces) and keeps it
+; for probe_auto_stock_apply. Does nothing in preview. Modes are restored
+; on return (M73). Ends #3019 outside the far face at its middle.
+o<probe_auto_stock_center> sub
+o10 if [#<_task> EQ 0]
+    o<probe_auto_stock_center> return
+o10 endif
+M73
+#<side> = #1
+#<span> = #2
+#<_millgui_as_token> = #3
+#<_millgui_as_valid> = 0
+o100 if [[#<side> LT 0] OR [#<side> GT 3] OR [FIX[#<side>] NE #<side>]]
+    (ABORT, Choose LEFT 0, RIGHT 1, FRONT 2, or BACK 3)
+o100 endif
+o101 if [#<span> LE 0]
+    (ABORT, Automatic stock maximum span must be positive)
+o101 endif
+o102 if [[#<_millgui_as_token> LE 0] OR [FIX[#<_millgui_as_token>] NE #<_millgui_as_token>]]
+    (ABORT, Automatic stock receipt token must be a positive integer)
+o102 endif
+o<millgui_probe_ready> call
+o103 if [[#3015 LT 0] OR [#3016 LE 0] OR [#3017 LE 0] OR [#3018 LE 0] OR [#3019 LE 0]]
+    (ABORT, Automatic stock probe feeds, reach, and clearance must be positive)
+o103 endif
+o104 if [[#5410 LE 0] OR [[[#5410 / 2] - #3032] LE 0]]
+    (ABORT, Automatic stock probe radius or calibration is invalid)
+o104 endif
+o<millgui_stock_context> call [1]
+M50 P0
+G90 G94
+
+; Normal axis/direction: the first touch. Tangent axis: along that face.
+#<n_axis> = 0
+#<n_dir> = 1
+o110 if [#<side> EQ 1]
+    #<n_dir> = -1
+o110 elseif [#<side> EQ 2]
+    #<n_axis> = 1
+o110 elseif [#<side> EQ 3]
+    #<n_axis> = 1
+    #<n_dir> = -1
+o110 endif
+#<t_axis> = [1 - #<n_axis>]
+#<r> = [[#5410 / 2] - #3032]
+#<step> = [#3018 / 4]
+#<cap> = [[#3018 - [2 * #<r>] - [2 * #3019]] / 2]
+o111 if [#<step> GT #<cap>]
+    #<step> = #<cap>
+o111 endif
+o112 if [#<step> LE 0]
+    (ABORT, Maximum XY probe reach is too short for probe radius and clearance)
+o112 endif
+o113 if [#<span> LT [2 * #<step>]]
+    (ABORT, Maximum stock span is too short for a bounded corner search)
+o113 endif
+
+; 1. The near face.
+o<millgui_stock_edge> call [#<n_axis>] [#<n_dir>]
+#<near> = #<_value>
+#<lane> = #[5420 + #<n_axis>]
+#<t_start> = #[5420 + #<t_axis>]
+
+; 2. Both ends of the near face, staying outside it.
+o<millgui_stock_scan> call [#<n_axis>] [#<n_dir>] [#<t_axis>] [1] [#<span>] [#<step>] [#3018]
+#<t_plus_miss> = #[5420 + #<t_axis>]
+o<millgui_axis_move> call [#<t_axis>] [#<t_start> - #<t_plus_miss>]
+o<millgui_stock_scan> call [#<n_axis>] [#<n_dir>] [#<t_axis>] [-1] [#<span>] [#<step>] [#3018]
+#<t_minus_miss> = #[5420 + #<t_axis>]
+
+; 3. A lane just inside the near face, beyond the -t end.
+#<inside> = [#<near> + [#<n_dir> * [#<r> + [2 * #3019]]]]
+o120 if [ABS[#<inside> - #<near>] GE #<span>]
+    (ABORT, Initial inward sample exceeds the maximum stock span)
+o120 endif
+o<millgui_axis_move> call [#<n_axis>] [#<inside> - #<lane>]
+
+; 4. The -t face, then round the outside to the +t face.
+o<millgui_stock_edge> call [#<t_axis>] [1]
+#<t_minus_edge> = #<_value>
+o<millgui_axis_move> call [#<t_axis>] [#<t_minus_miss> - #[5420 + #<t_axis>]]
+o<millgui_axis_move> call [#<n_axis>] [#<lane> - #<inside>]
+o<millgui_axis_move> call [#<t_axis>] [#<t_plus_miss> - #<t_minus_miss>]
+o<millgui_axis_move> call [#<n_axis>] [#<inside> - #<lane>]
+o<millgui_stock_edge> call [#<t_axis>] [-1]
+#<t_plus_edge> = #<_value>
+o<millgui_axis_move> call [#<t_axis>] [#<t_plus_miss> - #[5420 + #<t_axis>]]
+
+; 5. The +t face must be there at this sample.
+o<millgui_stock_touch> call [#<t_axis>] [-1] [#3018]
+o130 if [#<_value> NE 1]
+    (ABORT, Adjacent face was not found at the interior sample)
+o130 endif
+
+; 6. Follow the +t face outwards to the far face's end.
+#<left> = [#<span> - ABS[#<inside> - #<near>]]
+o131 if [#<left> LT #<step>]
+    (ABORT, Maximum stock span leaves no room to find the opposite face)
+o131 endif
+o<millgui_stock_scan> call [#<t_axis>] [-1] [#<n_axis>] [#<n_dir>] [#<left>] [#<step>] [#3018]
+#<far_miss> = #[5420 + #<n_axis>]
+
+; 7. Out to the far lane, along it to the middle, touch the far face.
+#<far_lane> = [#<far_miss> + [#<n_dir> * #3019]]
+o132 if [ABS[#<far_lane> - #<near>] GT [#<span> + #3019]]
+    (ABORT, Opposite face approach exceeds stock span plus clearance)
+o132 endif
+o<millgui_axis_move> call [#<n_axis>] [#<far_lane> - #<far_miss>]
+#<t_mid> = [[#<t_minus_edge> + #<t_plus_edge>] / 2]
+o<millgui_axis_move> call [#<t_axis>] [#<t_mid> - #<t_plus_miss>]
+o<millgui_stock_edge> call [#<n_axis>] [0 - #<n_dir>]
+#<far> = #<_value>
+
+; 8. Consistency.
+o<millgui_stock_context> call [0]
+o140 if [[#<t_minus_edge> GE #<t_plus_edge>] OR [[#<t_plus_edge> - #<t_minus_edge>] GT [#<span> * 2]]]
+    (ABORT, Automatic stock tangent faces are inconsistent)
+o140 endif
+o141 if [[[#<far> - #<near>] * #<n_dir>] LE 0]
+    (ABORT, Automatic stock opposite face is inconsistent)
+o141 endif
+o142 if [ABS[#<far> - #<near>] GT #<span>]
+    (ABORT, Automatic stock measured width exceeds max span)
+o142 endif
+o143 if [[[#<inside> - #<near>] * #<n_dir>] GE [[#<far> - #<near>] * #<n_dir>]]
+    (ABORT, Automatic stock is too narrow for an interior sample)
+o143 endif
+
+; 9. Assemble and report.
+o150 if [#<n_dir> EQ 1]
+    #<n_min> = #<near>
+    #<n_max> = #<far>
+o150 else
+    #<n_min> = #<far>
+    #<n_max> = #<near>
+o150 endif
+o151 if [#<n_axis> EQ 0]
+    #<_millgui_as_x_min> = #<n_min>
+    #<_millgui_as_x_max> = #<n_max>
+    #<_millgui_as_y_min> = #<t_minus_edge>
+    #<_millgui_as_y_max> = #<t_plus_edge>
+o151 else
+    #<_millgui_as_x_min> = #<t_minus_edge>
+    #<_millgui_as_x_max> = #<t_plus_edge>
+    #<_millgui_as_y_min> = #<n_min>
+    #<_millgui_as_y_max> = #<n_max>
+o151 endif
+#<_millgui_as_width_x> = [#<_millgui_as_x_max> - #<_millgui_as_x_min>]
+#<_millgui_as_width_y> = [#<_millgui_as_y_max> - #<_millgui_as_y_min>]
+#<_millgui_as_center_x> = [[#<_millgui_as_x_min> + #<_millgui_as_x_max>] / 2]
+#<_millgui_as_center_y> = [[#<_millgui_as_y_min> + #<_millgui_as_y_max>] / 2]
+#<_millgui_as_valid> = 1
+; Short local copies keep the report line under LinuxCNC's line limit.
+#<t> = #<_millgui_as_token>
+#<x1> = #<_millgui_as_x_min>
+#<x2> = #<_millgui_as_x_max>
+#<y1> = #<_millgui_as_y_min>
+#<y2> = #<_millgui_as_y_max>
+#<wx> = #<_millgui_as_width_x>
+#<wy> = #<_millgui_as_width_y>
+#<cx> = #<_millgui_as_center_x>
+#<cy> = #<_millgui_as_center_y>
+(DEBUG, EVAL[vcp.getWidget{"auto_stock_panel"}.receive_result{#<t>,#<x1>,#<x2>,#<y1>,#<y2>,#<wx>,#<wy>,#<cx>,#<cy>}])
+(DEBUG, Stock X #<_millgui_as_x_min> to #<_millgui_as_x_max>, width #<_millgui_as_width_x>, centre #<_millgui_as_center_x>)
+(DEBUG, Stock Y #<_millgui_as_y_min> to #<_millgui_as_y_max>, width #<_millgui_as_width_y>, centre #<_millgui_as_center_y>)
+G90
+o<probe_auto_stock_center> endsub
+M2

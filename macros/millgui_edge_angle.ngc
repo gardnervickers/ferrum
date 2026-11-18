@@ -1,0 +1,93 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Edge position and angle from the top: o<millgui_edge_angle> call [axis]
+; [side]. [axis] 0 for the left/right edge (probing along X), 1 for the
+; front/back edge (probing along Y); [side] -1 for left/front, +1 for
+; right/back. The probe starts above the top, less than step-off #3023 in
+; from the edge, with at least #3024 of straight edge beyond it in the
+; direction of the second point (left: -Y, right: +Y, front: +X, back: -X).
+; z_stack is #3021 + tip diameter #5410 + extra depth #3022.
+;   1. Remember the start coordinate along the edge. Top touch -> top.
+;   2. Guarded move side x #3023 off the edge; guarded plunge z_stack; edge
+;      touch towards the stock -> first edge.
+;   3. Guarded move #3024 along the edge (at depth, #3019 off the face);
+;      edge touch -> second edge.
+;   4. delta = second - first for left/front, first - second for
+;      right/back; angle = atan(delta / #3024) in degrees, positive for a
+;      part turned counter-clockwise seen from above. Reported as
+;      edge_delta #1011 and edge_angle #1012.
+;   5. Guarded rise z_stack; guarded move to (first edge, start coordinate
+;      along the edge).
+;   6. With #3030 = 0: the probed axis of the active work offset so that
+;      the first edge reads 0, and Z0 at the top. The other axis is left
+;      alone. Only with #3031 = 1 as well is the work rotation set to the
+;      angle (it is cleared to 0 before measuring, so the angle is measured
+;      in machine-aligned axes; the rotation turns about the work origin).
+; Reports z_minus_probed_position #1009, the two edge widgets, edge_delta
+; and edge_angle.
+o<millgui_edge_angle> sub
+#<axis> = #1
+#<side> = #2
+o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
+    (ABORT, Edge angle axis must be 0 or 1)
+o100 endif
+o110 if [ABS[#<side>] NE 1]
+    (ABORT, Edge angle side must be 1 or -1)
+o110 endif
+o120 if [[#3023 LE 0] OR [#3024 LE 0]]
+    (ABORT, Probe step-off width and edge width must be positive)
+o120 endif
+#<rotate> = [[#3030 EQ 0] AND [#3031 EQ 1]]
+o<millgui_probe_ready> call [#<rotate>]
+M73
+M50 P0
+G90 G94
+o130 if [#<rotate>]
+    G10 L2 P0 R0
+o130 endif
+
+; Unit vectors: u across the edge (probing axis), v along it.
+#<ux> = [#<axis> EQ 0]
+#<uy> = [#<axis> EQ 1]
+#<along> = #<side>
+o140 if [#<axis> EQ 1]
+    #<along> = [0 - #<side>]
+o140 endif
+#<z_stack> = [#3021 + #5410 + #3022]
+#<v_start> = #[5421 - #<axis>]
+
+o<millgui_top> call [#3020]
+#<top> = #<_millgui_top>
+
+o<millgui_guarded_move> call [#<ux> * #<side> * #3023] [#<uy> * #<side> * #3023] [0]
+o<millgui_guarded_move> call [0] [0] [0 - #<z_stack>]
+o<millgui_edge> call [#<axis>] [0 - #<side>] [#3018]
+#<first> = #<_millgui_edge>
+o<millgui_guarded_move> call [#<uy> * #<along> * #3024] [#<ux> * #<along> * #3024] [0]
+o<millgui_edge> call [#<axis>] [0 - #<side>] [#3018]
+#<second> = #<_millgui_edge>
+
+#<delta> = [[#<second> - #<first>] * [0 - #<side>]]
+#<angle> = [ATAN[#<delta>] / [#3024]]
+#1011 = #<delta>
+#1012 = #<angle>
+(DEBUG, EVAL[vcp.getWidget{"edge_delta"}.setValue{#<delta>}])
+(DEBUG, EVAL[vcp.getWidget{"edge_angle"}.setValue{#<angle>}])
+
+o<millgui_guarded_move> call [0] [0] [#<z_stack>]
+o150 if [#<axis> EQ 0]
+    o<millgui_guarded_move> call [#<first> - #5420] [#<v_start> - #5421] [0]
+o150 else
+    o<millgui_guarded_move> call [#<v_start> - #5420] [#<first> - #5421] [0]
+o150 endif
+o200 if [#3030 EQ 0]
+    o210 if [#<axis> EQ 0]
+        G10 L20 P0 X[#5420 - #<first>] Z[#5422 - #<top>]
+    o210 else
+        G10 L20 P0 Y[#5421 - #<first>] Z[#5422 - #<top>]
+    o210 endif
+    o220 if [#<rotate>]
+        G10 L2 P0 R#<angle>
+    o220 endif
+o200 endif
+o<millgui_edge_angle> endsub
+M2

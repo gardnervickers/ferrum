@@ -1,0 +1,9 @@
+#!/bin/sh
+# mymill (see ../mymill/prepare) with millgui's own probe macros first on
+# [RS274NGC]SUBROUTINE_PATH: a routine in millgui/macros replaces Probe
+# Basic's (or the mill's) of the same name; the rest still come from those.
+# Its vars are mymill's (a link), so the same scenarios and expectations apply.
+set -e
+REPO="$(cd "$(dirname "$0")/../../../.." && pwd)"
+python3 "$REPO/millgui/sim/make-config" "$1" --probe-basic "$REPO/vendor/probe_basic" \
+  --macros "$REPO/millgui/macros" >/dev/null

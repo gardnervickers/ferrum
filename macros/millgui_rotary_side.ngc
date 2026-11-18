@@ -1,0 +1,29 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Rotary side touch: o<millgui_rotary_side> call [dir] [A] [standoff] [span]
+; [clear Z] [axis Z]. From [clear Z] it makes a guarded move to Y = -dir x
+; standoff, turns A to [A], makes a guarded descent until the ball's centre
+; is at [axis Z] (the rotary axis height, so the ball meets the part at its
+; equator: tip bottom at [axis Z] - #5410/2), touches in Y direction [dir] with o<millgui_touch> for up to
+; min([span], #3018), and makes a guarded rise back to [clear Z]. Returns
+; the compensated surface Y, stylus centre + dir x (#5410/2 - #3032), in
+; #<_value>.
+o<millgui_rotary_side> sub
+#<dir> = #1
+#<a> = #2
+#<standoff> = #3
+#<span> = #4
+#<clear> = #5
+#<axis_z> = #6
+o100 if [#<span> GT #3018]
+    #<span> = #3018
+o100 endif
+o<millgui_guarded_move> call [0] [0] [#<clear> - #5422]
+o<millgui_guarded_move> call [0] [[0 - #<dir>] * #<standoff> - #5421] [0]
+G90 G1 A#<a> F#3017
+o<millgui_guarded_move> call [0] [0] [#<axis_z> - [#5410 / 2] - #5422]
+o<millgui_touch> call [1] [#<dir>] [#<span>]
+G90
+#<y> = [#<_millgui_hit> + [#<dir> * [[#5410 / 2] - #3032]]]
+o<millgui_guarded_move> call [0] [0] [#<clear> - #5422]
+o<millgui_rotary_side> endsub [#<y>]
+M2

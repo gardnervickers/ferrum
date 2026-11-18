@@ -1,0 +1,42 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; FIND/MEASURE bore: finds the centre and diameter of a round pocket. The
+; probe starts inside the bore near its centre with the tip already below
+; the top edge; there is no Z motion. Two passes, each measuring across X
+; (-X wall, then +X) and moving to the X centre, then across Y (+Y wall,
+; then -Y) and moving to the Y centre, with diameter hint #3025. The
+; second pass, made from the refined centre, gives the results:
+; x_probed_width #1001, x_center_probed #1002, y_probed_width #1003,
+; y_center_probed #1004 and averaged_diam #1010 (mean of the two widths).
+; With #3030 = 0 the active work offset gets X0 Y0 at the centre. Ends at
+; the centre, same Z.
+o<probe_round_pocket_center_start> sub
+o10 if [#<_task> EQ 0]
+    o<probe_round_pocket_center_start> return
+o10 endif
+o<millgui_probe_ready> call
+M73
+M50 P0
+G90 G94
+
+o<millgui_span_inside> call [0] [#3025] [#3032]
+o<millgui_span_inside> call [1] [#3025] [#3032]
+o<millgui_span_inside> call [0] [#3025] [#3032]
+#1001 = #<_millgui_width>
+#1002 = #<_millgui_center>
+o<millgui_span_inside> call [1] [#3025] [#3032]
+#1003 = #<_millgui_width>
+#1004 = #<_millgui_center>
+#1010 = [[#1001 + #1003] / 2]
+
+(DEBUG, EVAL[vcp.getWidget{"x_probed_width"}.setValue{#1001}])
+(DEBUG, EVAL[vcp.getWidget{"x_center_probed"}.setValue{#1002}])
+(DEBUG, EVAL[vcp.getWidget{"y_probed_width"}.setValue{#1003}])
+(DEBUG, EVAL[vcp.getWidget{"y_center_probed"}.setValue{#1004}])
+(DEBUG, EVAL[vcp.getWidget{"averaged_diam"}.setValue{#1010}])
+
+o30 if [#3030 EQ 0]
+    G10 L20 P0 X[#5420 - #1002] Y[#5421 - #1004]
+o30 endif
+G90
+o<probe_round_pocket_center_start> endsub
+M2

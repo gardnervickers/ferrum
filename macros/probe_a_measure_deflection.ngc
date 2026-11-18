@@ -1,0 +1,59 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; MEASURE rotary deflection: o<probe_a_measure_deflection> call [dia]
+; [span] [dir]. Needs work Y0 Z0 on the A axis (parallel to X); the probe
+; starts above the cylinder near Y0. dia = diameter estimate (> 0), span =
+; X distance to the second station (|span| >= 0.1 mm), dir 1 when +A moves
+; the top of the work towards the operator, -1 the other way (0 counts as
+; 1). At the start X and at start X + span it finds the section centre
+; (o<millgui_rotary_station>: Y from two side touches at A +/- 90, Z from
+; top touches at A start and A + 180). Reports
+; measure_deflect_y_delta_value and measure_deflect_z_delta_value (far
+; centre - near centre) and measure_deflect_y_angle_value and
+; measure_deflect_z_angle_value (atan(drift / span), degrees). Returns to
+; the start X, Y0 and A start with guarded moves. No offset write. Modes
+; are restored (M73).
+o<probe_a_measure_deflection> sub
+o10 if [#<_task> EQ 0]
+    o<probe_a_measure_deflection> return
+o10 endif
+o<millgui_rotary_ready> call [1]
+M73
+M50 P0
+G90 G94
+#<dia> = #1
+#<span> = #2
+#<dir> = #3
+o20 if [#<dia> LE 0]
+    (ABORT, Diameter estimate must be positive)
+o20 endif
+o21 if [ABS[#<span>] LT [0.1 * #<_millgui_mm>]]
+    (ABORT, Deflection X span must be at least 0.1 mm)
+o21 endif
+o22 if [#<dir> EQ 0]
+    #<dir> = 1
+o22 endif
+#<a0> = #5423
+#<x0> = #5420
+o<millgui_rotary_station> call [#<dia>] [#<dir>] [#<a0>]
+#<y_near> = #<_millgui_station_y>
+#<z_near> = #<_millgui_station_z>
+o<millgui_guarded_move> call [#<span>] [0] [0]
+o<millgui_rotary_station> call [#<dia>] [#<dir>] [#<a0>]
+#<y_drift> = [#<_millgui_station_y> - #<y_near>]
+#<z_drift> = [#<_millgui_station_z> - #<z_near>]
+; Slope angles against +X (atan of drift / span), whatever the span's sign.
+#<sgn> = 1
+o30 if [#<span> LT 0]
+    #<sgn> = -1
+o30 endif
+#<y_angle> = [ATAN[#<sgn> * #<y_drift>]/[ABS[#<span>]]]
+#<z_angle> = [ATAN[#<sgn> * #<z_drift>]/[ABS[#<span>]]]
+(DEBUG, EVAL[vcp.getWidget{"measure_deflect_y_delta_value"}.setValue{#<y_drift>}])
+(DEBUG, EVAL[vcp.getWidget{"measure_deflect_z_delta_value"}.setValue{#<z_drift>}])
+(DEBUG, EVAL[vcp.getWidget{"measure_deflect_y_angle_value"}.setValue{#<y_angle>}])
+(DEBUG, EVAL[vcp.getWidget{"measure_deflect_z_angle_value"}.setValue{#<z_angle>}])
+o<millgui_guarded_move> call [0] [0 - #5421] [0]
+o<millgui_guarded_move> call [#<x0> - #5420] [0] [0]
+G90
+o<probe_a_measure_deflection> endsub
+M2

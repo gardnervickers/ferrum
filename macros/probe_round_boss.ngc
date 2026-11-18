@@ -1,0 +1,50 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; FIND/MEASURE round boss: finds the top, centre and diameter of a round
+; boss. The probe starts above the boss's centre, within #3020 of its top.
+; It touches the top, then measures across X and across Y from outside
+; (step out by #3025/2 + #3023, plunge #3021 + tip diameter + #3022 below
+; the clearance height, touch towards the boss, rise, the same from the
+; other side), moving over each new centre; then repeats X and Y from the
+; refined centre, and those second results count. Reports
+; z_minus_probed_position #1009 (the top, before any write), x_probed_width
+; #1001, x_center_probed #1002, y_probed_width #1003, y_center_probed #1004
+; and averaged_diam #1010. With #3030 = 0 the active work offset gets Z0 at
+; the top and X0 Y0 at the centre. Ends over the centre, #3021 above the top.
+o<probe_round_boss> sub
+o10 if [#<_task> EQ 0]
+    o<probe_round_boss> return
+o10 endif
+o<millgui_probe_ready> call
+M73
+M50 P0
+G90 G94
+
+o<millgui_touch> call [2] [-1] [#3020]
+#1009 = #<_millgui_hit>
+#<z_clear> = [#1009 + #3021]
+#<z_probe> = [#1009 - #5410 - #3022]
+o<millgui_guarded_move> call [0] [0] [#<z_clear> - #5422]
+
+o<millgui_span_outside> call [0] [#3025] [#<z_clear>] [#<z_probe>]
+o<millgui_span_outside> call [1] [#3025] [#<z_clear>] [#<z_probe>]
+o<millgui_span_outside> call [0] [#3025] [#<z_clear>] [#<z_probe>]
+#1001 = #<_millgui_width>
+#1002 = #<_millgui_center>
+o<millgui_span_outside> call [1] [#3025] [#<z_clear>] [#<z_probe>]
+#1003 = #<_millgui_width>
+#1004 = #<_millgui_center>
+#1010 = [[#1001 + #1003] / 2]
+
+(DEBUG, EVAL[vcp.getWidget{"z_minus_probed_position"}.setValue{#1009}])
+(DEBUG, EVAL[vcp.getWidget{"x_probed_width"}.setValue{#1001}])
+(DEBUG, EVAL[vcp.getWidget{"x_center_probed"}.setValue{#1002}])
+(DEBUG, EVAL[vcp.getWidget{"y_probed_width"}.setValue{#1003}])
+(DEBUG, EVAL[vcp.getWidget{"y_center_probed"}.setValue{#1004}])
+(DEBUG, EVAL[vcp.getWidget{"averaged_diam"}.setValue{#1010}])
+
+o30 if [#3030 EQ 0]
+    G10 L20 P0 X[#5420 - #1002] Y[#5421 - #1004] Z[#5422 - #1009]
+o30 endif
+G90
+o<probe_round_boss> endsub
+M2

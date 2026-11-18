@@ -1,0 +1,35 @@
+title A stock machine runs PROBE with millgui's own macros: left edge and top face of the stock block
+needs mm stock
+# stock.py's block: X 40..120, Y -60..-10, top -100 (tip Z); T99 is D2 and
+# 60 long, so the tip is machine Z - 60. Starting values for the probe
+# (probe_defaults.rs); the ball radius is exactly D/2 in this sim.
+include ../common/ready.scn
+mdi T99 M6 G43
+idle 30
+mdi G54
+mdi G10 L2 P1 X0 Y0 Z0
+screen probe
+do probe-mode "find"
+do probe-wcs "G54"
+# LEFT EDGE: 15 outside X40, the tip 5 below the top.
+do probe-shape "block"
+do probe-opt "angle-off"
+mdi G53 G0 Z-30
+mdi G53 G0 X25 Y${block_y}
+mdi G53 G1 Z-45 F500
+do probe-target "e-l"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= 40 +- 0.02
+expect stat.g5x_offset[1] ~= 0 +- 0.0001
+expect stat.g5x_offset[2] ~= 0 +- 0.0001
+# TOP FACE: the tip 10 above the middle of the block.
+mdi G53 G0 Z-30
+mdi G53 G0 X${block_x} Y${block_y}
+do probe-shape "top"
+do probe-target "top"
+include ../common/probe-run.scn
+expect stat.g5x_offset[2] ~= -100 +- 0.02
+expect stat.g5x_offset[0] ~= 40 +- 0.02
+mdi G53 G0 Z0
+shot stock-routines-done
+expect ui-errors.len == 0

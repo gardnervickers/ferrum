@@ -1,0 +1,46 @@
+title FIND inside corners of the sim rect pocket write X, Y and Z of G54
+needs probe-basic probe-geometry
+# The pocket (${pocket_w} x ${pocket_h}, floor -270) is cut into the PLATE
+# top (${plate_top}). Each run starts over the plate 3 outside the corner,
+# the tip 10 above the plate: the macro touches the plate top (Z), steps
+# diagonally into the pocket and touches both walls.
+include ../common/probe-start.scn
+do probe-shape "pocket"
+do probe-wcs "G54"
+
+mdi G53 G0 X${ipocket_l_x} Y${ipocket_f_y}
+mdi G53 G1 Z${plate_above_mz} F2000
+do probe-target "i-fl"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${pocket_x_min} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${pocket_y_min} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${plate_top} +- ${geom_tol}
+
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${ipocket_r_x} Y${ipocket_f_y}
+mdi G53 G1 Z${plate_above_mz} F2000
+do probe-target "i-fr"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${pocket_x_max} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${pocket_y_min} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${plate_top} +- ${geom_tol}
+
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${ipocket_l_x} Y${ipocket_b_y}
+mdi G53 G1 Z${plate_above_mz} F2000
+do probe-target "i-bl"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${pocket_x_min} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${pocket_y_max} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${plate_top} +- ${geom_tol}
+
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${ipocket_r_x} Y${ipocket_b_y}
+mdi G53 G1 Z${plate_above_mz} F2000
+do probe-target "i-br"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${pocket_x_max} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${pocket_y_max} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${plate_top} +- ${geom_tol}
+mdi G53 G0 Z${travel_z}
+shot inside-corners-done

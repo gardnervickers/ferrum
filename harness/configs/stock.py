@@ -4,8 +4,9 @@
     stock.py OUT_DIR --units mm|inch --axes XYZ|XYZA|XYYZ
 
 What a new millgui user's machine looks like: a plain INI in the style of
-LinuxCNC's configs/sim/axis (its INCREMENTS line included), joints looped
-back, a stock block that trips the probe input (signal `sim-probe` trips it by hand), tool changes acknowledged at
+LinuxCNC's configs/sim/axis (its INCREMENTS line included), with millgui's
+probe macros on SUBROUTINE_PATH as `millgui --check --write-ini` sets it up;
+joints looped back, a stock block that trips the probe input (signal `sim-probe` trips it by hand), tool changes acknowledged at
 once, spindle always at speed. No Probe Basic, no mymill HAL, no pendant.
 For the harness only; it never talks to a machine.
 """
@@ -78,7 +79,7 @@ CYCLE_TIME = 0.001
 
 [RS274NGC]
 PARAMETER_FILE = sim.var
-SUBROUTINE_PATH = {out / 'subroutines'}
+SUBROUTINE_PATH = {out / 'subroutines'}:{REPO / 'millgui' / 'macros'}
 
 [EMCMOT]
 EMCMOT = motmod

@@ -1,0 +1,80 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; One precise probe touch: o<millgui_touch> call [axis] [dir] [max].
+; [axis] 0 = X, 1 = Y, 2 = Z; [dir] +1 or -1 is the direction the probe
+; moves; [max] is the search distance in machine units, measured from the
+; current position. The clearance c is #3019 for X/Y and #3021 for Z.
+;   1. Fast probe (G38.2, contact required) up to [max] at #3016. No
+;      contact within [max] is a LinuxCNC probe error, which ends the run.
+;   2. Back off to c before the contact at #3017. The stretch the probe has
+;      just travelled is known to be clear; if c is longer than that, the
+;      rest of the back-off is a guarded G38.3 move that aborts on contact.
+;   3. If #3015 > 0: slow probe (G38.2) of 2 x c at #3015 and back off to c
+;      before that contact again. The slow contact replaces the fast one.
+;      If #3015 = 0 the fast contact is the result.
+; The contact coordinate (current work coordinates, probe tip centre for
+; X/Y and tip bottom for Z as the tool length offset gives it, no tip
+; compensation) is returned in #<_millgui_hit> and as the return value.
+; The probe ends c away from the surface on the side it came from. Modal
+; state (distance mode, feed mode, feed) is restored on return (M73).
+o<millgui_touch> sub
+#<axis> = #1
+#<dir> = #2
+#<max> = #3
+o100 if [[#<axis> NE 0] AND [#<axis> NE 1] AND [#<axis> NE 2]]
+    (ABORT, Probe touch axis must be 0 X, 1 Y or 2 Z)
+o100 endif
+o110 if [ABS[#<dir>] NE 1]
+    (ABORT, Probe touch direction must be 1 or -1)
+o110 endif
+o120 if [#<max> LE 0]
+    (ABORT, Probe search distance must be positive)
+o120 endif
+#<clear> = #3019
+o130 if [#<axis> EQ 2]
+    #<clear> = #3021
+o130 endif
+o140 if [[#<clear> LE 0] OR [#3016 LE 0] OR [#3017 LE 0] OR [#3015 LT 0]]
+    (ABORT, Probe feeds and clearances must be positive)
+o140 endif
+
+M73
+G90 G94
+; Unit vector of the probing axis, so one line serves X, Y and Z.
+#<ux> = [#<axis> EQ 0]
+#<uy> = [#<axis> EQ 1]
+#<uz> = [#<axis> EQ 2]
+#<start> = #[5420 + #<axis>]
+
+; 1. Fast touch.
+#<d> = [#<dir> * #<max>]
+G91 G38.2 X[#<ux> * #<d>] Y[#<uy> * #<d>] Z[#<uz> * #<d>] F#3016
+#<hit> = #[5061 + #<axis>]
+
+; 2. Back off by the clearance, unguarded only over the travelled stretch.
+#<travel> = ABS[#<hit> - #<start>]
+#<back> = #<clear>
+o200 if [#<back> GT #<travel>]
+    #<back> = #<travel>
+o200 endif
+#<d> = [#<hit> - #<dir> * #<back> - #[5420 + #<axis>]]
+G91 G1 X[#<ux> * #<d>] Y[#<uy> * #<d>] Z[#<uz> * #<d>] F#3017
+o210 if [#<clear> GT #<travel>]
+    #<d> = [#<hit> - #<dir> * #<clear> - #[5420 + #<axis>]]
+    G91 G38.3 X[#<ux> * #<d>] Y[#<uy> * #<d>] Z[#<uz> * #<d>] F#3017
+    o220 if [[#<_task> EQ 1] AND [#5070 EQ 1]]
+        (ABORT, Probe made unexpected contact while backing off)
+    o220 endif
+o210 endif
+
+; 3. Optional slow touch from the clearance distance.
+o300 if [#3015 GT 0]
+    #<d> = [#<dir> * 2 * #<clear>]
+    G91 G38.2 X[#<ux> * #<d>] Y[#<uy> * #<d>] Z[#<uz> * #<d>] F#3015
+    #<hit> = #[5061 + #<axis>]
+    #<d> = [#<hit> - #<dir> * #<clear> - #[5420 + #<axis>]]
+    G91 G1 X[#<ux> * #<d>] Y[#<uy> * #<d>] Z[#<uz> * #<d>] F#3017
+o300 endif
+
+#<_millgui_hit> = #<hit>
+o<millgui_touch> endsub [#<hit>]
+M2

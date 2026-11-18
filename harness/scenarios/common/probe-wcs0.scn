@@ -1,0 +1,4 @@
+# G54 active at the scenarios' starting offset; up to travel height.
+mdi G54
+mdi G10 L2 P1 X${wcs0_x} Y${wcs0_y} Z${wcs0_z}
+mdi G53 G0 Z${travel_z}

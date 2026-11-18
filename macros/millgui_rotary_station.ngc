@@ -1,0 +1,48 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; One deflection station on a rotary part: o<millgui_rotary_station> call
+; [dia] [dir] [A start]. The probe is above the cylinder at work Y0. A top
+; touch at A start sets the clearance height; side touches (ball centre at
+; work Z0) from -Y at A start + dir x 90 (y+) and from +Y at A start -
+; dir x 90 (y-) give the Y centre; then top touches over that Y centre at A
+; start (z0) and A start + 2 x dir x 90 (z180); each radius is checked
+; against dia/2. Sets
+; #<_millgui_station_y> = (y+ + y-)/2, #<_millgui_station_z> = (z0 + z180)/2
+; and #<_millgui_station_clear> (the height A turned at). Ends at that
+; height over the Y centre, with A at its start. Needs o<millgui_rotary_ready> first.
+o<millgui_rotary_station> sub
+#<dia> = #1
+#<dir> = #2
+#<a0> = #3
+#<nom> = [#<dia> / 2]
+#<r> = [[#5410 / 2] - #3032]
+o<millgui_guarded_move> call [0] [0 - #5421] [0]
+o<millgui_rotary_top> call [#<a0>] [#<dia> + [2 * #3021]]
+#<z0> = #<_value>
+o<millgui_rotary_plausible> call [#<z0>] [#<nom>] [0]
+#<clear> = [#<z0> + #<dia> + #3021]
+#<standoff> = [#<nom> + #3019 + #<r> + [2 * #<_millgui_mm>]]
+#<span> = [#<dia> + [2 * #3019] + [2 * #<r>] + [4 * #<_millgui_mm>]]
+o<millgui_rotary_side> call [1] [#<a0> + [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [0]
+#<yp> = #<_value>
+o<millgui_rotary_plausible> call [ABS[#<yp>]] [#<nom>] [1]
+o<millgui_rotary_side> call [-1] [#<a0> - [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [0]
+#<ym> = #<_value>
+o<millgui_rotary_plausible> call [ABS[#<ym>]] [#<nom>] [2]
+#<yc> = [[#<yp> + #<ym>] / 2]
+; Both top touches over the measured Y centre (the section's highest point).
+G90 G1 A#<a0> F#3017
+o<millgui_guarded_move> call [0] [#<yc> - #5421] [0]
+o<millgui_guarded_move> call [0] [0] [#<z0> + #3021 - #5422]
+o<millgui_rotary_top> call [#<a0>] [2 * #3021]
+#<z0> = #<_value>
+o<millgui_guarded_move> call [0] [0] [#<clear> - #5422]
+o<millgui_rotary_top> call [#<a0> + [2 * #<dir> * 90]] [#<dia> + [2 * #3021]]
+#<z180> = #<_value>
+o<millgui_rotary_plausible> call [#<z180>] [#<nom>] [4]
+o<millgui_guarded_move> call [0] [0] [#<clear> - #5422]
+G90 G1 A#<a0> F#3017
+#<_millgui_station_y> = #<yc>
+#<_millgui_station_z> = [[#<z0> + #<z180>] / 2]
+#<_millgui_station_clear> = #<clear>
+o<millgui_rotary_station> endsub
+M2

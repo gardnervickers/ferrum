@@ -1,0 +1,16 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Top touch: o<millgui_top> call [reach]. One o<millgui_touch> straight
+; down (-Z) of at most [reach]; the surface is the contact Z, uncompensated
+; (the tip's lowest point by the tool length offset). Reports it as
+; z_minus_probed_position / #1009, in the coordinates in effect before any
+; offset write, returns it and keeps it in #<_millgui_top>. Ends #3021
+; above the surface. No offset is written.
+o<millgui_top> sub
+#<reach> = #1
+o<millgui_touch> call [2] [-1] [#<reach>]
+#<surface> = #<_millgui_hit>
+#1009 = #<surface>
+(DEBUG, EVAL[vcp.getWidget{"z_minus_probed_position"}.setValue{#<surface>}])
+#<_millgui_top> = #<surface>
+o<millgui_top> endsub [#<surface>]
+M2

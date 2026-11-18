@@ -1,0 +1,23 @@
+title FIND round boss: diameter, G54 X Y at its centre and Z at its top
+needs probe-basic probe-geometry
+# Boss D${boss_d} at (${boss_x},${boss_y}) standing 10 on the PLATE (top
+# ${feature_top}). Start over its middle, the tip 5 above it; hint #3025.
+include ../common/probe-start.scn
+do probe-shape "round"
+do probe-wcs "G54"
+do edit "prun-3025"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "3"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${boss_x} Y${boss_y}
+mdi G53 G1 Z${feature_above_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Diameter} ~= ${boss_d} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${boss_x} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${boss_y} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${feature_top} +- ${geom_tol}
+mdi G53 G0 Z${travel_z}
+shot round-boss-done

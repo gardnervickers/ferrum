@@ -1,0 +1,21 @@
+title CAL tool length on the sim setter measures the tool's physical length
+needs probe-basic probe-geometry
+# The sim's T${setter_tool} is ${setter_tool_len} long (the tool table says
+# otherwise); the setter top is ${setter_depth} below machine Z0, as #3010
+# says. tool_touch_off writes the measured length to the tool table.
+include ../common/ready.scn
+do mdi-send "T${setter_tool} M6"
+wait prop.tc-open == true within 60
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+idle 60
+expect stat.tool_in_spindle == ${setter_tool}
+wait prop.tc-open == false within 5
+screen probe
+do probe-mode "cal"
+do probe-shape "setter"
+include ../common/probe-run.scn
+expect stat.tool_table[0].id == ${setter_tool}
+expect stat.tool_table[0].zoffset ~= ${setter_tool_len} +- ${geom_tol}
+shot tool-setter-done

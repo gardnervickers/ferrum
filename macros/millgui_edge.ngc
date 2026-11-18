@@ -1,0 +1,45 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Edge touch with tip compensation: o<millgui_edge> call [axis] [dir]
+; [reach]; [axis] 0 = X or 1 = Y, [dir] +1/-1 the direction the probe
+; moves, [reach] the search distance. One o<millgui_touch>, then
+;   edge = contact + dir x r_eff,  r_eff = #5410 / 2 - #3032
+; (the calibration offset #3032 is subtracted from the tip radius). The
+; edge goes to #<_millgui_edge> and the return value, and is reported like
+; the edge helpers millgui knows: x_minus_probed_position #1005,
+; x_plus_probed_position #1006, y_minus_probed_position #1007,
+; y_plus_probed_position #1008 ("plus/minus" = direction of travel).
+; #<_millgui_hit> still holds the uncompensated stylus centre. No offset
+; is written. Ends #3019 off the face, same Z.
+o<millgui_edge> sub
+#<axis> = #1
+#<dir> = #2
+#<reach> = #3
+o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
+    (ABORT, Edge touch axis must be 0 X or 1 Y)
+o100 endif
+#<r> = [#5410 / 2 - #3032]
+o110 if [#<r> LE 0]
+    (ABORT, Probe tip radius less calibration offset 3032 is not positive)
+o110 endif
+o<millgui_touch> call [#<axis>] [#<dir>] [#<reach>]
+#<edge> = [#<_millgui_hit> + #<dir> * #<r>]
+o200 if [#<axis> EQ 0]
+    o210 if [#<dir> GT 0]
+        #1006 = #<edge>
+        (DEBUG, EVAL[vcp.getWidget{"x_plus_probed_position"}.setValue{#<edge>}])
+    o210 else
+        #1005 = #<edge>
+        (DEBUG, EVAL[vcp.getWidget{"x_minus_probed_position"}.setValue{#<edge>}])
+    o210 endif
+o200 else
+    o220 if [#<dir> GT 0]
+        #1008 = #<edge>
+        (DEBUG, EVAL[vcp.getWidget{"y_plus_probed_position"}.setValue{#<edge>}])
+    o220 else
+        #1007 = #<edge>
+        (DEBUG, EVAL[vcp.getWidget{"y_minus_probed_position"}.setValue{#<edge>}])
+    o220 endif
+o200 endif
+#<_millgui_edge> = #<edge>
+o<millgui_edge> endsub [#<edge>]
+M2
