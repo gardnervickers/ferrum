@@ -177,8 +177,11 @@ def main():
     for f in (REPO / "millgui" / "testdata" / "nc_files").glob("*.ngc"):
         shutil.copy(f, out / "nc_files" / f.name)
     # millgui finds its module HAL files under millgui/hal next to the INI.
-    if not (out / "millgui").exists():
-        os.symlink(REPO / "millgui", out / "millgui")
+    # Only those: the repo's millgui/machine.toml is the PM-728VT's and would
+    # draw its table on a stock machine.
+    (out / "millgui").mkdir(exist_ok=True)
+    if not (out / "millgui" / "hal").exists():
+        os.symlink(REPO / "millgui" / "hal", out / "millgui" / "hal")
 
 
 if __name__ == "__main__":

@@ -103,7 +103,8 @@ export component OffsetsScreen inherits Rectangle {
                     padding-left: 12px;
                     padding-right: 12px;
                     Label { width: 220px; text: "WCS"; }
-                    for c in ["X", "Y", "Z", "A", "ROT"]: Rectangle {
+                    // The A column only on a machine with an A axis.
+                    for c in Live.has-a ? ["X", "Y", "Z", "A", "ROT"] : ["X", "Y", "Z", "ROT"]: Rectangle {
                         horizontal-stretch: 1;
                         height: 24px;
                         Label { x: 0; width: parent.width - 20px; horizontal-alignment: right; text: c; }
@@ -134,7 +135,7 @@ export component OffsetsScreen inherits Rectangle {
                                 Cell { text: o.x; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-x"); } }
                                 Cell { text: o.y; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-y"); } }
                                 Cell { text: o.z; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-z"); } }
-                                Cell { text: o.a; dim: !o.used; enabled: !locked && Live.has-a; tapped => { Actions.offsets-select(i); Actions.edit("off-a"); } }
+                                if Live.has-a: Cell { text: o.a; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-a"); } }
                                 Cell { text: o.rot; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-r"); } }
                             }
                         }
