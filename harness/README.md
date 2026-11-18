@@ -23,6 +23,32 @@ As root (cloud containers) `run` runs the simulator as user `cncsim`,
 because LinuxCNC refuses root. `LCNC_DIR` points at another LinuxCNC build.
 `HARNESS_NO_BUILD=1` skips the cargo build.
 
+## On a Mac (Docker)
+
+LinuxCNC only runs on Linux, so on macOS the harness runs in a container.
+With Docker Desktop (or OrbStack, Colima) running:
+
+```sh
+millgui/harness/docker-run                   # every config x every scenario
+millgui/harness/docker-run -c mymill probe   # same arguments as run
+open millgui/harness-out/index.html
+```
+
+The first run builds the `millgui-harness` image (Ubuntu 24.04, LinuxCNC
+2.9.10 built from source, Rust, Xvfb), which takes 15-25 minutes; later runs
+start in seconds (the first millgui build in the container adds ~10 minutes;
+give Docker at least 6 GB of memory) and keep the cargo build in the Docker volumes
+`millgui-harness-target` and `millgui-harness-cargo`. The repo is mounted
+into the container, so it tests your working tree and writes the report
+back into `millgui/harness-out/`. On Apple Silicon the image is native arm64
+(the same architecture as the Pi). Screenshots are the same 1920x1080 frames
+as in the cloud. `docker volume rm millgui-harness-target` forces a clean
+build; `docker rmi millgui-harness` rebuilds the image. If Docker Hub
+rate-limits the base image, `HARNESS_BASE=mirror.gcr.io/library/ubuntu:24.04`
+uses Google's mirror. Behind a TLS-intercepting proxy, `HARNESS_EXTRA_CA=<ca.crt>` adds
+its CA to the image and `HARNESS_DOCKER_ARGS="--network host"` lets the
+container reach it; neither is needed on a normal Mac.
+
 ## Machine configs (`configs/`)
 
 Each folder has a `prepare OUT_DIR` script that writes a LinuxCNC config with

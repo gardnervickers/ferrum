@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Run the millgui harness in Docker (Docker Desktop on a Mac, or Linux):
+#
+#   millgui/harness/docker-run                  # every config x scenario
+#   millgui/harness/docker-run -c mymill probe  # same arguments as run
+#
+# First time: builds the image (LinuxCNC 2.9.10 from source, ~15-25 min).
+# Later runs reuse it and a cached cargo build. The report lands in the repo:
+# millgui/harness-out/index.html. Simulator only; nothing talks to a machine.
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
+IMAGE="${HARNESS_IMAGE:-millgui-harness}"
+
+# A small build context: the image needs only these two files.
+ctx="$(mktemp -d)"
+trap 'rm -rf "$ctx"' EXIT
+cp "$HERE/docker/Dockerfile" "$HERE/setup-linuxcnc" "$REPO/hal_components/probe_manager.comp" "$ctx/"
+# Behind a TLS-intercepting proxy, HARNESS_EXTRA_CA names its CA certificate.
+if [ -n "${HARNESS_EXTRA_CA:-}" ]; then cp "$HARNESS_EXTRA_CA" "$ctx/extra-ca.crt"; else : > "$ctx/extra-ca.crt"; fi
+docker build -q ${HARNESS_BASE:+--build-arg BASE="$HARNESS_BASE"} -t "$IMAGE" "$ctx" >/dev/null
+
+if [ -z "$(ls -A "$REPO/vendor/probe_basic" 2>/dev/null)" ]; then
+  echo "note: vendor/probe_basic is empty, so the mymill probe scenarios will fail (see README)." >&2
+fi
+
+mkdir -p "$REPO/millgui/harness-out"
+tty=(); [ -t 1 ] && tty=(-t)
+# Proxy settings pass through; HARNESS_DOCKER_ARGS adds docker run options.
+envs=()
+for v in HTTPS_PROXY HTTP_PROXY NO_PROXY https_proxy http_proxy no_proxy; do
+  [ -n "${!v:-}" ] && envs+=(-e "$v")
+done
+# shellcheck disable=SC2086
+set +e
+docker run --rm ${tty[@]+"${tty[@]}"} --init --shm-size=1g ${envs[@]+"${envs[@]}"} ${HARNESS_DOCKER_ARGS:-} \
+  -v "$REPO":/src \
+  -v millgui-harness-target:/home/cncsim/target \
+  -v millgui-harness-cargo:/home/cncsim/.cargo/registry \
+  "$IMAGE" "$@"
+rc=$?
+echo "Report on this machine: $REPO/millgui/harness-out/index.html"
+exit $rc
