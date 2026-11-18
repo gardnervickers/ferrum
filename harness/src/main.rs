@@ -494,6 +494,14 @@ fn run_one(
         prepare(c, &cfg, env.port)?;
         let log = dir.join("linuxcnc.log");
         r.log = Some(log.clone());
+        for (path, line) in &sc.seeds {
+            let p = dir.join("home").join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
+            let mut text = std::fs::read_to_string(&p).unwrap_or_default();
+            text.push_str(line);
+            text.push('\n');
+            std::fs::write(&p, text).map_err(|e| e.to_string())?;
+        }
         let mut s = Session::start(env, &cfg, log)?;
         if !s.props.lock().unwrap().contains_key("screen") {
             return Err(

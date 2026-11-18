@@ -6,6 +6,7 @@
 //! xfail   inch: B3, inch not handled  # expected to fail on a config or tag
 //! allow-error  Probe tripped          # LinuxCNC/millgui error text that is fine
 //! include common/ready.scn            # another file's steps, here
+//! seed    .local/state/millgui/probe probe.restore-pending=1   # a line in a file under HOME, before start
 //!
 //! do      jog-start 0 1               # an Actions callback; args are JSON or bare words
 //! set     mdi-text "G0 X1"            # a two-way Live property the remote may set
@@ -83,6 +84,8 @@ pub struct Scenario {
     /// (config name or tag, reason)
     pub xfail: Vec<(String, String)>,
     pub allow_errors: Vec<String>,
+    /// Files written under the run's fresh HOME before LinuxCNC starts: (path, line).
+    pub seeds: Vec<(String, String)>,
     pub steps: Vec<Line>,
 }
 
@@ -152,6 +155,11 @@ impl Scenario {
                 }
                 "allow-error" => {
                     self.allow_errors.push(rest.to_string());
+                    continue;
+                }
+                "seed" => {
+                    let (path, text) = split_word(rest);
+                    self.seeds.push((path.to_string(), text.to_string()));
                     continue;
                 }
                 "include" => {

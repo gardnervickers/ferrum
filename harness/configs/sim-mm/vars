@@ -10,3 +10,6 @@ home_y = 0
 home_z = 0
 jog_label = 1
 jog_x_after = 1
+# safe spot plus dist (programs have no arithmetic)
+safe_x2 = 60
+safe_y2 = 35

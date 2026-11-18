@@ -44,8 +44,13 @@ impl Session {
     pub fn start(env: &Env, cfg_dir: &Path, log: PathBuf) -> Result<Session, String> {
         cleanup(&env.lcnc);
         let out = std::fs::File::create(&log).map_err(|e| e.to_string())?;
+        // A fresh HOME per run: millgui keeps settings and the probe's
+        // restore-pending marker there, LinuxCNC its tool mmap.
+        let home = cfg_dir.parent().unwrap_or(cfg_dir).join("home");
+        std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
         let mut cmd = rip_cmd(&env.lcnc, "exec linuxcnc millgui.ini");
         cmd.current_dir(cfg_dir)
+            .env("HOME", &home)
             .env("DISPLAY", &env.display)
             .env("MILLGUI_BIN", &env.millgui_bin)
             .env("MILLGUI_HARNESS", "1")
@@ -80,6 +85,7 @@ impl Session {
             ),
         )
         .current_dir(cfg_dir)
+        .env("HOME", &home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

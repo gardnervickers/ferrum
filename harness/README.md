@@ -38,6 +38,14 @@ a `millgui.ini` (it must have a `[MILLGUI]` section; the harness adds
 | `sim-xyza` | stock metric XYZ + rotary A | mm stock xyza |
 | `sim-gantry` | stock metric gantry: two Y joints (`XYYZ`) | mm stock xyz gantry |
 
+The `mymill` config needs Probe Basic's macros in `vendor/probe_basic`. Its
+submodule is pinned to a commit that is not on the fork's remote, so a fresh
+clone cannot fetch it: check out the branch head instead
+(`git -C vendor/probe_basic fetch --depth 1 origin codex/mymill-2026-09-30 &&
+git -C vendor/probe_basic checkout FETCH_HEAD`). Without it the probe
+scenarios fail with "File not open". CI does this with the
+`PROBE_BASIC_TOKEN` secret, and skips `mymill` without it.
+
 The stock configs use LinuxCNC's own `INCREMENTS` lines (`1 mm, .01 in, ...`),
 loop the joints back, acknowledge tool changes at once and put the probe
 input on signal `sim-probe` (`hal sim-probe 1` trips it). To add a machine,
@@ -58,6 +66,7 @@ One step per line; `#` after a space starts a comment. Files under
 | `xfail TAG-or-CONFIG...: why` | expected to fail there (reported, does not fail the run; a pass is flagged XPASS so the line can go) |
 | `allow-error TEXT` | an error message containing TEXT is fine |
 | `include FILE` | another file's steps |
+| `seed PATH LINE` | append LINE to a file under the run's fresh HOME before LinuxCNC starts (millgui state, settings) |
 | `do ACTION ARGS...` | an `Actions` callback from `app/ui/state.slint` (`do jog-start 0 1`); args are JSON or bare words |
 | `set PROP VALUE` | a two-way property the remote may set (`mdi-text`, `gcode-selected`) |
 | `mdi TEXT` | send an MDI line, wait for the machine to settle |
