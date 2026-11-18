@@ -67,6 +67,7 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
     let source = std::fs::read(program).map(|b| String::from_utf8_lossy(&b).into_owned());
     let machine_lines = source.as_ref().map(|t| crate::machine_lines(t)).unwrap_or_default();
     let find_lines = source.as_ref().map(|t| crate::find_lines(t)).unwrap_or_default();
+    let axis_lines = source.as_ref().ok().map(|t| crate::axis_lines(t));
     let program = match &source {
         Ok(text) if std::fs::write(&numbered, start_units(&number_lines(text), setup.inch)).is_ok() => numbered.as_path(),
         _ => program,
@@ -85,6 +86,7 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
             }
             tp.machine_lines = machine_lines;
             tp.find_lines = find_lines;
+            tp.axis_lines = axis_lines;
             tp
         }
         Err(e) => Toolpath { error: Some(format!("rs274: {e}")), ..Default::default() },

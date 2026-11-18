@@ -92,7 +92,18 @@ pub fn check(tp: &Toolpath, limits: &Limits, live: &Live, table_top: Option<f64>
     let found = tp.find_lines.iter().copied().find(|l| *l >= from_line);
     // Whether the move before this one was checked, and was a G53 move.
     let (mut prev_counted, mut prev_machine) = (false, false);
+    // An axis the program has not moved yet is wherever the machine is,
+    // not at the interpreter's arbitrary start (machine 0 with the offsets
+    // of its parameter file copy): it is checked from its first source
+    // word, or from the first move that changes it (a subroutine's).
+    let origin = tp.segs.first().map(|s| s.from);
+    let mut known = [tp.axis_lines.is_none(); 3];
     for (i, seg) in tp.segs.iter().enumerate() {
+        if let (Some(lines), Some(o)) = (tp.axis_lines, origin) {
+            for a in 0..3 {
+                known[a] |= (lines[a] != 0 && seg.line >= lines[a]) || (seg.to[a] - o[a]).abs() > 1e-6;
+            }
+        }
         let mut shifted = false;
         while next < tp.offsets.len() && tp.offsets[next].0 <= i {
             let o = tp.offsets[next].1;
@@ -144,12 +155,12 @@ pub fn check(tp: &Toolpath, limits: &Limits, live: &Live, table_top: Option<f64>
             let (x, y) = (p[0] + g92[0], p[1] + g92[1]);
             let tip = [x * cos - y * sin + g5x[0], x * sin + y * cos + g5x[1], p[2] + g92[2] + g5x[2]];
             let nose = [tip[0] + cur.tool[0], tip[1] + cur.tool[1], tip[2] + cur.tool[2]];
-            for a in 0..3 {
+            for a in (0..3).filter(|a| known[*a]) {
                 for (k, by) in [(a * 2, limits.min[a] - nose[a]), (a * 2 + 1, nose[a] - limits.max[a])] {
                     note(&mut worst[k], by, seg.line, seg.op);
                 }
             }
-            if let Some(top) = table_top {
+            if let Some(top) = table_top.filter(|_| known[2]) {
                 note(&mut worst[6], top - tip[2], seg.line, seg.op);
             }
         }
@@ -228,6 +239,30 @@ mod tests {
     fn g54(tool: f64) -> Offsets {
         // The parameter file's G54, which the check replaces by today's.
         Offsets { wcs: 1, g5x: [1.0, 2.0, 3.0], tool: [0.0, 0.0, tool], ..Default::default() }
+    }
+
+    #[test]
+    fn an_axis_the_program_never_moves_is_not_checked() {
+        // No Z word: the moves stay at the interpreter's start Z (400 here,
+        // its parameter file's offsets), 150 past Z max with today's G54.
+        // The machine's Z stays where it is, so Z is not checked.
+        let mut tp = path(&[(3, [0.0, 0.0, 400.0, 0.0]), (4, [10.0, 0.0, 400.0, 0.0]), (5, [10.0, -10.0, 400.0, 0.0])], &[(0, g54(0.0))]);
+        tp.segs[0].from[2] = 400.0;
+        tp.axis_lines = Some([3, 5, 0]);
+        let r = check(&tp, &LIMITS, &live(), Some(-380.0), 0);
+        assert!(r.problems.is_empty(), "{:?}", r.problems);
+        // The same program with a Z word on line 4 is checked from there.
+        tp.axis_lines = Some([3, 5, 4]);
+        let r = check(&tp, &LIMITS, &live(), Some(-380.0), 0);
+        assert_eq!(r.problems[0].what, What::Travel { axis: 2, high: true });
+        assert_eq!(r.problems[0].line, 4);
+    }
+
+    #[test]
+    fn axis_words_are_found_outside_comments_and_names() {
+        let text = "(move Z here)\nG0 X0 Y0 ; z5\no<zap> call\nG1 z-1\n";
+        assert_eq!(crate::axis_lines(text), [2, 2, 4]);
+        assert_eq!(crate::axis_lines("G1 X#<x> Y[1+2]\n"), [1, 1, 0]);
     }
 
     #[test]

@@ -69,6 +69,11 @@ pub struct Toolpath {
     /// a work offset (`(MYMILL-PROBE FIND ...)`): what follows runs with
     /// an offset nobody knows yet.
     pub find_lines: Vec<u32>,
+    /// The first source line with an X, Y and Z word (0: none), when the
+    /// source was read (`axis_lines`). Until a program moves an axis, its
+    /// position is wherever the machine happens to be, not the preview's
+    /// arbitrary start (see `preflight`).
+    pub axis_lines: Option<[u32; 3]>,
     /// How A is drawn (see `wrap_a`): 0 ignores it; 1 or -1 wraps the path
     /// around the rotary axis (X, through work Y0 Z0) in that sense.
     pub a_wrap: f64,
@@ -103,6 +108,35 @@ pub fn geometry_a_sign(geometry: &str) -> f64 {
 /// The 1-based numbers of the lines that start a FIND probing step.
 pub fn find_lines(text: &str) -> Vec<u32> {
     text.lines().enumerate().filter(|(_, l)| l.trim_start().starts_with("(MYMILL-PROBE FIND")).map(|(i, _)| i as u32 + 1).collect()
+}
+
+/// The first 1-based line with an X, Y and Z word (comments and `o<name>`
+/// aside); 0 when there is none.
+pub fn axis_lines(text: &str) -> [u32; 3] {
+    let mut first = [0u32; 3];
+    for (i, l) in text.lines().enumerate() {
+        let mut code = String::new();
+        let (mut depth, mut name) = (0, false);
+        for c in l.chars() {
+            match c {
+                ';' if depth == 0 => break,
+                '(' => depth += 1,
+                ')' => depth = (depth - 1).max(0),
+                '<' if depth == 0 => name = true,
+                '>' if depth == 0 => name = false,
+                c if depth == 0 && !name && !c.is_whitespace() => code.push(c.to_ascii_uppercase()),
+                _ => {}
+            }
+        }
+        let b = code.as_bytes();
+        for (a, letter) in [b'X', b'Y', b'Z'].iter().enumerate() {
+            let has = (0..b.len()).any(|k| b[k] == *letter && b.get(k + 1).is_some_and(|n| n.is_ascii_digit() || b"+-.#[".contains(n)));
+            if has && first[a] == 0 {
+                first[a] = i as u32 + 1;
+            }
+        }
+    }
+    first
 }
 
 /// The 1-based numbers of the lines in `text` that carry a G53 word
