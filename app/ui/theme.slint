@@ -59,9 +59,16 @@ export global Theme {
     out property <string> body: "Barlow Condensed";
 
     // Motion: short transitions on a change of state, nothing at idle.
-    // `quick` for presses and toggles, `settle` for bars and status colours.
+    // `quick` for presses and toggles, `settle` for bars and status colours,
+    // `enter` for something arriving (a screen, a dialog, a list), `glide`
+    // for the nav plate moving to the chosen tab. Every animation is a
+    // one-off on a change the user made or the machine reported: none
+    // loops, and none reads fast data (DRO numbers, the current line,
+    // progress), or it would redraw the screen at every status update.
     out property <duration> quick: 140ms;
     out property <duration> settle: 220ms;
+    out property <duration> enter: 180ms;
+    out property <duration> glide: 200ms;
 
     // Spacing and corners.
     out property <length> gap: 14px;

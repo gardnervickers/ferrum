@@ -2,6 +2,7 @@ import { Theme, Layout } from "theme.slint";
 import { Live, Actions, PillData, DroRow, DroPos, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow, JobOp, ConvField, HistoryRow } from "state.slint";
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
 import { Placeholder, RunScreen } from "screens.slint";
+import { Arrive } from "widgets.slint";
 
 import { ManualScreen } from "jog.slint";
 import { FilesScreen } from "files.slint";
@@ -34,15 +35,17 @@ export component MainWindow inherits Window {
         y: 64px;
         width: parent.width - Layout.left;
         height: parent.height - 64px - 128px;
-        if Live.screen == "run": RunScreen {}
-        if Live.screen == "job": JobScreen {}
-        if Live.screen == "manual": ManualScreen {}
-        if Live.screen == "probe": ProbeScreen {}
-        if Live.screen == "tools": ToolsScreen {}
-        if Live.screen == "offsets": OffsetsScreen {}
-        if Live.screen == "conv": ConvScreen {}
-        if Live.screen == "files": FilesScreen {}
-        if Live.screen == "util": UtilScreen {}
+        // A screen fades in and rises 12px as it opens: a one-off, so the
+        // eye follows the change without the screen moving at idle.
+        if Live.screen == "run": Arrive { RunScreen {} }
+        if Live.screen == "job": Arrive { JobScreen {} }
+        if Live.screen == "manual": Arrive { ManualScreen {} }
+        if Live.screen == "probe": Arrive { ProbeScreen {} }
+        if Live.screen == "tools": Arrive { ToolsScreen {} }
+        if Live.screen == "offsets": Arrive { OffsetsScreen {} }
+        if Live.screen == "conv": Arrive { ConvScreen {} }
+        if Live.screen == "files": Arrive { FilesScreen {} }
+        if Live.screen == "util": Arrive { UtilScreen {} }
         if Live.drawer-open: MessageDrawer {}
         if Live.tc-open: ToolChange {}
         if Live.pick-open: Picker {}
@@ -52,16 +55,26 @@ export component MainWindow inherits Window {
     BottomBar { x: 0; y: parent.height - 128px; width: parent.width; height: 128px; }
     // The status list under its pill; a tap anywhere closes it.
     if Live.status-open: TouchArea { clicked => { Live.status-open = false; } }
+    // It unfolds down from the pill (Theme.enter) and closes at once.
     if Live.status-open: Rectangle {
+        // `unfold` goes 0 to 1 once (init); the height follows the rows.
+        property <float> unfold: 0;
+        init => { self.unfold = 1; }
+        animate unfold { duration: Theme.enter; easing: ease-out; }
         x: min(Live.status-x * 1px, parent.width - self.width - 14px);
         y: 60px;
         width: 440px;
-        height: rows.preferred-height;
+        height: 38px + (rows.preferred-height - 38px) * unfold;
+        opacity: min(1, 2 * unfold);
+        clip: true;
         background: Theme.panel2;
         border-width: 1px;
         border-color: Theme.line;
         border-radius: Theme.radius-ctl;
         rows := VerticalLayout {
+            // Laid out at full height while the panel unfolds over it.
+            height: self.preferred-height;
+            y: 0;
             padding: 14px;
             padding-left: 20px;
             padding-right: 20px;
@@ -106,11 +119,15 @@ export component MainWindow inherits Window {
     }
     if Live.toast != "": Rectangle {
         x: parent.width - self.width - 14px;
-        // Under the top bar, clear of the plot and bottom-bar controls.
-        y: 72px;
+        // Under the top bar, clear of the plot and bottom-bar controls. It
+        // drops into place as it appears.
+        y: 60px;
         opacity: 0;
-        init => { self.opacity = 1; }
-        animate opacity { duration: Theme.quick; }
+        init => {
+            self.y = 72px;
+            self.opacity = 1;
+        }
+        animate y, opacity { duration: Theme.enter; easing: ease-out; }
         width: 860px;
         // Grows to fit: an error is read in full, never cut off.
         height: max(84px, toast-text.preferred-height + 28px);

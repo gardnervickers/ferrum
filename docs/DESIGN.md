@@ -31,14 +31,32 @@ widgets in `app/ui/widgets.slint`.
   the hold-to-confirm sweep and the HOLD tag are part of `Btn`.
 - **Cheap to draw.** The Pi draws in software: flat fills and rounded
   rectangles only. No gradients or shadows.
-- **Quiet motion.** Only a change of state animates, and briefly:
+- **Quiet motion.** Only a change animates, once and briefly, and every
+  animation answers something the user did or the machine reported:
   `Theme.quick` (140 ms) for presses, toggles and tab changes, `Theme.settle`
-  (220 ms) for bars and status colours. A press lights at once and fades on
-  release. Nothing moves position, nothing loops, nothing animates at idle,
-  and no animation delays a touch or a machine action. The one exception is
-  the probe preview: a small tip loops through the selected routine on the
-  PROBE picture (green, so it is never read as a control or an arrow), and
-  it stops while a probe runs.
+  (220 ms) for bars and status colours, `Theme.enter` (180 ms, ease-out) for
+  something arriving, `Theme.glide` (200 ms) for the nav plate. A press
+  lights at once and fades on release. What moves:
+  - a screen fades in and rises 12 px as it opens (`Arrive`);
+  - the nav bar's chosen plate glides to the tapped tab;
+  - a dialog (keypad, keyboard, picker, tool change, messages) rises 24 px
+    over a darkening scrim; it closes at once, so a closing dialog is never
+    read as still asking for something;
+  - the MACHINE STATUS list unfolds down from its pill (the caret flips);
+  - a toast drops 12 px into place;
+  - after a DRO ZERO the axis's number lights in the accent when the new
+    value arrives and settles back to white;
+  - a new top-bar message shows bright, then settles to grey.
+
+  Nothing loops, nothing animates at idle, and no animation delays a touch
+  or a machine action. An animated property never reads fast data (DRO
+  numbers, the current line, progress): Slint re-runs the animation, and
+  redraws the screen, at every change it reads. A one-off entrance sets
+  constants in `init` (`opacity: 0; init => { self.opacity = 1; }`): a
+  binding that flips in `init` starts at its end value and never plays.
+  The exception is the probe preview: a small tip plays the selected
+  routine twice on the PROBE picture (green, so it is never read as a
+  control or an arrow), and it stops while a probe runs.
 
 ## Widgets
 

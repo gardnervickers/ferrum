@@ -6,6 +6,16 @@ import { Btn, Pill, Label, Card } from "widgets.slint";
 export component StatusBar inherits Rectangle {
     background: Theme.bar;
     property <bool> blink;
+    // A new message shows bright for a moment, then settles to grey, so a
+    // change up here catches the eye once and then stays quiet.
+    property <string> message: Live.message;
+    property <bool> fresh;
+    changed message => { if self.message != "" { self.fresh = true; fresh-timer.restart(); } }
+    fresh-timer := Timer {
+        interval: 1200ms;
+        running: root.fresh;
+        triggered => { root.fresh = false; }
+    }
     Timer {
         interval: 500ms;
         running: Live.status-flash;
@@ -75,7 +85,7 @@ export component StatusBar inherits Rectangle {
                 horizontal-stretch: 0;
                 HorizontalLayout {
                     Pill {
-                        text: Live.status-text + "  ▼";
+                        text: Live.status-text + (Live.status-open ? "  ▲" : "  ▼");
                         kind: Live.status-kind;
                         min-width: 150px;
                         lit: Live.status-flash && root.blink;
@@ -99,7 +109,8 @@ export component StatusBar inherits Rectangle {
             text: Live.message;
             font-family: Theme.body;
             font-size: 21px;
-            color: Live.message-error ? Theme.bad : Theme.muted;
+            color: Live.message-error ? Theme.bad : root.fresh ? Theme.ink : Theme.muted;
+            animate color { duration: root.fresh ? 0ms : 800ms; easing: ease-out; }
             // Tapping the latest message opens the full log.
             TouchArea { clicked => { Live.drawer-open = true; } }
         }
@@ -147,6 +158,25 @@ component DroLine inherits Rectangle {
     in property <bool> last;
     // Space the ZERO button takes from the number's left edge.
     property <length> zero-w: Layout.compact ? 76px : 88px;
+    // Just zeroed: the number lights in the accent and settles back, so a
+    // tap on ZERO is seen to land on this axis. Only this flag animates:
+    // the number itself changes at every status and must not.
+    // It lights when the new value arrives (not on the tap, which would
+    // light the old number), or after 400 ms if the axis already read 0.
+    property <bool> zeroed;
+    property <bool> armed;
+    property <string> work: pos.work;
+    changed work => { if self.armed { self.armed = false; self.zeroed = true; } }
+    Timer {
+        interval: 400ms;
+        running: root.armed;
+        triggered => { root.armed = false; root.zeroed = true; }
+    }
+    Timer {
+        interval: 300ms;
+        running: root.zeroed;
+        triggered => { root.zeroed = false; }
+    }
     height: 85px;
     if !last: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
     // The axis letter is amber until the axis is homed.
@@ -169,7 +199,10 @@ component DroLine inherits Rectangle {
         text: "ZERO";
         font-size: Layout.compact ? 20px : 22px;
         enabled: Live.power && data.homed && !Live.manual-locked;
-        clicked => { Actions.dro-zero(data.axis); }
+        clicked => {
+            Actions.dro-zero(data.axis);
+            root.armed = true;
+        }
     }
     // Not homed: the same spot homes just this axis (hold, it moves).
     // A has no switch, so "homing" it sets its reference where it stands.
@@ -196,7 +229,8 @@ component DroLine inherits Rectangle {
         font-family: Theme.body;
         font-weight: 600;
         font-size: 60px;
-        color: Theme.ink;
+        color: root.zeroed ? Theme.sel : Theme.ink;
+        animate color { duration: root.zeroed ? 0ms : 600ms; easing: ease-out; }
     }
     HorizontalLayout {
         x: 52px;
@@ -381,22 +415,48 @@ export component BottomBar inherits Rectangle {
     // The cycle buttons narrow in a compact window; their text shrinks to fit.
     property <length> cycle-w: Layout.compact ? 150px : 180px;
     property <length> cycle-font: Layout.compact ? 27px : 32px;
+    // Nav tab geometry, shared by the tabs and the sliding plate.
+    property <length> nav-pad: Layout.compact ? 8px : 14px;
+    property <length> nav-w: Layout.compact ? 80px : 104px;
+    property <length> nav-gap: Layout.compact ? 4px : 8px;
+    // Which tab is chosen (-1: none). Kept by the tabs themselves.
+    property <int> nav-index: -1;
     background: Theme.bar;
     Rectangle { y: 0; height: 1px; background: Theme.line; }
+    // The chosen tab's plate glides to a newly chosen tab, so the eye
+    // follows the move from one screen to the next. It moves only on a tap.
+    Rectangle {
+        x: root.nav-pad + max(0, root.nav-index) * (root.nav-w + root.nav-gap);
+        y: (parent.height - 96px) / 2;
+        width: root.nav-w;
+        height: 96px;
+        visible: root.nav-index >= 0;
+        border-radius: Theme.radius-ctl;
+        background: Theme.sel-soft;
+        border-width: 2px;
+        border-color: Theme.sel;
+        animate x { duration: Theme.glide; easing: ease-out; }
+    }
     HorizontalLayout {
-        padding-left: Layout.compact ? 8px : 14px;
+        padding-left: root.nav-pad;
         padding-right: 8px;
-        spacing: Layout.compact ? 4px : 8px;
-        for n in Live.nav: VerticalLayout {
+        spacing: root.nav-gap;
+        for n[i] in Live.nav: VerticalLayout {
             alignment: center;
             Btn {
-                width: Layout.compact ? 80px : 104px;
+                property <bool> chosen: Live.screen == n.id;
+                init => { if self.chosen { root.nav-index = i; } }
+                changed chosen => {
+                    if self.chosen { root.nav-index = i; } else if root.nav-index == i { root.nav-index = -1; }
+                }
+                glide: true;
+                width: root.nav-w;
                 height: 96px;
                 font-size: Layout.compact ? 20px : 24px;
                 flat: true;
                 icon: n.icon;
                 text: n.label;
-                on: Live.screen == n.id;
+                on: self.chosen;
                 clicked => { Actions.navigate(n.id); }
             }
         }

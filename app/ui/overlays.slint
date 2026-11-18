@@ -4,16 +4,34 @@ import { Theme } from "theme.slint";
 import { Live, Actions, MsgRow } from "state.slint";
 import { Btn, Label, H3, Note, Pill } from "widgets.slint";
 
+// An overlay arrives once: the scrim darkens and the dialog rises into
+// place (Theme.enter). It closes at once: a closing dialog must never be
+// read as still asking for something, nor take a tap.
 component Scrim inherits Rectangle {
-    background: Theme.scrim;
+    // Starts clear and darkens (see Arrive in widgets.slint for why init).
+    background: #05070800;
+    init => { self.background = Theme.scrim; }
+    animate background { duration: Theme.enter; }
     TouchArea { }  // swallow taps behind the dialog
 }
 
 component Dialog inherits Rectangle {
-    background: Theme.panel;
-    border-width: 1px;
-    border-color: Theme.line;
-    border-radius: Theme.radius;
+    // Centred in the scrim; it starts a little low and rises into place.
+    opacity: 0;
+    property <length> lift: 24px;
+    init => {
+        self.opacity = 1;
+        self.lift = 0px;
+    }
+    animate lift, opacity { duration: Theme.enter; easing: ease-out; }
+    Rectangle {
+        y: root.lift;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.line;
+        border-radius: Theme.radius;
+        @children
+    }
 }
 
 component KeypadKey inherits Btn {

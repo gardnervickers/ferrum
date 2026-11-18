@@ -97,6 +97,7 @@ export component FilesScreen inherits Rectangle {
                     }
                     changed width => { Actions.files-plot-resize(well.width / 1px, well.height / 1px); }
                     if Live.files-tab == "plot": pic := Rectangle {
+                        opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; }
                         property <bool> drawn: Live.files-name != "" && Live.files-status == "" && !Live.remote;
                         Image { visible: pic.drawn; width: parent.width; height: parent.height; source: Live.files-plot; image-fit: fill; }
                         // Work zero, named in the corner its two axis lines make.
@@ -140,6 +141,7 @@ export component FilesScreen inherits Rectangle {
                         }
                     }
                     if Live.files-tab == "code": Flickable {
+                        opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; }
                         content-height: pv.preferred-height + 16px;
                         pv := Text {
                             x: 12px;

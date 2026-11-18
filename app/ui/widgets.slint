@@ -12,6 +12,9 @@ export component Btn inherits Rectangle {
     in property <bool> hold;
     // Flat: no plate until chosen (the nav tabs).
     in property <bool> flat;
+    // The chosen plate is drawn by the parent, which slides it between
+    // buttons (the nav bar); this button only tints its label.
+    in property <bool> glide;
     in property <length> font-size: 24px;
     in property <string> family: Theme.display;
     callback clicked();
@@ -29,10 +32,10 @@ export component Btn inherits Rectangle {
     border-radius: Theme.radius-ctl;
     property <bool> filled: kind == "go" || kind == "hold" || kind == "stop";
     background: kind == "go" ? Theme.go : kind == "hold" ? Theme.hold : kind == "stop" ? Theme.stop
-        : kind == "tripped" ? #3a1414 : on ? Theme.sel-soft : flat ? transparent : Theme.raised;
+        : kind == "tripped" ? #3a1414 : on && glide ? transparent : on ? Theme.sel-soft : flat ? transparent : Theme.raised;
     border-color: kind == "go" ? Theme.go-border : kind == "hold" ? Theme.hold-border : kind == "stop" ? Theme.stop-border
         : kind == "tripped" ? Theme.stop-border : on ? Theme.sel : Theme.raised-border;
-    border-width: kind == "tripped" ? 3px : on && !filled ? 2px : flat ? 0 : 1px;
+    border-width: kind == "tripped" ? 3px : on && glide ? 0 : on && !filled ? 2px : flat ? 0 : 1px;
     opacity: enabled ? 1.0 : 0.38;
     clip: true;
     animate background, border-color, opacity { duration: Theme.quick; }
@@ -248,4 +251,24 @@ export component Note inherits Text {
     font-size: 19px;
     color: Theme.muted;
     wrap: word-wrap;
+}
+
+// Wraps something that has just appeared (a screen, a tab's panel): it
+// fades in and rises into place once, then sits still. The fade is a
+// layer only while it runs; at full opacity it draws directly again.
+export component Arrive inherits Rectangle {
+    // Start values are plain constants, set to their end values in init:
+    // Slint animates that assignment (a binding that flips in init would
+    // just start at its end value).
+    opacity: 0;
+    property <length> lift: 12px;
+    init => {
+        self.opacity = 1;
+        self.lift = 0px;
+    }
+    animate opacity, lift { duration: Theme.enter; easing: ease-out; }
+    Rectangle {
+        y: root.lift;
+        @children
+    }
 }
