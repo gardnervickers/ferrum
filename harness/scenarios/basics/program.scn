@@ -1,5 +1,4 @@
 title Load a program from FILES, run it, end where it should
-xfail inch: B3, the travel check reads inch numbers as mm (Z past + limit) and may refuse the program
 include ../common/ready.scn
 include ../common/work-zero.scn
 screen files

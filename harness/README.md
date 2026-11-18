@@ -36,6 +36,7 @@ a `millgui.ini` (it must have a `[MILLGUI]` section; the harness adds
 | `sim-mm` | a stock 3-axis metric machine, LinuxCNC sim style, no Probe Basic (`configs/stock.py`) | mm stock xyz |
 | `sim-inch` | the same in inches (`LINEAR_UNITS = inch`) | inch stock xyz |
 | `sim-xyza` | stock metric XYZ + rotary A | mm stock xyza |
+| `sim-gantry` | stock metric gantry: two Y joints (`XYYZ`) | mm stock xyz gantry |
 
 The stock configs use LinuxCNC's own `INCREMENTS` lines (`1 mm, .01 in, ...`),
 loop the joints back, acknowledge tool changes at once and put the probe

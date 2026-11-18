@@ -1,0 +1,3 @@
+#!/bin/sh
+# A stock metric gantry: two Y joints (XYYZ, trivkins), no Probe Basic.
+exec python3 "$(dirname "$0")/../stock.py" "$1" --units mm --axes XYYZ

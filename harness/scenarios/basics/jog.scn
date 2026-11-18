@@ -1,5 +1,4 @@
 title One jog step on X moves exactly one step
-xfail stock: C1, stock INCREMENTS ("1 mm", ".1in") are not parsed yet
 include ../common/ready.scn
 screen manual
 expect prop.jog-steps contains "${jog_label}"

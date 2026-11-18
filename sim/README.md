@@ -82,4 +82,6 @@ cd ~/sims/inch && MILLGUI_BIN=... linuxcnc axis.ini
 ```
 
 The sample configs answer M6 with `hal_manualtoolchange` and have no probe
-input.
+input. This is for trying millgui by hand on LinuxCNC's own samples (home
+switches, XYZY joint order); the automated checks on stock machines are in
+`millgui/harness` (`sim-mm`, `sim-inch`, `sim-xyza`, `sim-gantry`).

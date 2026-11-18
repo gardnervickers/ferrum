@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A stock LinuxCNC simulator config with millgui as its display.
 
-    stock.py OUT_DIR --units mm|inch --axes XYZ|XYZA
+    stock.py OUT_DIR --units mm|inch --axes XYZ|XYZA|XYYZ
 
 What a new millgui user's machine looks like: a plain INI in the style of
 LinuxCNC's configs/sim/axis (its INCREMENTS line included), joints looped
@@ -87,7 +87,7 @@ HALFILE = sim.hal
 HALUI = halui
 
 [TRAJ]
-COORDINATES = {' '.join(axes)}
+COORDINATES = {' '.join(dict.fromkeys(axes))}
 LINEAR_UNITS = {units}
 ANGULAR_UNITS = degree
 DEFAULT_LINEAR_VELOCITY = {L['vel'] / 2}
@@ -104,13 +104,16 @@ JOINTS = {joints}
             lo, hi, vel, acc, typ = -99999, 99999, 180, 900, "ANGULAR"
         else:
             (lo, hi), vel, acc, typ = L[a], L["vel"], L["acc"], "LINEAR"
-        s += f"""
+        # A gantry (XYYZ) has one [AXIS_Y] for its two Y joints.
+        if a not in axes[:j]:
+            s += f"""
 [AXIS_{a}]
 MAX_VELOCITY = {vel}
 MAX_ACCELERATION = {acc}
 MIN_LIMIT = {lo}
 MAX_LIMIT = {hi}
-
+"""
+        s += f"""
 [JOINT_{j}]
 TYPE = {typ}
 HOME = 0

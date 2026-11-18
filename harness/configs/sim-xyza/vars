@@ -8,5 +8,5 @@ feed = 600
 home_x = 0
 home_y = 0
 home_z = 0
-jog_label = 1 mm
+jog_label = 1
 jog_x_after = 1
