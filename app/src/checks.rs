@@ -120,6 +120,13 @@ impl Halcmd {
     }
 }
 
+impl Halcmd {
+    /// LinuxCNC is running (its HAL is up).
+    pub fn running(&self) -> bool {
+        self.up
+    }
+}
+
 fn run_halcmd(args: &[&str]) -> Option<String> {
     let out = Command::new("halcmd").args(args).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
@@ -453,6 +460,68 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     v
 }
 
+/// `text` (an INI) with `lines` ("KEY = VALUE") in `[section]`: a key
+/// already there has its line replaced, the rest go at the end of the
+/// section (before its trailing blank lines), and a missing section is
+/// added at the end of the file.
+pub fn ini_with(text: &str, section: &str, lines: &[String]) -> String {
+    let key = |l: &str| l.split_once('=').map(|(k, _)| k.trim().to_string());
+    let mut out: Vec<String> = text.lines().map(String::from).collect();
+    let head = out.iter().position(|l| l.trim().eq_ignore_ascii_case(&format!("[{section}]")));
+    let Some(head) = head else {
+        if out.last().is_some_and(|l| !l.trim().is_empty()) {
+            out.push(String::new());
+        }
+        out.push(format!("[{section}]"));
+        out.extend(lines.iter().cloned());
+        return out.join("\n") + "\n";
+    };
+    let end = out[head + 1..].iter().position(|l| l.trim_start().starts_with('[')).map_or(out.len(), |i| head + 1 + i);
+    let mut add = Vec::new();
+    for line in lines {
+        let k = key(line);
+        match out[head + 1..end].iter().position(|l| !l.trim_start().starts_with('#') && key(l) == k) {
+            Some(i) => out[head + 1 + i] = line.clone(),
+            None => add.push(line.clone()),
+        }
+    }
+    // After the section's last non-blank line.
+    let mut at = end;
+    while at > head + 1 && out[at - 1].trim().is_empty() {
+        at -= 1;
+    }
+    for (n, l) in add.into_iter().enumerate() {
+        out.insert(at + n, l);
+    }
+    out.join("\n") + "\n"
+}
+
+/// `millgui --check --write-ini`: put every row's INI lines into the INI,
+/// keeping the old file as `<ini>.bak`. Returns what was written.
+pub fn write_ini(path: &Path, checks: &[Check]) -> Result<Vec<String>, String> {
+    let fixes: Vec<(&str, &Vec<String>)> = checks
+        .iter()
+        .filter(|c| matches!(c.level, Level::Attention | Level::Blocks(_)))
+        .filter_map(|c| match &c.fix {
+            Fix::IniLines { section, lines } => Some((*section, lines)),
+            _ => None,
+        })
+        .collect();
+    if fixes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut done = Vec::new();
+    for (section, lines) in fixes {
+        text = ini_with(&text, section, lines);
+        done.extend(lines.iter().map(|l| format!("[{section}] {l}")));
+    }
+    let bak = path.with_extension(format!("{}.bak", path.extension().and_then(|e| e.to_str()).unwrap_or("ini")));
+    std::fs::copy(path, &bak).map_err(|e| format!("{}: {e}", bak.display()))?;
+    std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(done)
+}
+
 /// The reason a feature is off, from the first row that blocks it: its
 /// detail (written to stand alone), else its title.
 pub fn blocked(checks: &[Check], f: Feature) -> Option<String> {
@@ -493,6 +562,18 @@ pub fn report(checks: &[Check]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ini_lines_go_into_their_section() {
+        let ini = "[RS274NGC]\nPARAMETER_FILE = sim.var\nHAL_PIN_VARS = 0\n\n[TRAJ]\nLINEAR_UNITS = mm\n";
+        let out = ini_with(ini, "RS274NGC", &["HAL_PIN_VARS = 1".into(), "INI_VARS = 1".into()]);
+        assert_eq!(out, "[RS274NGC]\nPARAMETER_FILE = sim.var\nHAL_PIN_VARS = 1\nINI_VARS = 1\n\n[TRAJ]\nLINEAR_UNITS = mm\n");
+        let out = ini_with("[EMC]\nVERSION = 1.1\n", "RS274NGC", &["HAL_PIN_VARS = 1".into()]);
+        assert_eq!(out, "[EMC]\nVERSION = 1.1\n\n[RS274NGC]\nHAL_PIN_VARS = 1\n");
+        // A commented-out key is left alone.
+        let out = ini_with("[RS274NGC]\n# HAL_PIN_VARS = 0\n", "RS274NGC", &["HAL_PIN_VARS = 1".into()]);
+        assert_eq!(out, "[RS274NGC]\n# HAL_PIN_VARS = 0\nHAL_PIN_VARS = 1\n");
+    }
     use std::collections::HashMap;
 
     struct FakeHal {

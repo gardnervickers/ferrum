@@ -61,10 +61,12 @@ struct Args {
     size: Option<(u32, u32)>,
     /// `--check [INI]`: print the configuration check and exit.
     check: bool,
+    /// `--check --write-ini`: also add the INI lines it asks for.
+    write_ini: bool,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new(), open: None, size: None, check: false };
+    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new(), open: None, size: None, check: false, write_ini: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -80,6 +82,10 @@ fn parse_args() -> Args {
             "--open" => a.open = it.next().map(PathBuf::from),
             "--size" => a.size = it.next().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))),
             "--check" => a.check = true,
+            "--write-ini" => {
+                a.check = true;
+                a.write_ini = true;
+            }
             other if a.check && !other.starts_with('-') => a.ini = Some(PathBuf::from(other)),
             _ => {}
         }
@@ -710,6 +716,9 @@ fn main() -> Result<(), slint::PlatformError> {
         let ids: Vec<String> = modules.iter().map(|m| m.id().to_string()).collect();
         let rows = checks::run(&checks::Inputs { cfg: &cfg, mc, mi, notes: &notes, modules: &ids, hal: hal.as_ref() });
         print!("{}", checks::report(&rows));
+        if args.write_ini {
+            write_ini(&cfg, &rows);
+        }
         std::process::exit(if checks::blocked(&rows, checks::Feature::Core).is_some() { 1 } else { 0 });
     }
 
@@ -1115,6 +1124,29 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     ui.run()
+}
+
+/// `--write-ini`: the check's INI lines into the INI, only while LinuxCNC
+/// is stopped (it reads the INI once, at start).
+fn write_ini(cfg: &Config, rows: &[checks::Check]) {
+    let Some(path) = &cfg.path else { return };
+    if checks::Halcmd::new().running() {
+        eprintln!("\nmillgui: LinuxCNC is running; stop it before --write-ini changes {}", path.display());
+        std::process::exit(2);
+    }
+    match checks::write_ini(path, rows) {
+        Ok(done) if done.is_empty() => println!("\nNothing to add to {}.", path.display()),
+        Ok(done) => {
+            println!("\nAdded to {} (the old file is beside it, .bak):", path.display());
+            for l in done {
+                println!("  {l}");
+            }
+        }
+        Err(e) => {
+            eprintln!("\nmillgui: {e}");
+            std::process::exit(2);
+        }
+    }
 }
 
 fn set_nav(ui: &MainWindow, modules: &[Box<dyn Module>], screen: Option<&str>) {

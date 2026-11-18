@@ -30,6 +30,9 @@ millgui --check ~/linuxcnc/configs/mymachine/mymachine.ini
 
 It prints what was read, what is missing and what is switched off because
 of it, and exits non-zero only when millgui cannot run the machine at all.
+With `--write-ini` (LinuxCNC stopped) it also adds the INI lines it asks
+for, such as `HAL_PIN_VARS = 1`, keeping the old file as `<ini>.bak`. The
+screen never edits the INI; SETUP shows the lines.
 The same check runs when millgui starts: PROBE, JOB and CONV show the reason
 in place of the screen when they are off.
 

@@ -92,5 +92,7 @@ read them directly). No `linuxcnc.ini` parsing.
 
 ## License
 
-Not decided yet. The shim includes LinuxCNC headers and links `libnml`
-(GPL-2.0), so a published build must use a GPL-2.0-compatible license.
+MIT, like the rest of millgui (`millgui/LICENSE`). The `nml` build
+compiles against LinuxCNC's headers and links its `libnml` (GPL-2.0), so a
+binary built with it is distributed under the GPL's terms as well; MIT
+source is compatible with that.
