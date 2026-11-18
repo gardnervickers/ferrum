@@ -17,3 +17,10 @@ jog_x_after = 216
 # safe spot plus dist (programs have no arithmetic)
 safe_x2 = 210
 safe_y2 = -80
+# The sim stock block (sim_card.py): its middle, top, and Z to start a probe from.
+block_x = 215
+block_y = -90
+block_top = -250
+block_above = -240
+block_below = -260
+probe_tol = 0.05

@@ -13,3 +13,10 @@ jog_x_after = 0.1
 # safe spot plus dist (programs have no arithmetic)
 safe_x2 = 2.5
 safe_y2 = 1.5
+# The stock block (stock.py BLOCK): its middle, top, and Z to start a probe from.
+block_x = 3
+block_y = -1.5
+block_top = -4
+block_above = -3.6
+block_below = -4.4
+probe_tol = 0.002

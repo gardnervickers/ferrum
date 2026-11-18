@@ -49,7 +49,8 @@ scenarios fail with "File not open". CI does this with the
 The stock configs use LinuxCNC's own `INCREMENTS` lines (`1 mm, .01 in, ...`),
 loop the joints back, acknowledge tool changes at once (`tc-loop`; sim-inch
 leaves M6 to millgui's dialog, `tc-dialog`) and put the probe
-input on signal `sim-probe` (`hal sim-probe 1` trips it). To add a machine,
+a stock block (`BLOCK` in stock.py) that trips the probe input, which `hal sim-probe 1`
+also trips by hand. To add a machine,
 add a folder with `prepare` and `vars`.
 
 Programs in `nc_files/` are copied into each config's `nc_files` with the
