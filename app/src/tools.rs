@@ -288,7 +288,8 @@ impl Tools {
         live.set_tc_from_desc(desc(&live.get_tc_from()).into());
         live.set_tc_tool_desc(desc(&live.get_tc_tool()).into());
         let (state, can_extend, can_retract) = match &self.io {
-            Some(io) => {
+            // The plain tool change dialog has no drawbar to show.
+            Some(io) if io.drawbar() => {
                 let i = io.read();
                 let idle = self.status.as_ref().is_some_and(|s| !s.busy() && s.power_on());
                 let spindle_off = i.spindle_request == Some(false);
@@ -302,7 +303,7 @@ impl Tools {
                 // overlay's RESUME makes the same check).
                 (label, idle && spindle_off && !i.change && i.drawbar_extended == Some(false), spindle_off && (i.manual_request || i.drawbar_extended == Some(true)))
             }
-            None => ("NOT FITTED", false, false),
+            _ => ("NOT FITTED", false, false),
         };
         live.set_tools_drawbar(state.into());
         live.set_tools_can_extend(can_extend);

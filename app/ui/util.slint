@@ -89,7 +89,8 @@ export component UtilScreen inherits Rectangle {
                     Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
                 }
                 H3 { text: "SPINDLE AND TOOL SETTER"; }
-                HorizontalLayout {
+                // Gone when empty, or it takes a share of the free height.
+                if Live.ut-has-blast || Live.ut-has-nose: HorizontalLayout {
                     spacing: 12px;
                     if Live.ut-has-blast: Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
                     if Live.ut-has-nose: Btn {

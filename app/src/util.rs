@@ -77,7 +77,7 @@ impl Util {
         if s.spindle_enabled {
             return Err("The spindle must be stopped".into());
         }
-        if let Some(io) = &self.io {
+        if let Some(io) = self.io.as_ref().filter(|io| io.drawbar()) {
             if io.read().drawbar_extended != Some(false) {
                 return Err("The drawbar must be clamped".into());
             }

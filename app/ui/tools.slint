@@ -217,7 +217,8 @@ export component ToolsScreen inherits Rectangle {
                     Btn { font-size: 22px; text: "CREATE MISSING ENTRIES"; enabled: Live.tools-missing && !locked; clicked => { Actions.tools-create-missing(); } }
                 }
             }
-            Card {
+            // Only on a machine with a power drawbar.
+            if Live.tools-drawbar != "NOT FITTED": Card {
                 VerticalLayout {
                     padding: 14px;
                     spacing: 12px;
