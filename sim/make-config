@@ -103,6 +103,7 @@ def main():
     gui = (REPO / "millgui.ini").read_text().replace("DISPLAY = ./millgui/run", "DISPLAY = ./display")
     gui = re.sub(r"(?m)^PROGRAM_PREFIX = .*$", f"PROGRAM_PREFIX = {out / 'nc_files'}", gui)
     (out / "millgui.ini").write_text(gui)
+    shutil.copy(REPO / "millgui.toml", out / "millgui.toml")
     disp = out / "display"
     disp.write_text('#!/bin/sh\nexport SLINT_SCALE_FACTOR="${SLINT_SCALE_FACTOR:-1}"\n'
                     f'exec "${{MILLGUI_BIN:-{REPO}/millgui/target/release/millgui}}" "$@"\n')

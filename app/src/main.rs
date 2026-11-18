@@ -11,6 +11,8 @@ mod headless;
 mod history;
 mod job;
 mod machine_info;
+mod checks;
+mod halmap;
 mod machine_cfg;
 mod manual;
 mod mdi;
@@ -56,10 +58,12 @@ struct Args {
     open: Option<PathBuf>,
     /// Screenshot window size in pixels (default 1920x1080).
     size: Option<(u32, u32)>,
+    /// `--check [INI]`: print the configuration check and exit.
+    check: bool,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new(), open: None, size: None };
+    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new(), open: None, size: None, check: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -74,10 +78,12 @@ fn parse_args() -> Args {
             "--show" => a.show.extend(it.next()),
             "--open" => a.open = it.next().map(PathBuf::from),
             "--size" => a.size = it.next().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))),
+            "--check" => a.check = true,
+            other if a.check && !other.starts_with('-') => a.ini = Some(PathBuf::from(other)),
             _ => {}
         }
     }
-    if !cfg!(target_os = "linux") {
+    if !cfg!(target_os = "linux") && !a.check {
         a.sim = true;
     }
     a
@@ -143,14 +149,39 @@ fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<Stri
         return Some(comp);
     }
     let Some(ini) = cfg.path.as_ref() else { return Some(comp) };
-    let mut files: Vec<PathBuf> = modules
-        .iter()
-        .map(|m| PathBuf::from(format!("millgui/hal/{}.hal", m.id())))
-        .filter(|p| cfg.dir().join(p).is_file())
-        .collect();
-    if let Some(extra) = cfg.get("MILLGUI", "POSTGUI_HALFILE") {
-        files.push(PathBuf::from(extra));
+    // A module's own millgui/hal/<id>.hal (the mymill profile), else its
+    // pins connect through [hal] in millgui.toml or their default targets.
+    let mc = machine_cfg::get();
+    let mut files: Vec<PathBuf> = Vec::new();
+    let mut known: Vec<&str> = Vec::new();
+    for m in modules.iter_mut() {
+        let file = PathBuf::from(format!("millgui/hal/{}.hal", m.id()));
+        let has_file = cfg.dir().join(&file).is_file();
+        if has_file {
+            files.push(file);
+        }
+        for l in m.hal_links() {
+            known.push(l.name);
+            let target = mc.hal.get(l.name).map(String::as_str).or(if has_file { None } else { l.auto });
+            match target {
+                Some(t) => match halmap::link(l.pin, l.input, t) {
+                    Ok(done) => {
+                        eprintln!("millgui: HAL {done}");
+                        m.linked(l.name);
+                    }
+                    Err(e) => notes.push(format!("[hal]{}: {e}", l.name)),
+                },
+                None if has_file => m.linked(l.name),
+                None => {}
+            }
+        }
     }
+    for k in mc.hal.keys() {
+        if !known.contains(&k.as_str()) {
+            notes.push(format!("[hal]{k}: no enabled module uses this name"));
+        }
+    }
+    files.extend(mc.postgui(cfg).into_iter().map(PathBuf::from));
     for f in files {
         if let Err(e) = halcmd_file(&cfg.dir(), ini, &f) {
             notes.push(e);
@@ -427,12 +458,42 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     actions.on_estop_reset(move || m.send(Command::SetState(TaskState::EstopReset)));
     let m = machine.clone();
     actions.on_home_all(move || m.send(Command::Home(JointSel::All)));
-    // Every joint behind the axis (both sides of a gantry).
-    let m = machine.clone();
+    // Every joint behind the axis (both sides of a gantry), one at a time:
+    // LinuxCNC drops a home command that comes while another joint homes.
+    let (m, st, timer) = (machine.clone(), state.clone(), Rc::new(slint::Timer::default()));
     actions.on_home_axis(move |axis| {
-        for j in axis.chars().next().map(|l| machine_info::get().home_joints(l)).unwrap_or_default() {
-            m.send(Command::Home(JointSel::Joint(j as u8)));
+        let mut joints = axis.chars().next().map(|l| machine_info::get().home_joints(l)).unwrap_or_default();
+        if joints.is_empty() {
+            return;
         }
+        let mut last = joints.remove(0);
+        m.send(Command::Home(JointSel::Joint(last as u8)));
+        if joints.is_empty() {
+            return;
+        }
+        let (m, st, weak) = (m.clone(), st.clone(), Rc::downgrade(&timer));
+        let (mut sent, start) = (Instant::now(), Instant::now());
+        timer.start(slint::TimerMode::Repeated, Duration::from_millis(100), move || {
+            let stop = || weak.upgrade().inspect(|t| t.stop()).map(|_| ());
+            let st = st.borrow();
+            let Some(s) = st.status.as_ref() else { return };
+            let homing = s.homing.iter().any(|h| *h);
+            let done = s.homed.get(last).copied().unwrap_or(false);
+            if start.elapsed() > Duration::from_secs(180) || (!homing && !done && sent.elapsed() > Duration::from_secs(3)) {
+                // Homing stopped without this joint homed: leave the rest.
+                stop();
+                return;
+            }
+            if homing || !done {
+                return;
+            }
+            last = joints.remove(0);
+            m.send(Command::Home(JointSel::Joint(last as u8)));
+            sent = Instant::now();
+            if joints.is_empty() {
+                stop();
+            }
+        });
     });
     let (m, st) = (machine.clone(), state.clone());
     actions.on_power(move || {
@@ -460,7 +521,7 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         });
     });
     let (m, st, weak) = (machine.clone(), state.clone(), ui.as_weak());
-    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(99);
+    let probe_tool = machine_cfg::get().probe_tool(&cfg);
     let w = ui.as_weak();
     actions.on_toast_dismiss(move || {
         if let Some(ui) = w.upgrade() {
@@ -633,14 +694,23 @@ fn main() -> Result<(), slint::PlatformError> {
         }),
         None => Config::default(),
     };
-    let mi = machine_info::init(&cfg);
+    let mc = machine_cfg::init(&cfg, &mut notes);
+    let mi = machine_info::init(&cfg, mc);
     jobcore::mill_ops::set_machine_top(&mi.units.gcode(mi.z_top));
     machine::set_axis_joints(std::array::from_fn(|i| mi.jog_joint(i).map(|j| j as u8)));
     if let Some(u) = &mi.units_unknown {
         notes.push(format!("[TRAJ]LINEAR_UNITS = {u} is not a unit millgui knows; showing millimetres"));
     }
-    let (mut modules, problems) = modules::build(&cfg);
+    let hal: Box<dyn checks::Hal> = if args.sim { Box::new(checks::NoHal) } else { Box::new(checks::Halcmd::new()) };
+    let (mut modules, problems) = modules::build(&cfg, hal.as_ref());
     notes.extend(problems);
+
+    if args.check {
+        let ids: Vec<String> = modules.iter().map(|m| m.id().to_string()).collect();
+        let rows = checks::run(&checks::Inputs { cfg: &cfg, mc, mi, notes: &notes, modules: &ids, hal: hal.as_ref() });
+        print!("{}", checks::report(&rows));
+        std::process::exit(if checks::blocked(&rows, checks::Feature::Core).is_some() { 1 } else { 0 });
+    }
 
     if let Some(out) = &args.screenshot {
         return screenshot(&args, &cfg, &modules, out);
@@ -825,6 +895,36 @@ fn main() -> Result<(), slint::PlatformError> {
 
     wire_actions(&ui, &handle, &state, &cfg);
     let manual = manual::wire(&ui, &handle, &cfg, settings::Settings::load(), axes.contains(&3));
+    // The configuration check switches off what this machine cannot run,
+    // with the reason on the screen (the simulator has no machine to check).
+    if !args.sim {
+        let ids: Vec<String> = modules.iter().map(|m| m.id().to_string()).collect();
+        let rows = checks::run(&checks::Inputs { cfg: &cfg, mc: machine_cfg::get(), mi: machine_info::get(), notes: &notes, modules: &ids, hal: hal.as_ref() });
+        let live = ui.global::<Live>();
+        // Coolant buttons only for the outputs that are wired, unless
+        // [buttons] says otherwise.
+        let mc = machine_cfg::get();
+        let unwired = |key: &str, pin: &str| !mc.is_set("buttons", key) && hal.pin_signal(pin) == Some(Some(String::new()));
+        if unwired("mist", "iocontrol.0.coolant-mist") {
+            live.set_quick_mist(false);
+        }
+        if unwired("flood", "iocontrol.0.coolant-flood") {
+            live.set_quick_flood(false);
+        }
+        if let Some(why) = checks::blocked(&rows, checks::Feature::Probe) {
+            live.set_probe_blocked(why.into());
+        }
+        if let Some(why) = checks::blocked(&rows, checks::Feature::Job) {
+            live.set_job_blocked(why.into());
+        }
+        if let Some(why) = checks::blocked(&rows, checks::Feature::Conv) {
+            live.set_conv_blocked(why.into());
+        }
+        let attention = rows.iter().filter(|c| c.level != checks::Level::Ok && c.level != checks::Level::Info).count();
+        if attention > 0 {
+            eprintln!("millgui: {attention} setup items need attention; run millgui --check {}", cfg.path.as_ref().map_or(String::new(), |p| p.display().to_string()));
+        }
+    }
     textentry::wire(&ui);
     // The sim browses its own folder (where CONV and JOB write in the sim),
     // seeded with the sample programs; PROGRAM_PREFIX is on the Pi.
@@ -832,7 +932,7 @@ fn main() -> Result<(), slint::PlatformError> {
     files::wire(&ui, &handle, files_root);
     program::wire(&ui);
     let mut mdi_notes = Vec::new();
-    let machine_cfg = machine_cfg::MachineCfg::load(&cfg, &mut mdi_notes);
+    let machine_cfg = machine_cfg::get();
     machine_cfg.apply(&ui);
     let plot = plot::wire(&ui, &cfg, &machine_cfg.model);
     let _plot_timer = plot::start_timer(&ui, &plot);
@@ -886,10 +986,10 @@ fn main() -> Result<(), slint::PlatformError> {
         None
     };
 
-    // Remote (web) screen: [MILLGUI]REMOTE_PORT serves the browser build.
-    let _remote = match cfg.get("MILLGUI", "REMOTE_PORT").map(|p| p.trim().parse::<u16>()) {
+    // Remote (web) screen: [remote]port (or [MILLGUI]REMOTE_PORT) serves the browser build.
+    let _remote = match machine_cfg.remote_port(&cfg) {
         Some(Ok(port)) => {
-            let root = cfg.get("MILLGUI", "REMOTE_ROOT").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("millgui/web"));
+            let root = machine_cfg.remote_root(&cfg).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("millgui/web"));
             let root = if root.is_absolute() { root } else { cfg.dir().join(root) };
             match remote::start(&ui, port, root) {
                 Ok((timer, r)) => {
@@ -903,8 +1003,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             }
         }
-        Some(Err(_)) => {
-            live.set_message("[MILLGUI]REMOTE_PORT is not a port number".into());
+        Some(Err(e)) => {
+            live.set_message(e.into());
             live.set_message_error(true);
             None
         }
@@ -1103,7 +1203,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     files::wire(&ui, &handle, sample_dir());
     program::wire(&ui);
     program::sync(&ui, &s.file, false);
-    let machine_cfg = machine_cfg::MachineCfg::load(cfg, &mut Vec::new());
+    let machine_cfg = machine_cfg::get();
     machine_cfg.apply(&ui);
     let plot = plot::wire(&ui, cfg, &machine_cfg.model);
     plot::load_now(&ui, &plot, &s.file);

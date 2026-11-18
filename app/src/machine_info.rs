@@ -130,13 +130,17 @@ pub struct MachineInfo {
     pub z_top: f64,
     /// Every joint has a HOME_SEQUENCE, so HOME ALL works.
     pub home_all: bool,
+    /// The spindle's top speed, when known.
+    pub max_rpm: Option<f64>,
+    /// The spindle runs in reverse (M4 is offered).
+    pub reverse: bool,
 }
 
 impl Default for MachineInfo {
     /// A metric XYZ trivkins machine whose Z top is machine 0.
     fn default() -> Self {
         let axes = (0..3).map(|i| Axis { letter: AXIS_LETTERS[i], index: i, joints: vec![i], rotary: false, home_switch: true }).collect();
-        MachineInfo { units: Units::Mm, units_unknown: None, axes, trivial_kins: true, joints: 3, z_top: 0.0, home_all: true }
+        MachineInfo { units: Units::Mm, units_unknown: None, axes, trivial_kins: true, joints: 3, z_top: 0.0, home_all: true, max_rpm: None, reverse: true }
     }
 }
 
@@ -187,7 +191,7 @@ impl MachineInfo {
         }
         let home_all = (0..joints).all(|j| cfg.get(&format!("JOINT_{j}"), "HOME_SEQUENCE").is_some());
         let z_max = cfg.get_f64("AXIS_Z", "MAX_LIMIT");
-        MachineInfo { units, units_unknown, axes, trivial_kins, joints, z_top: z_top(units, z_max), home_all }
+        MachineInfo { units, units_unknown, axes, trivial_kins, joints, z_top: z_top(units, z_max), home_all, ..MachineInfo::default() }
     }
 
     pub fn axis(&self, index: usize) -> Option<&Axis> {
@@ -361,8 +365,16 @@ fn parse_step(item: &str, units: Units) -> Option<Step> {
 static INFO: OnceLock<MachineInfo> = OnceLock::new();
 
 /// Read the machine from the INI; the first call wins.
-pub fn init(cfg: &Config) -> &'static MachineInfo {
-    INFO.get_or_init(|| MachineInfo::from_ini(cfg))
+pub fn init(cfg: &Config, mc: &crate::machine_cfg::MachineCfg) -> &'static MachineInfo {
+    INFO.get_or_init(|| {
+        let mut mi = MachineInfo::from_ini(cfg);
+        if let Some(z) = mc.machine.z_top {
+            mi.z_top = z;
+        }
+        mi.max_rpm = mc.max_rpm(cfg);
+        mi.reverse = mc.reverse(cfg);
+        mi
+    })
 }
 
 /// The machine, or the default metric XYZ machine before `init` (tests).

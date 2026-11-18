@@ -15,7 +15,7 @@
 use crate::config::Config;
 use crate::history::{self, Target};
 use crate::manual::KeypadTarget;
-use crate::toolchange::{Io, SCRATCH};
+use crate::toolchange::Io;
 use crate::{Actions, CheckRow, Live, MainWindow, ToolRow};
 use machine::{Command, Handle, Status};
 use slint::{ComponentHandle, Model};
@@ -230,7 +230,7 @@ impl Tools {
     }
 
     fn next_scratch(&self) -> Option<i32> {
-        SCRATCH.into_iter().find(|n| !self.tools.iter().any(|t| t.t == *n))
+        crate::machine_cfg::get().scratch_range()?.find(|n| !self.tools.iter().any(|t| t.t == *n))
     }
 
     fn show(&self, ui: &MainWindow) {
@@ -248,7 +248,7 @@ impl Tools {
                 comment: t.comment.clone().into(),
                 needs_len: t.z == 0.0 && t.t != self.probe_tool,
                 current: t.t == cur,
-                scratch: SCRATCH.contains(&t.t),
+                scratch: crate::machine_cfg::get().is_scratch_tool(t.t),
             })
             .collect();
         crate::models::sync(live.get_tools(), rows, |m| live.set_tools(m));
@@ -441,7 +441,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
 }
 
 pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn Io>>, path: PathBuf) -> Rc<RefCell<Tools>> {
-    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse().ok()).unwrap_or(99);
+    let probe_tool = crate::machine_cfg::get().probe_tool(cfg);
     let tools = Rc::new(RefCell::new(Tools { path, tools: Vec::new(), selected: None, status: None, machine: machine.clone(), io, ui: ui.as_weak(), probe_tool }));
     tools.borrow_mut().load();
     crate::manual::add_keypad_target(Rc::new(Keys(tools.clone())));
@@ -475,7 +475,10 @@ pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<
         let mut st = t.borrow_mut();
         let r = match st.next_scratch() {
             Some(n) => st.add(n, "Scratch tool"),
-            None => Err("All scratch tools T200–249 are in use".into()),
+            None => Err(match crate::machine_cfg::get().toolchange.scratch_tools {
+                Some([lo, hi]) => format!("All scratch tools T{lo}–{hi} are in use"),
+                None => "No scratch tool numbers are set ([toolchange]scratch_tools)".into(),
+            }),
         };
         if let Err(e) = r {
             st.note(e, true);

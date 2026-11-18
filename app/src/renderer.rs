@@ -18,7 +18,7 @@ pub enum Choice {
 
 /// Which renderer to use, and why (for the log and the Settings screen).
 pub fn choose(cfg: &Config) -> (Choice, String) {
-    let asked = std::env::var("MILLGUI_RENDERER").ok().or_else(|| cfg.get("MILLGUI", "RENDERER").map(|s| s.to_string())).unwrap_or_default().to_lowercase();
+    let asked = std::env::var("MILLGUI_RENDERER").ok().or_else(|| crate::machine_cfg::get().renderer(cfg)).unwrap_or_default().to_lowercase();
     match asked.as_str() {
         "gpu" => return (Choice::Gpu, "GPU (set in config)".into()),
         "software" | "cpu" => return (Choice::Software, "software (set in config)".into()),

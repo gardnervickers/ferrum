@@ -1,0 +1,16 @@
+title M6 with nothing in HAL to answer it: millgui's plain tool change dialog
+needs tc-dialog
+include ../common/ready.scn
+do mdi-send "T2 M6"
+wait prop.tc-open == true within 60
+expect prop.tc-tool contains T2
+expect prop.tc-has-drawbar == false
+expect prop.tc-can-resume == false     # not acknowledged yet
+shot tool-change-dialog
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+idle 60
+expect stat.tool_in_spindle == 2
+wait prop.tc-open == false within 5
+expect prop.tool == "T2"

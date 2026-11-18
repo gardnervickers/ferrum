@@ -177,7 +177,7 @@ export component ToolsScreen inherits Rectangle {
                     Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "UNLOAD SPINDLE"; sub: "HOLD"; hold: true; enabled: !locked && Live.power && Live.tool != "T0"; clicked => { Actions.tools-unload(); } }
                     Rectangle { width: Layout.compact ? 4px : 16px; }
                     Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
-                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
+                    if Live.has-scratch: Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
                     Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "DELETE"; hold: true; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.tools-delete(); } }
                 }
             }

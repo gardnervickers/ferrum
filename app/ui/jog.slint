@@ -326,7 +326,7 @@ component SpindleCard inherits Card {
             spacing: 32px;
             Btn { text: "CW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(1); } }
             Btn { text: "STOP"; kind: "stop"; enabled: Live.power; clicked => { Actions.spindle(0); } }
-            Btn { text: "CCW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(-1); } }
+            if Live.spindle-reverse: Btn { text: "CCW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(-1); } }
         }
         H3 { text: "WORK ZERO"; }
         Note { text: "Sets the active WCS so the tool tip is 0 on every axis. Tap ZERO beside an axis on the DRO to zero just that one."; }

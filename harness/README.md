@@ -33,10 +33,10 @@ a `millgui.ini` (it must have a `[MILLGUI]` section; the harness adds
 | config | what | tags |
 |---|---|---|
 | `mymill` | Gardner's PM-728VT: `mymill.ini`, `mymill.hal`, subroutines, Probe Basic macros, M6 remap (via `millgui/sim/make-config`) | mm probe-basic mymill-hal xyza drawbar pendant |
-| `sim-mm` | a stock 3-axis metric machine, LinuxCNC sim style, no Probe Basic (`configs/stock.py`) | mm stock xyz |
-| `sim-inch` | the same in inches (`LINEAR_UNITS = inch`) | inch stock xyz |
-| `sim-xyza` | stock metric XYZ + rotary A | mm stock xyza |
-| `sim-gantry` | stock metric gantry: two Y joints (`XYYZ`) | mm stock xyz gantry |
+| `sim-mm` | a stock 3-axis metric machine, LinuxCNC sim style, no Probe Basic (`configs/stock.py`) | mm stock xyz tc-loop |
+| `sim-inch` | the same in inches (`LINEAR_UNITS = inch`); nothing in HAL answers M6, so millgui's tool change dialog does | inch stock xyz tc-dialog |
+| `sim-xyza` | stock metric XYZ + rotary A | mm stock xyza tc-loop |
+| `sim-gantry` | stock metric gantry: two Y joints (`XYYZ`) | mm stock xyz gantry tc-loop |
 
 The `mymill` config needs Probe Basic's macros in `vendor/probe_basic`. Its
 submodule is pinned to a commit that is not on the fork's remote, so a fresh
@@ -47,7 +47,8 @@ scenarios fail with "File not open". CI does this with the
 `PROBE_BASIC_TOKEN` secret, and skips `mymill` without it.
 
 The stock configs use LinuxCNC's own `INCREMENTS` lines (`1 mm, .01 in, ...`),
-loop the joints back, acknowledge tool changes at once and put the probe
+loop the joints back, acknowledge tool changes at once (`tc-loop`; sim-inch
+leaves M6 to millgui's dialog, `tc-dialog`) and put the probe
 input on signal `sim-probe` (`hal sim-probe 1` trips it). To add a machine,
 add a folder with `prepare` and `vars`.
 

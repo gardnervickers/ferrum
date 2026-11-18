@@ -10,7 +10,8 @@
 //!   then runs tool_touch_off.ngc. Not for the probe (T99) or no tool.
 //! - ABORT clears the touch-off request, retracts the drawbar if it is
 //!   released, and aborts the program.
-//! - T200–249 are scratch tools: warn that a touch off is likely required.
+//! - Scratch tools (`[toolchange]scratch_tools`, T200–249 on mymill): warn
+//!   that a touch off is likely required.
 //!
 //! The Pi decides through HAL (`HalIo`, pins on the drawbar module); the
 //! simulator stands in with `SimIo`.
@@ -23,8 +24,6 @@ use slint::ComponentHandle;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
-
-pub const SCRATCH: std::ops::RangeInclusive<i32> = 200..=249;
 
 /// What the overlay reads each tick. `None` = unknown (pin missing).
 #[derive(Clone, Debug, Default)]
@@ -40,6 +39,11 @@ pub struct Inputs {
 }
 
 pub trait Io {
+    /// A power drawbar and the touch-off latch are there (mymill). Without
+    /// them the dialog only asks for the tool to be seated.
+    fn drawbar(&self) -> bool {
+        true
+    }
     fn read(&self) -> Inputs;
     fn set_changed(&self, on: bool);
     fn set_manual_request(&self, on: bool);
@@ -114,6 +118,41 @@ impl Io for HalIo {
     fn set_touch_off_reset(&self, on: bool) {
         self.touch_off_reset.set(on);
     }
+}
+
+/// The plain dialog (the `toolchange` module): iocontrol's tool change
+/// request and number, the spindle command, and the answer.
+pub struct DialogIo {
+    change: In<bool>,
+    number: In<i32>,
+    changed: Out<bool>,
+    spindle_on: In<bool>,
+}
+
+impl DialogIo {
+    pub fn create(comp: &Component) -> Result<Self, String> {
+        Ok(Self {
+            change: comp.pin("toolchange.tool-change")?,
+            number: comp.pin("toolchange.tool-number")?,
+            changed: comp.pin("toolchange.tool-changed")?,
+            spindle_on: comp.pin("toolchange.spindle-on")?,
+        })
+    }
+}
+
+impl Io for DialogIo {
+    fn drawbar(&self) -> bool {
+        false
+    }
+    fn read(&self) -> Inputs {
+        Inputs { change: self.change.get(), number: self.number.get(), spindle_request: Some(self.spindle_on.get()), ..Inputs::default() }
+    }
+    fn set_changed(&self, on: bool) {
+        self.changed.set(on);
+    }
+    fn set_manual_request(&self, _: bool) {}
+    fn set_touch_off(&self, _: bool) {}
+    fn set_touch_off_reset(&self, _: bool) {}
 }
 
 /// The simulator's stand-in: the M6 request comes from the simulated status,
@@ -197,14 +236,14 @@ impl ToolChange {
         self.last.spindle_request == Some(false)
     }
     fn retracted(&self) -> bool {
-        self.last.drawbar_extended == Some(false)
+        !self.io.drawbar() || self.last.drawbar_extended == Some(false)
     }
     fn resume_safe(&self) -> bool {
         self.spindle_off() && self.retracted() && self.seated
     }
     fn touch_off_allowed(&self) -> bool {
         let t = self.last.number;
-        self.probe_tool > 0 && t > 0 && t != self.probe_tool
+        self.io.drawbar() && self.probe_tool > 0 && t > 0 && t != self.probe_tool
     }
     fn retract_allowed(&self) -> bool {
         self.spindle_off() || (self.last.spindle_request == Some(true) && self.last.rearm_required == Some(true))
@@ -212,6 +251,9 @@ impl ToolChange {
 
     /// Clear any touch-off request: the latch's set low, and a reset pulse.
     fn clear_touch_off(&self) -> bool {
+        if !self.io.drawbar() {
+            return true;
+        }
         self.io.set_touch_off(false);
         pulse(|on| self.io.set_touch_off_reset(on));
         self.io.read().touch_off_latched == Some(false)
@@ -300,8 +342,13 @@ impl ToolChange {
             .into(),
         );
         live.set_tc_seated(self.seated);
+        live.set_tc_has_drawbar(self.io.drawbar());
         let msg = if i.spindle_request == Some(true) {
             "SPINDLE COMMAND ACTIVE. ACKNOWLEDGE ONLY WHEN THE TOOL CHANGE IS SAFE."
+        } else if !self.io.drawbar() && !self.seated {
+            "LOAD THE TOOL, VERIFY IT IS SECURE, THEN ACKNOWLEDGE BELOW."
+        } else if !self.io.drawbar() {
+            "TOOL ACKNOWLEDGED. RESUME WHEN READY."
         } else if i.drawbar_extended == Some(true) {
             "DRAWBAR EXTENDED. RETRACT IF NEEDED, THEN ACKNOWLEDGE WHEN THE TOOL IS SECURE."
         } else if i.drawbar_extended.is_none() {
@@ -319,7 +366,7 @@ impl ToolChange {
         live.set_tc_touch_off_tip(
             if t == self.probe_tool { "The probe is calibrated on a reference surface, not here" } else { "Measure the tool on the fixed toolsetter" }.into(),
         );
-        live.set_tc_scratch(if SCRATCH.contains(&t) { format!("SCRATCH TOOL T{t}: A TOOL TOUCH OFF IS LIKELY REQUIRED BEFORE CUTTING") } else { String::new() }.into());
+        live.set_tc_scratch(if crate::machine_cfg::get().is_scratch_tool(t) { format!("SCRATCH TOOL T{t}: A TOOL TOUCH OFF IS LIKELY REQUIRED BEFORE CUTTING") } else { String::new() }.into());
         let (text, kind) = match i.nose_reference {
             Some(true) => ("SPINDLE NOSE REFERENCE UPDATED AFTER HOMING", "good"),
             Some(false) => ("SPINDLE NOSE REFERENCE NOT UPDATED AFTER HOMING", "warn"),
@@ -332,7 +379,7 @@ impl ToolChange {
 
 /// Wire the overlay. Returns the timer that polls the I/O (keep it alive).
 pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Rc<dyn Io>) -> slint::Timer {
-    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse().ok()).unwrap_or(99);
+    let probe_tool = crate::machine_cfg::get().probe_tool(cfg);
     let tc = Rc::new(RefCell::new(ToolChange { io, machine: machine.clone(), probe_tool, open: false, answered: false, seated: false, last: Inputs::default() }));
     let actions = ui.global::<Actions>();
     let (t, weak) = (tc.clone(), ui.as_weak());

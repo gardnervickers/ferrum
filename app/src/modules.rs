@@ -49,6 +49,15 @@ pub trait Module {
         Ok(())
     }
 
+    /// Pins that connect without a HAL file: `[hal]<name>` or the default
+    /// target (crate::halmap). Ignored when `millgui/hal/<id>.hal` exists.
+    fn hal_links(&self) -> &'static [crate::halmap::Link] {
+        &[]
+    }
+
+    /// A pin of `hal_links` was connected (or the module's HAL file ran).
+    fn linked(&mut self, _name: &str) {}
+
     /// Status bar pills, refreshed several times a second.
     fn pills(&self, _status: Option<&Status>, _out: &mut Vec<Pill>) {}
 
@@ -99,6 +108,10 @@ pub struct SetterHal {
     pub blast_request: Out<bool>,
     pub blast_active: In<bool>,
     pub triggered: In<bool>,
+    /// The pins are connected (HAL file or `[hal]`): without them UTIL
+    /// shows the setter as not wired and has no air blast.
+    pub trip_wired: Cell<bool>,
+    pub blast_wired: Cell<bool>,
 }
 
 /// Modules enabled when millgui.ini does not list any. The mill-specific
@@ -133,13 +146,29 @@ impl Module for Screen {
     }
 }
 
-/// Probe screen plus the probe status pill from probe_manager.
+use crate::halmap::Link;
+
+const PROBE_LINKS: &[Link] = &[
+    Link { name: "probe_tripped", pin: "probe.tripped", input: true, auto: Some("motion.probe-input") },
+    Link { name: "probe_loaded", pin: "probe.wireless-selected", input: true, auto: None },
+    Link { name: "probe_fault", pin: "probe.fault", input: true, auto: None },
+    Link { name: "toolsetter_tripped", pin: "probe.toolsetter", input: true, auto: None },
+    Link { name: "setter_blast", pin: "probe.blast-request", input: false, auto: None },
+    Link { name: "setter_blast_active", pin: "probe.blast-active", input: true, auto: None },
+];
+
+/// Probe screen plus the probe status pill: from probe_manager on mymill
+/// (`probe_loaded`, `probe_fault`), else from the tool number.
 #[derive(Default)]
 struct Probe {
     selected: Option<In<bool>>,
     fault: Option<In<bool>>,
     tripped: Option<In<bool>>,
     setter: Option<Rc<SetterHal>>,
+    /// The probe's tool number, for machines with no `probe_loaded` signal.
+    tool: i32,
+    loaded_wired: bool,
+    fault_wired: bool,
 }
 
 impl Module for Probe {
@@ -157,14 +186,29 @@ impl Module for Probe {
             blast_request: comp.pin("probe.blast-request")?,
             blast_active: comp.pin("probe.blast-active")?,
             triggered: comp.pin("probe.toolsetter")?,
+            trip_wired: Cell::new(false),
+            blast_wired: Cell::new(false),
         }));
         Ok(())
     }
-    fn pills(&self, _s: Option<&Status>, out: &mut Vec<Pill>) {
+    fn hal_links(&self) -> &'static [Link] {
+        PROBE_LINKS
+    }
+    fn linked(&mut self, name: &str) {
+        match name {
+            "probe_loaded" => self.loaded_wired = true,
+            "probe_fault" => self.fault_wired = true,
+            "toolsetter_tripped" => self.setter.iter().for_each(|h| h.trip_wired.set(true)),
+            "setter_blast" => self.setter.iter().for_each(|h| h.blast_wired.set(true)),
+            _ => {}
+        }
+    }
+    fn pills(&self, s: Option<&Status>, out: &mut Vec<Pill>) {
         let (Some(sel), Some(fault), Some(trip)) = (&self.selected, &self.fault, &self.tripped) else { return };
-        out.push(if !sel.get() {
+        let loaded = if self.loaded_wired { sel.get() } else { s.is_some_and(|s| s.tool_in_spindle == self.tool) };
+        out.push(if !loaded {
             Pill::new("PROBE NOT LOADED", "")
-        } else if fault.get() {
+        } else if self.fault_wired && fault.get() {
             Pill::new("PROBE FAULT", "bad").hint("The probe reports a fault. Check the probe.")
         } else if trip.get() {
             Pill::new("PROBE TRIPPED", "info")
@@ -176,7 +220,7 @@ impl Module for Probe {
         &["probe"]
     }
     fn spindle_block(&self) -> Option<String> {
-        let sel = self.selected.as_ref()?;
+        let sel = self.selected.as_ref().filter(|_| self.loaded_wired)?;
         sel.get().then(|| "Remove the probe before starting the spindle".into())
     }
     fn setter(&self) -> Option<Rc<SetterHal>> {
@@ -279,6 +323,34 @@ impl Module for Drawbar {
     }
 }
 
+/// The tool change dialog on a machine without the drawbar: M6 through
+/// iocontrol, answered by the overlay (crate::toolchange::DialogIo).
+#[derive(Default)]
+struct ToolChange {
+    io: Option<Rc<crate::toolchange::DialogIo>>,
+}
+
+impl Module for ToolChange {
+    fn id(&self) -> &'static str {
+        "toolchange"
+    }
+    fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
+        self.io = Some(Rc::new(crate::toolchange::DialogIo::create(comp)?));
+        Ok(())
+    }
+    fn hal_links(&self) -> &'static [Link] {
+        &[
+            Link { name: "tool_change", pin: "toolchange.tool-change", input: true, auto: Some("iocontrol.0.tool-change") },
+            Link { name: "tool_number", pin: "toolchange.tool-number", input: true, auto: Some("iocontrol.0.tool-prep-number") },
+            Link { name: "tool_changed", pin: "toolchange.tool-changed", input: false, auto: Some("iocontrol.0.tool-changed") },
+            Link { name: "spindle_on", pin: "toolchange.spindle-on", input: true, auto: Some("spindle.0.on") },
+        ]
+    }
+    fn toolchange(&self) -> Option<Rc<dyn crate::toolchange::Io>> {
+        self.io.clone().map(|io| io as Rc<dyn crate::toolchange::Io>)
+    }
+}
+
 /// Why motion.feed-inhibit is set. In mymill.hal that is only the probe
 /// manager's fault; drives-not-ready stays unlinked unless a HAL adds it.
 #[derive(Default)]
@@ -291,6 +363,13 @@ struct Interlock {
 impl Module for Interlock {
     fn id(&self) -> &'static str {
         "interlock"
+    }
+    fn hal_links(&self) -> &'static [Link] {
+        &[
+            Link { name: "motion_held", pin: "interlock.held", input: true, auto: Some("motion.feed-inhibit") },
+            Link { name: "probe_fault", pin: "interlock.probe-fault", input: true, auto: None },
+            Link { name: "drives_not_ready", pin: "interlock.drives-not-ready", input: true, auto: None },
+        ]
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
         self.held = Some(comp.pin("interlock.held")?);
@@ -333,6 +412,9 @@ struct Load {
 impl Module for Load {
     fn id(&self) -> &'static str {
         "load"
+    }
+    fn hal_links(&self) -> &'static [Link] {
+        &[Link { name: "load", pin: "load.value", input: true, auto: None }]
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
         self.real = true;
@@ -443,7 +525,8 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
         "conv" => screen("conv", "CONV", ICON_CONV),
         "files" => screen("files", "FILES", ICON_FILES),
         "util" => screen("util", "UTIL", ICON_UTIL),
-        "probe" => Some(Box::new(Probe::default())),
+        "probe" => Some(Box::new(Probe { tool: crate::machine_cfg::get().probe_tool(cfg), ..Probe::default() })),
+        "toolchange" => Some(Box::new(ToolChange::default())),
         "drives" => Some(Box::new(Drives { axes: cfg.coordinates().chars().collect(), ready: Vec::new(), faults: Vec::new() })),
         "drawbar" => Some(Box::new(Drawbar::default())),
         "interlock" => Some(Box::new(Interlock::default())),
@@ -455,17 +538,25 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
 
 /// Build the enabled modules in the order listed. Unknown ids are reported,
 /// not fatal, so a typo cannot keep the machine screen from starting.
-pub fn build(cfg: &Config) -> (Vec<Box<dyn Module>>, Vec<String>) {
-    let list = cfg.get("MILLGUI", "MODULES").unwrap_or(DEFAULT_MODULES);
+/// With no module answering M6 (`drawbar`, `toolchange`) and nothing in the
+/// machine's HAL answering it either, the `toolchange` module is added.
+pub fn build(cfg: &Config, hal: &dyn crate::checks::Hal) -> (Vec<Box<dyn Module>>, Vec<String>) {
+    let mc = crate::machine_cfg::get();
+    let mut list = mc.module_ids(cfg, DEFAULT_MODULES);
+    if !list.iter().any(|m| m == "drawbar" || m == "toolchange")
+        && crate::checks::toolchange_style(mc, &list, hal).0 == crate::machine_cfg::ToolChangeStyle::Dialog
+    {
+        list.push("toolchange".into());
+    }
     let mut modules: Vec<Box<dyn Module>> = Vec::new();
     let mut problems = Vec::new();
-    for id in list.split(|c: char| c.is_whitespace() || c == ',').filter(|s| !s.is_empty()) {
+    for id in list.iter().map(String::as_str) {
         if modules.iter().any(|m| m.id() == id) {
             continue;
         }
         match make(id, cfg) {
             Some(m) => modules.push(m),
-            None => problems.push(format!("unknown module '{id}' in [MILLGUI]MODULES")),
+            None => problems.push(format!("unknown module '{id}' in the module list")),
         }
     }
     (modules, problems)
@@ -506,9 +597,10 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("m.ini"), "[MILLGUI]\nMODULES = run jog bogus\n").unwrap();
         let cfg = Config::load(&d.join("m.ini")).unwrap();
-        let (mods, problems) = build(&cfg);
+        let (mods, problems) = build(&cfg, &crate::checks::NoHal);
         let ids: Vec<_> = mods.iter().map(|m| m.id()).collect();
-        assert_eq!(ids, ["run", "manual"]);
+        // Nothing answers M6, so the tool change dialog comes too.
+        assert_eq!(ids, ["run", "manual", "toolchange"]);
         assert_eq!(problems.len(), 1);
         std::fs::remove_dir_all(d).ok();
     }

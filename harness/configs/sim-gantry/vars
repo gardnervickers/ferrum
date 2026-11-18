@@ -1,4 +1,4 @@
-tags = mm stock xyz gantry
+tags = mm stock xyz gantry tc-loop
 units = mm
 dist = 10
 safe_x = 50

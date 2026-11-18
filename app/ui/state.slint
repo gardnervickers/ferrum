@@ -95,6 +95,10 @@ export global Live {
     // Manual control is locked while a program runs or is paused.
     in property <bool> manual-locked;
     in property <bool> has-a: true;
+    // [toolchange]scratch_tools is set: TOOLS offers NEW SCRATCH.
+    in property <bool> has-scratch: true;
+    // The spindle reverses: CCW is offered.
+    in property <bool> spindle-reverse: true;
     // Machine linear units ("mm" or "in") and the same in capitals.
     in property <string> unit: "mm";
     in property <string> unit-up: "MM";
@@ -219,6 +223,8 @@ export global Live {
     in property <string> tc-tool;
     in property <string> tc-tool-desc;
     in property <string> tc-drawbar: "UNKNOWN";
+    // The tool change has a power drawbar and touch-off latch (mymill).
+    in property <bool> tc-has-drawbar: true;
     in property <bool> tc-seated;
     in property <string> tc-message;
     in property <bool> tc-can-extend;
@@ -312,6 +318,8 @@ export global Live {
     in property <string> ut-nose-kind;
     in property <string> ut-setter;
     in property <bool> ut-has-blast;
+    // The drawbar module's spindle nose reference (mymill).
+    in property <bool> ut-has-nose: true;
     in property <bool> ut-blast;
     in property <string> ut-g30;
     in property <[StatusRow]> ut-status;

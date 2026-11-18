@@ -36,11 +36,11 @@ impl Library {
         toml::from_str(text).map_err(|e| e.to_string())
     }
 
-    /// `[MILLGUI]MDI_LIBRARY`, else `millgui/mdi.toml` beside the INI, else
+    /// `[display]mdi_library` (or `[MILLGUI]MDI_LIBRARY`), else `millgui/mdi.toml` beside the INI, else
     /// the copy built into the binary.
     fn load(cfg: &Config, notes: &mut Vec<String>) -> Self {
-        let path = cfg
-            .get("MILLGUI", "MDI_LIBRARY")
+        let path = crate::machine_cfg::get()
+            .mdi_library(cfg)
             .map(|p| cfg.dir().join(p))
             .unwrap_or_else(|| cfg.dir().join("millgui/mdi.toml"));
         match std::fs::read_to_string(&path) {

@@ -197,8 +197,9 @@ impl Util {
         let nose = self.io.as_ref().and_then(|io| io.read().nose_reference);
         live.set_ut_nose(match nose { Some(true) => "VALID", Some(false) => "NEEDS PROBE", None => "UNKNOWN" }.into());
         live.set_ut_nose_kind(match nose { Some(true) => "good", Some(false) => "warn", None => "" }.into());
-        live.set_ut_setter(match &self.setter { Some(h) if h.triggered.get() => "TRIPPED", Some(_) => "READY", None => "NOT FITTED" }.into());
-        live.set_ut_has_blast(self.setter.is_some());
+        live.set_ut_setter(match &self.setter { Some(h) if !h.trip_wired.get() => "NOT WIRED", Some(h) if h.triggered.get() => "TRIPPED", Some(_) => "READY", None => "NOT FITTED" }.into());
+        live.set_ut_has_blast(self.setter.as_ref().is_some_and(|h| h.blast_wired.get()));
+        live.set_ut_has_nose(self.io.as_ref().is_some_and(|io| io.drawbar()));
         live.set_ut_blast(self.setter.as_ref().is_some_and(|h| h.blast_active.get()));
         let g30 = |v: Option<f64>| v.map_or("-".to_string(), |v| crate::machine_info::get().units.fmt(v));
         live.set_ut_g30(format!("X {}  Y {}  Z {}", g30(self.g30[0]), g30(self.g30[1]), g30(self.g30[2])).into());
@@ -218,13 +219,15 @@ impl Util {
                 row("WCS", s.wcs.name().into(), "");
             }
         }
-        if let Some(io) = &self.io {
+        if let Some(io) = self.io.as_ref().filter(|io| io.drawbar()) {
             let i = io.read();
             row("Drawbar", match i.drawbar_extended { Some(true) => "EXTENDED", Some(false) => "RETRACTED", None => "UNKNOWN" }.into(), if i.drawbar_extended == Some(true) { "warn" } else { "" });
             row("Nose ref", match i.nose_reference { Some(true) => "VALID", Some(false) => "NEEDS PROBE", None => "UNKNOWN" }.into(), if i.nose_reference == Some(true) { "good" } else { "warn" });
         }
-        if let Some(h) = &self.setter {
+        if let Some(h) = self.setter.as_ref().filter(|h| h.trip_wired.get()) {
             row("Tool setter", if h.triggered.get() { "TRIPPED" } else { "READY" }.into(), if h.triggered.get() { "warn" } else { "good" });
+        }
+        if let Some(h) = self.setter.as_ref().filter(|h| h.blast_wired.get()) {
             row("Setter blast", if h.blast_active.get() { "ON" } else { "OFF" }.into(), "");
         }
         crate::models::sync(live.get_ut_status(), rows, |m| live.set_ut_status(m));
@@ -267,7 +270,7 @@ impl crate::manual::KeypadTarget for Keys {
         let mut u = self.0.borrow_mut();
         let r = if u.warm.is_some() {
             Err("Stop the warm-up to change its stages".to_string())
-        } else if !(v > 0.0) || (k == "rpm" && v > 24000.0) || (k == "min" && v > 120.0) {
+        } else if !(v > 0.0) || (k == "rpm" && v > crate::machine_info::get().max_rpm.unwrap_or(24000.0)) || (k == "min" && v > 120.0) {
             Err("Out of range".to_string())
         } else {
             if k == "rpm" { u.stages[i].0 = v.round() } else { u.stages[i].1 = v }
@@ -279,15 +282,26 @@ impl crate::manual::KeypadTarget for Keys {
     }
 }
 
+/// The warm-up stages before the operator sets any: 1000 to 4000 rpm, or
+/// 25, 50, 75 and 95 % of a spindle slower than 4000 rpm.
+fn default_stages(max_rpm: Option<f64>) -> Vec<(f64, f64)> {
+    match max_rpm {
+        Some(max) if max < DEFAULT_STAGES[3].0 => {
+            [0.25, 0.5, 0.75, 0.95].iter().map(|f| (((max * f) / 100.0).round().max(1.0) * 100.0, 3.0)).collect()
+        }
+        _ => DEFAULT_STAGES.to_vec(),
+    }
+}
+
 pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn Io>>, setter: Option<Rc<SetterHal>>, settings: Settings) -> (Rc<RefCell<Util>>, slint::Timer) {
-    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse().ok()).unwrap_or(99);
+    let probe_tool = crate::machine_cfg::get().probe_tool(cfg);
     let mut stages: Vec<(f64, f64)> = settings
         .list("warmup.stage.")
         .iter()
         .filter_map(|v| v.split_once(',').and_then(|(r, m)| Some((r.parse().ok()?, m.parse().ok()?))))
         .collect();
     if stages.len() != DEFAULT_STAGES.len() {
-        stages = DEFAULT_STAGES.to_vec();
+        stages = default_stages(crate::machine_info::get().max_rpm);
     }
     // G30 (#5181–5183) from the parameter file; SET G30 HERE updates it.
     let mut g30 = [None; 3];
@@ -397,6 +411,14 @@ pub fn message(util: &Rc<RefCell<Util>>, m: &Message) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn warmup_fits_the_spindle() {
+        assert_eq!(default_stages(None), DEFAULT_STAGES.to_vec());
+        assert_eq!(default_stages(Some(4250.0)), DEFAULT_STAGES.to_vec());
+        let rpm: Vec<f64> = default_stages(Some(2000.0)).iter().map(|s| s.0).collect();
+        assert_eq!(rpm, [500.0, 1000.0, 1500.0, 1900.0]);
+    }
 
     #[test]
     fn clock() {

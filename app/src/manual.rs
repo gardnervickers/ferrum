@@ -191,6 +191,9 @@ impl Manual {
                 if v <= 0.0 {
                     return Err("RPM must be above 0".into());
                 }
+                if let Some(max) = machine_info::get().max_rpm.filter(|m| v > *m) {
+                    return Err(format!("The spindle's top speed is {max:.0} rpm"));
+                }
                 self.rpm = v;
             }
             "pf-feed" | "gt-feed" if v <= 0.0 => return Err("Feed must be greater than zero".into()),
@@ -429,6 +432,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         }
         None => live.set_has_rot(false),
     }
+    live.set_spindle_reverse(machine_info::get().reverse);
     let steps: Vec<SharedString> = manual.borrow().steps.iter().map(|s| SharedString::from(s.label.as_str())).collect();
     crate::models::sync(live.get_jog_steps(), steps, |m| live.set_jog_steps(m));
 
@@ -600,8 +604,16 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
 pub fn park_lines(mi: &machine_info::MachineInfo) -> Vec<String> {
     let mut v = vec![machine::keep_modes(&mi.z_top_line())];
     let xy: String = ['X', 'Y'].iter().filter(|l| mi.has_axis(**l)).map(|l| format!(" {l}0")).collect();
-    if !xy.is_empty() {
-        v.push(machine::keep_modes(&format!("G90 G53 G0{xy}")));
+    match crate::machine_cfg::get().machine.park {
+        crate::machine_cfg::Park::G28 => {
+            v.push(machine::keep_modes("G28"));
+            return v;
+        }
+        crate::machine_cfg::Park::Xy(x, y) => {
+            v.push(machine::keep_modes(&format!("G90 G53 G0 X{} Y{}", mi.units.gcode(x), mi.units.gcode(y))));
+        }
+        crate::machine_cfg::Park::MachineZero if !xy.is_empty() => v.push(machine::keep_modes(&format!("G90 G53 G0{xy}"))),
+        crate::machine_cfg::Park::MachineZero => {}
     }
     let rot: String = mi.axes.iter().filter(|a| a.rotary).map(|a| format!(" {}0", a.letter)).collect();
     if !rot.is_empty() {

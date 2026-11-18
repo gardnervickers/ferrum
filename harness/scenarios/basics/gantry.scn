@@ -16,7 +16,7 @@ expect stat.joint_actual_position[2] ~= 0
 # HOME on Y homes both Y joints.
 do home-axis "Y"
 wait stat.homed[1] == 1 within 30
-expect stat.homed[2] == 1
+wait stat.homed[2] == 1 within 30
 do home-all
 wait prop.homed == true within 60
 idle 30

@@ -91,8 +91,8 @@ export component UtilScreen inherits Rectangle {
                 H3 { text: "SPINDLE AND TOOL SETTER"; }
                 HorizontalLayout {
                     spacing: 12px;
-                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
-                    Btn {
+                    if Live.ut-has-blast: Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
+                    if Live.ut-has-nose: Btn {
                         width: 320px;
                         text: "PROBE SPINDLE NOSE";
                         clicked => {
@@ -109,7 +109,7 @@ export component UtilScreen inherits Rectangle {
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    Cell { max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
+                    if Live.ut-has-nose: Cell { max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
                     Cell { max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1; key: "SETTER"; value: Live.ut-setter; }
                     Cell { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; key: "G30 POSITION"; value: Live.ut-g30; }
                 }

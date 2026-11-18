@@ -494,14 +494,15 @@ pub fn cache_dir() -> PathBuf {
 
 pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<RefCell<Job>>, slint::Timer) {
     let num = |s, k| cfg.get_f64(s, k).map_or(Value::Null, |v| json!(v));
+    let mi = crate::machine_info::get();
     let init = json!({
         "cmd": "init",
         "folder": folder(cfg, sim),
         "nc_folder": if sim { cache_dir().join("sim-nc") } else { crate::files::root(cfg) },
         "tool_table": crate::tools::table_path(cfg, sim),
-        "probe_tool": cfg.get_f64("PROBE", "TOOL_NUMBER").unwrap_or(99.0) as i64,
-        "max_forward_rpm": num("SPINDLE_0", "MAX_FORWARD_VELOCITY"),
-        "max_reverse_rpm": num("SPINDLE_0", "MAX_REVERSE_VELOCITY"),
+        "probe_tool": crate::machine_cfg::get().probe_tool(cfg) as i64,
+        "max_forward_rpm": mi.max_rpm.map_or(Value::Null, |v| json!(v)),
+        "max_reverse_rpm": if mi.reverse { num("SPINDLE_0", "MAX_REVERSE_VELOCITY") } else { json!(0.0) },
     });
     let init_nc = init["nc_folder"].as_str().unwrap_or_default().to_string();
     let mut pins = None;

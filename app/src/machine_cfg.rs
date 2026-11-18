@@ -1,17 +1,30 @@
-//! machine.toml: per-machine settings that are not LinuxCNC's (the INI
-//! stays Probe Basic's). Missing keys take the built-in defaults, which
-//! describe no machine in particular: no table model and no table check
-//! until `nose_above_table` is set. `millgui/machine.toml` in this repo is
-//! the PM-728VT's.
+//! millgui.toml: millgui's own settings for one machine, beside the INI
+//! (`[MILLGUI]CONFIG` moves it). The INI keeps LinuxCNC's machine facts;
+//! this file holds what LinuxCNC does not know: which modules, how M6 is
+//! answered, the probe, the HAL signal names, the backplot table.
+//!
+//! Every key is optional. A missing key means "detect" or the default; a
+//! table with a bad key is reported and that table alone falls back to its
+//! defaults. With no millgui.toml, `machine.toml` (`[MILLGUI]MACHINE_CONFIG`,
+//! else `millgui/machine.toml`) is still read for `[buttons]` and `[model]`,
+//! and the INI's `[MILLGUI]` keys (MODULES, POSTGUI_HALFILE, REMOTE_PORT,
+//! REMOTE_ROOT, RENDERER, MDI_LIBRARY) are honoured; millgui.toml wins.
 
 use crate::config::Config;
 use crate::{Live, MainWindow};
 use preview::machine::Machine;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use slint::ComponentHandle;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 #[cfg(test)]
 const BUILTIN: &str = include_str!("../../machine.toml");
+
+/// The file name looked for beside the INI.
+pub const FILE: &str = "millgui.toml";
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -61,32 +74,227 @@ impl Model {
     }
 }
 
+/// Where PARK goes after Z is at the top.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Park {
+    /// Machine X0 Y0 (and the rotary to 0).
+    #[default]
+    MachineZero,
+    /// LinuxCNC's G28 position.
+    G28,
+    /// Machine X Y.
+    Xy(f64, f64),
+}
+
+impl<'de> Deserialize<'de> for Park {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Name(String),
+            Xy([f64; 2]),
+        }
+        match Raw::deserialize(d)? {
+            Raw::Xy([x, y]) => Ok(Park::Xy(x, y)),
+            Raw::Name(n) => match n.as_str() {
+                "machine-zero" => Ok(Park::MachineZero),
+                "g28" => Ok(Park::G28),
+                _ => Err(serde::de::Error::custom(format!("park = \"{n}\": use \"machine-zero\", \"g28\" or [x, y]"))),
+            },
+        }
+    }
+}
+
 #[derive(Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+pub struct MachineSec {
+    /// Machine Z to retract to; default from `[AXIS_Z]MAX_LIMIT`.
+    pub z_top: Option<f64>,
+    pub park: Park,
+}
+
+/// A list of words, written as a TOML list or one string.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Words(pub Vec<String>);
+
+impl<'de> Deserialize<'de> for Words {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            List(Vec<String>),
+            Text(String),
+        }
+        Ok(Words(match Raw::deserialize(d)? {
+            Raw::List(v) => v,
+            Raw::Text(t) => split_words(&t),
+        }))
+    }
+}
+
+fn split_words(t: &str) -> Vec<String> {
+    t.split(|c: char| c.is_whitespace() || c == ',').filter(|s| !s.is_empty()).map(String::from).collect()
+}
+
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ModulesSec {
+    /// In nav order; unset: `[MILLGUI]MODULES`, else the default list.
+    pub enabled: Option<Words>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct SpindleSec {
+    /// Unset: `[SPINDLE_0]MAX_FORWARD_VELOCITY`.
+    pub max_rpm: Option<f64>,
+    /// Unset: false when `[SPINDLE_0]MAX_REVERSE_VELOCITY = 0`.
+    pub reverse: Option<bool>,
+}
+
+/// Who answers M6.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChangeStyle {
+    /// Something in the machine's HAL (an ATC, hal_manualtoolchange, a
+    /// remap) answers; millgui shows the tool number.
+    External,
+    /// millgui's tool change overlay answers.
+    Dialog,
+    /// The overlay plus a power drawbar and touch-off latch (mymill).
+    Drawbar,
+}
+
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ToolChangeSec {
+    /// Unset: detected.
+    pub style: Option<ToolChangeStyle>,
+    /// Tools in this range (inclusive) are scratch tools: a change to one
+    /// warns that a touch-off is likely needed.
+    pub scratch_tools: Option<[u32; 2]>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ProbeSec {
+    pub enabled: Option<bool>,
+    /// Unset: `[PROBE]TOOL_NUMBER`, else 99.
+    pub tool: Option<u32>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ToolSetterSec {
+    pub enabled: Option<bool>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct RemoteSec {
+    pub port: Option<u16>,
+    pub root: Option<String>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct DisplaySec {
+    pub renderer: Option<String>,
+    pub mdi_library: Option<String>,
+    /// HAL files run after millgui's pins exist (relative to the INI).
+    pub postgui: Option<Words>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MachineCfg {
+    /// The file read, if any.
+    pub path: Option<PathBuf>,
+    /// The file as written, to tell a key that is set from a default.
+    pub raw: toml::Table,
+    pub machine: MachineSec,
+    pub modules: ModulesSec,
+    pub spindle: SpindleSec,
+    pub toolchange: ToolChangeSec,
+    pub probe: ProbeSec,
+    pub toolsetter: ToolSetterSec,
+    /// Logical name -> HAL signal or pin.
+    pub hal: BTreeMap<String, String>,
+    pub remote: RemoteSec,
+    pub display: DisplaySec,
     pub buttons: Buttons,
     pub model: Model,
 }
 
+fn section<T: DeserializeOwned + Default>(t: &toml::Table, name: &str, problems: &mut Vec<String>) -> T {
+    match t.get(name) {
+        None => T::default(),
+        Some(v) => v.clone().try_into().unwrap_or_else(|e: toml::de::Error| {
+            problems.push(format!("[{name}]: {}; using the defaults for [{name}]", e.message().trim()));
+            T::default()
+        }),
+    }
+}
+
+const SECTIONS: &[&str] =
+    &["machine", "modules", "spindle", "toolchange", "probe", "toolsetter", "hal", "remote", "display", "buttons", "model"];
+
 impl MachineCfg {
-    pub fn parse(text: &str) -> Result<Self, String> {
-        toml::from_str(text).map_err(|e| e.to_string())
+    /// Parse a file's text. A table with a bad key or value falls back to
+    /// its defaults alone; each problem is returned.
+    pub fn parse(text: &str) -> (Self, Vec<String>) {
+        let mut problems = Vec::new();
+        let t: toml::Table = match text.parse() {
+            Ok(t) => t,
+            Err(e) => {
+                let e: toml::de::Error = e;
+                problems.push(format!("{}; using the defaults", e.to_string().trim()));
+                return (Self::default(), problems);
+            }
+        };
+        for k in t.keys() {
+            if !SECTIONS.contains(&k.as_str()) {
+                problems.push(format!("unknown table [{k}] (ignored)"));
+            }
+        }
+        let c = MachineCfg {
+            path: None,
+            raw: t.clone(),
+            machine: section(&t, "machine", &mut problems),
+            modules: section(&t, "modules", &mut problems),
+            spindle: section(&t, "spindle", &mut problems),
+            toolchange: section(&t, "toolchange", &mut problems),
+            probe: section(&t, "probe", &mut problems),
+            toolsetter: section(&t, "toolsetter", &mut problems),
+            hal: section(&t, "hal", &mut problems),
+            remote: section(&t, "remote", &mut problems),
+            display: section(&t, "display", &mut problems),
+            buttons: section(&t, "buttons", &mut problems),
+            model: section(&t, "model", &mut problems),
+        };
+        (c, problems)
     }
 
-    /// `[MILLGUI]MACHINE_CONFIG`, else `millgui/machine.toml` beside the
-    /// INI, else the defaults. A parse error is noted and the defaults used.
+    /// millgui.toml beside the INI (or `[MILLGUI]CONFIG`); without one, the
+    /// older machine.toml. Problems go to `notes`, prefixed with the file.
     pub fn load(cfg: &Config, notes: &mut Vec<String>) -> Self {
-        let path = cfg
-            .get("MILLGUI", "MACHINE_CONFIG")
-            .map(|p| cfg.dir().join(p))
-            .unwrap_or_else(|| cfg.dir().join("millgui/machine.toml"));
-        match std::fs::read_to_string(&path) {
-            Ok(t) => Self::parse(&t).unwrap_or_else(|e| {
-                notes.push(format!("{}: {e}", path.display()));
-                Self::default()
-            }),
-            Err(_) => Self::default(),
+        let named = cfg.get("MILLGUI", "CONFIG").map(|p| cfg.dir().join(p.trim()));
+        let path = named.clone().unwrap_or_else(|| cfg.dir().join(FILE));
+        if let Some(c) = Self::read(&path, notes) {
+            return c;
         }
+        if named.is_some() {
+            notes.push(format!("{}: [MILLGUI]CONFIG names a file that is not there", path.display()));
+        }
+        let old = cfg.get("MILLGUI", "MACHINE_CONFIG").map(|p| cfg.dir().join(p)).unwrap_or_else(|| cfg.dir().join("millgui/machine.toml"));
+        Self::read(&old, notes).unwrap_or_default()
+    }
+
+    fn read(path: &Path, notes: &mut Vec<String>) -> Option<Self> {
+        let text = std::fs::read_to_string(path).ok()?;
+        let (mut c, problems) = Self::parse(&text);
+        notes.extend(problems.into_iter().map(|p| format!("{}: {p}", path.display())));
+        c.path = Some(path.to_path_buf());
+        Some(c)
     }
 
     pub fn apply(&self, ui: &MainWindow) {
@@ -95,20 +303,125 @@ impl MachineCfg {
         live.set_quick_flood(self.buttons.flood);
         live.set_quick_drawbar(self.buttons.drawbar);
         live.set_quick_home(self.buttons.home_all);
+        live.set_has_scratch(self.toolchange.scratch_tools.is_some());
     }
+
+    /// `[table]key` is written in the file.
+    pub fn is_set(&self, table: &str, key: &str) -> bool {
+        self.raw.get(table).and_then(|t| t.as_table()).is_some_and(|t| t.contains_key(key))
+    }
+
+    /// The modules, in nav order: `[modules]enabled`, else `[MILLGUI]MODULES`,
+    /// else `default`.
+    pub fn module_ids(&self, cfg: &Config, default: &str) -> Vec<String> {
+        match &self.modules.enabled {
+            Some(w) => w.0.clone(),
+            None => split_words(cfg.get("MILLGUI", "MODULES").unwrap_or(default)),
+        }
+    }
+
+    /// HAL files to run after the modules' own (relative to the INI).
+    pub fn postgui(&self, cfg: &Config) -> Vec<String> {
+        match &self.display.postgui {
+            Some(w) => w.0.clone(),
+            None => cfg.get("MILLGUI", "POSTGUI_HALFILE").map(|s| vec![s.trim().to_string()]).unwrap_or_default(),
+        }
+    }
+
+    /// The remote screen's port: None when off, Err when the INI's is not a number.
+    pub fn remote_port(&self, cfg: &Config) -> Option<Result<u16, String>> {
+        if let Some(p) = self.remote.port {
+            return Some(Ok(p));
+        }
+        let p = cfg.get("MILLGUI", "REMOTE_PORT")?;
+        Some(p.trim().parse::<u16>().map_err(|_| "[MILLGUI]REMOTE_PORT is not a port number".to_string()))
+    }
+
+    pub fn remote_root(&self, cfg: &Config) -> Option<String> {
+        self.remote.root.clone().or_else(|| cfg.get("MILLGUI", "REMOTE_ROOT").map(String::from))
+    }
+
+    pub fn renderer(&self, cfg: &Config) -> Option<String> {
+        self.display.renderer.clone().or_else(|| cfg.get("MILLGUI", "RENDERER").map(String::from))
+    }
+
+    pub fn mdi_library(&self, cfg: &Config) -> Option<String> {
+        self.display.mdi_library.clone().or_else(|| cfg.get("MILLGUI", "MDI_LIBRARY").map(String::from))
+    }
+
+    /// The probe's tool number: `[probe]tool`, else `[PROBE]TOOL_NUMBER`, else 99.
+    pub fn probe_tool(&self, cfg: &Config) -> i32 {
+        self.probe
+            .tool
+            .map(|t| t as i32)
+            .or_else(|| cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse().ok()))
+            .unwrap_or(99)
+    }
+
+    /// The spindle's top speed, if known.
+    pub fn max_rpm(&self, cfg: &Config) -> Option<f64> {
+        self.spindle.max_rpm.or_else(|| cfg.get_f64("SPINDLE_0", "MAX_FORWARD_VELOCITY")).filter(|v| *v > 0.0)
+    }
+
+    /// The spindle runs in reverse (M4).
+    pub fn reverse(&self, cfg: &Config) -> bool {
+        self.spindle.reverse.unwrap_or_else(|| cfg.get_f64("SPINDLE_0", "MAX_REVERSE_VELOCITY") != Some(0.0))
+    }
+
+    /// The scratch tool numbers, if set.
+    pub fn scratch_range(&self) -> Option<std::ops::RangeInclusive<i32>> {
+        self.toolchange.scratch_tools.map(|[lo, hi]| lo as i32..=hi as i32)
+    }
+
+    /// A change to this tool warns that a touch-off is likely needed.
+    pub fn is_scratch_tool(&self, tool: i32) -> bool {
+        self.toolchange.scratch_tools.is_some_and(|[lo, hi]| tool >= lo as i32 && tool <= hi as i32)
+    }
+}
+
+static CFG: OnceLock<MachineCfg> = OnceLock::new();
+
+/// Load millgui.toml; the first call wins.
+pub fn init(cfg: &Config, notes: &mut Vec<String>) -> &'static MachineCfg {
+    if let Some(c) = CFG.get() {
+        return c;
+    }
+    let c = MachineCfg::load(cfg, notes);
+    CFG.get_or_init(|| c)
+}
+
+/// The settings, or the defaults before `init` (tests).
+pub fn get() -> &'static MachineCfg {
+    static DEFAULT: OnceLock<MachineCfg> = OnceLock::new();
+    CFG.get().unwrap_or_else(|| DEFAULT.get_or_init(MachineCfg::default))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn parse(t: &str) -> MachineCfg {
+        let (c, p) = MachineCfg::parse(t);
+        assert!(p.is_empty(), "{p:?}");
+        c
+    }
+
     #[test]
     fn shipped_file_is_the_pm728vt() {
-        let c = MachineCfg::parse(BUILTIN).unwrap();
+        let c = parse(BUILTIN);
         let m = Machine::pm728vt();
         assert!(c.model.show && c.model.known());
         assert_eq!((c.model.table, c.model.table_center, c.model.slots, c.model.nose_above_table), (m.table, m.table_center, m.slots, m.nose_above_table));
         assert_eq!(c.buttons, Buttons::default());
+    }
+
+    #[test]
+    fn mymill_profile_reads_clean() {
+        let c = parse(include_str!("../../../millgui.toml"));
+        assert_eq!(c.toolchange.style, Some(ToolChangeStyle::Drawbar));
+        assert_eq!(c.probe.tool, Some(99));
+        assert!(c.model.known());
+        assert!(c.module_ids(&Config::default(), "").contains(&"drawbar".to_string()));
     }
 
     #[test]
@@ -119,14 +432,51 @@ mod tests {
 
     #[test]
     fn partial_file_keeps_other_defaults() {
-        let c = MachineCfg::parse("[buttons]\nflood = false\n[model]\nslots = 4\n").unwrap();
+        let c = parse("[buttons]\nflood = false\n[model]\nslots = 4\n");
         assert!(!c.buttons.flood && c.buttons.mist);
         assert_eq!(c.model.slots, 4);
         assert_eq!(c.model.table, Machine::pm728vt().table);
     }
 
     #[test]
-    fn typo_is_an_error() {
-        assert!(MachineCfg::parse("[buttons]\nflod = false\n").is_err());
+    fn a_typo_resets_only_its_table() {
+        let (c, p) = MachineCfg::parse("[buttons]\nflod = false\n[model]\nslots = 4\n");
+        assert_eq!(p.len(), 1);
+        assert!(p[0].starts_with("[buttons]") && p[0].contains("flod"), "{p:?}");
+        assert_eq!(c.buttons, Buttons::default());
+        assert_eq!(c.model.slots, 4);
+        let (_, p) = MachineCfg::parse("[probes]\ntool = 3\n");
+        assert_eq!(p, ["unknown table [probes] (ignored)"]);
+    }
+
+    #[test]
+    fn park_and_words() {
+        assert_eq!(parse("[machine]\npark = [10, -20]\n").machine.park, Park::Xy(10.0, -20.0));
+        assert_eq!(parse("[machine]\npark = \"g28\"\n").machine.park, Park::G28);
+        assert!(!MachineCfg::parse("[machine]\npark = \"home\"\n").1.is_empty());
+        let ids = |t| parse(t).module_ids(&Config::default(), "run");
+        assert_eq!(ids("[modules]\nenabled = \"run, manual files\"\n"), ["run", "manual", "files"]);
+        assert_eq!(ids("[modules]\nenabled = [\"run\", \"util\"]\n"), ["run", "util"]);
+        assert_eq!(ids(""), ["run"]);
+    }
+
+    #[test]
+    fn toml_wins_over_the_ini() {
+        let mut ini = Config::default();
+        ini.insert("MILLGUI", "MODULES", "run files");
+        ini.insert("MILLGUI", "REMOTE_PORT", "80x");
+        ini.insert("PROBE", "TOOL_NUMBER", "7");
+        ini.insert("SPINDLE_0", "MAX_FORWARD_VELOCITY", "3000");
+        ini.insert("SPINDLE_0", "MAX_REVERSE_VELOCITY", "0");
+        let c = MachineCfg::default();
+        assert_eq!(c.module_ids(&ini, "x"), ["run", "files"]);
+        assert!(c.remote_port(&ini).unwrap().is_err());
+        assert_eq!((c.probe_tool(&ini), c.max_rpm(&ini), c.reverse(&ini)), (7, Some(3000.0), false));
+        let c = parse("[modules]\nenabled = \"run\"\n[remote]\nport = 8088\n[probe]\ntool = 12\n[spindle]\nmax_rpm = 2000\nreverse = true\n");
+        assert_eq!(c.module_ids(&ini, "x"), ["run"]);
+        assert_eq!(c.remote_port(&ini), Some(Ok(8088)));
+        assert_eq!((c.probe_tool(&ini), c.max_rpm(&ini), c.reverse(&ini)), (12, Some(2000.0), true));
+        assert!(!c.is_scratch_tool(200));
+        assert!(parse("[toolchange]\nscratch_tools = [200, 249]\n").is_scratch_tool(249));
     }
 }

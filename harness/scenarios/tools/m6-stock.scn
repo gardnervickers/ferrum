@@ -1,5 +1,5 @@
 title M6 on a machine without a tool-change dialog
-needs stock
+needs tc-loop
 include ../common/ready.scn
 mdi T2 M6
 expect stat.tool_in_spindle == 2

@@ -30,6 +30,20 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+/// Every subroutine a PROBE routine calls (`<name>.ngc` on SUBROUTINE_PATH).
+pub const MACROS: &[&str] = &[
+    "probe_a_measure_deflection", "probe_a_measure_diameter", "probe_a_measure_runout", "probe_a_rotary",
+    "probe_a_setup_cylinder_center", "probe_auto_stock_center", "probe_back_left_inside_corner",
+    "probe_back_left_top_corner", "probe_back_right_inside_corner", "probe_back_right_top_corner",
+    "probe_cal_round_pocket", "probe_front_left_inside_corner", "probe_front_left_top_corner",
+    "probe_front_right_inside_corner", "probe_front_right_top_corner", "probe_rect_pocket_center_start",
+    "probe_ridge_x", "probe_ridge_y", "probe_round_boss", "probe_round_pocket_center_start",
+    "probe_spindle_nose", "probe_top_back_edge_angle", "probe_top_front_edge_angle",
+    "probe_top_left_edge_angle", "probe_top_right_edge_angle", "probe_two_face",
+    "probe_valley_x_center_start", "probe_valley_y_center_start", "probe_x_minus_wco", "probe_x_plus_wco",
+    "probe_y_minus_wco", "probe_y_plus_wco", "probe_z_minus_wco", "tool_touch_off",
+];
+
 pub const WCS: [&str; 9] = ["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"];
 
 struct Param {
@@ -1361,7 +1375,7 @@ impl KeypadTarget for Keys {
 }
 
 pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn Io>>, sim: bool, rotation: Box<dyn Fn(usize) -> f64>) -> Rc<RefCell<Probe>> {
-    let probe_tool = cfg.get("PROBE", "TOOL_NUMBER").and_then(|v| v.trim().parse().ok()).unwrap_or(99);
+    let probe_tool = crate::machine_cfg::get().probe_tool(cfg);
     // Defaults: the parameter file, unless a run never restored them.
     let state = if sim { Settings::memory() } else { Settings::at("probe") };
     let restore_pending = state.get("probe.restore-pending") == Some("1");
@@ -1763,19 +1777,8 @@ mod tests {
                 }
             }
         }
-        let want = [
-            "o<probe_a_measure_deflection>", "o<probe_a_measure_diameter>", "o<probe_a_measure_runout>", "o<probe_a_rotary>",
-            "o<probe_a_setup_cylinder_center>", "o<probe_auto_stock_center>", "o<probe_back_left_inside_corner>",
-            "o<probe_back_left_top_corner>", "o<probe_back_right_inside_corner>", "o<probe_back_right_top_corner>",
-            "o<probe_cal_round_pocket>", "o<probe_front_left_inside_corner>", "o<probe_front_left_top_corner>",
-            "o<probe_front_right_inside_corner>", "o<probe_front_right_top_corner>", "o<probe_rect_pocket_center_start>",
-            "o<probe_ridge_x>", "o<probe_ridge_y>", "o<probe_round_boss>", "o<probe_round_pocket_center_start>",
-            "o<probe_spindle_nose>", "o<probe_top_back_edge_angle>", "o<probe_top_front_edge_angle>",
-            "o<probe_top_left_edge_angle>", "o<probe_top_right_edge_angle>", "o<probe_two_face>",
-            "o<probe_valley_x_center_start>", "o<probe_valley_y_center_start>", "o<probe_x_minus_wco>", "o<probe_x_plus_wco>",
-            "o<probe_y_minus_wco>", "o<probe_y_plus_wco>", "o<probe_z_minus_wco>", "o<tool_touch_off>",
-        ];
-        assert_eq!(macros.iter().map(String::as_str).collect::<Vec<_>>(), want);
+        let want: Vec<String> = MACROS.iter().map(|m| format!("o<{m}>")).collect();
+        assert_eq!(macros.into_iter().collect::<Vec<_>>(), want);
     }
 
     #[test]

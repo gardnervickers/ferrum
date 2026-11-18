@@ -283,7 +283,8 @@ component ToolCard inherits Rectangle {
 export component ToolChange inherits Scrim {
     Dialog {
         width: 900px;
-        height: 820px;
+        // Without a drawbar (the plain dialog) its rows and the note go.
+        height: Live.tc-has-drawbar ? 820px : 620px;
         VerticalLayout {
             padding: 22px;
             spacing: 14px;
@@ -291,7 +292,7 @@ export component ToolChange inherits Scrim {
                 spacing: 12px;
                 Text { vertical-alignment: center; text: "TOOL CHANGE"; font-family: Theme.display; font-size: 40px; letter-spacing: 2px; color: Theme.ink; }
                 Rectangle { horizontal-stretch: 1; }
-                Pill { text: Live.tc-nose; kind: Live.tc-nose-kind; }
+                if Live.tc-has-drawbar: Pill { text: Live.tc-nose; kind: Live.tc-nose-kind; }
             }
             HorizontalLayout {
                 spacing: 14px;
@@ -299,13 +300,13 @@ export component ToolChange inherits Scrim {
                 ToolCard { width: 421px; title: "REMOVE"; tool: Live.tc-from; desc: Live.tc-from-desc; }
                 ToolCard { width: 421px; title: "INSERT"; tool: Live.tc-tool; desc: Live.tc-tool-desc; highlight: true; }
             }
-            HorizontalLayout {
+            if Live.tc-has-drawbar: HorizontalLayout {
                 spacing: 12px;
                 Label { vertical-alignment: center; text: "DRAWBAR"; }
                 Pill { text: Live.tc-drawbar == "EXTENDED" ? "EXTENDED · TOOL RELEASED" : Live.tc-drawbar == "RETRACTED" ? "RETRACTED · CLAMPED" : "UNKNOWN"; kind: Live.tc-drawbar == "EXTENDED" ? "bad" : Live.tc-drawbar == "RETRACTED" ? "good" : ""; }
                 Rectangle { horizontal-stretch: 1; }
             }
-            HorizontalLayout {
+            if Live.tc-has-drawbar: HorizontalLayout {
                 spacing: 30px;
                 Btn { preferred-width: 0; horizontal-stretch: 1; height: 84px; text: "RELEASE TOOL"; hold: true; enabled: Live.tc-can-extend; clicked => { Actions.tc-drawbar(true); } }
                 Btn { preferred-width: 0; horizontal-stretch: 1; height: 84px; text: "CLAMP TOOL"; enabled: Live.tc-can-retract; clicked => { Actions.tc-drawbar(false); } }
@@ -336,7 +337,7 @@ export component ToolChange inherits Scrim {
                         background: Live.tc-seated ? Theme.go : transparent;
                         if Live.tc-seated: Path { width: 28px; height: 28px; viewbox-width: 24; viewbox-height: 24; commands: "M4 12l5 5L20 6"; stroke: Theme.ink; stroke-width: 4px; fill: transparent; }
                     }
-                    Text { vertical-alignment: center; text: "Tool is seated and the drawbar is clamped"; font-family: Theme.body; font-size: 26px; color: Theme.ink; }
+                    Text { vertical-alignment: center; text: Live.tc-has-drawbar ? "Tool is seated and the drawbar is clamped" : "Tool is in and secure"; font-family: Theme.body; font-size: 26px; color: Theme.ink; }
                 }
                 TouchArea { clicked => { Actions.tc-seated-toggle(); } }
             }
@@ -344,11 +345,11 @@ export component ToolChange inherits Scrim {
             Rectangle { vertical-stretch: 1; }
             HorizontalLayout {
                 spacing: 30px;
-                Btn { height: 84px; text: "RESUME + TOUCH OFF"; enabled: Live.tc-can-touch-off; clicked => { Actions.tc-resume(true); } }
+                if Live.tc-has-drawbar: Btn { height: 84px; text: "RESUME + TOUCH OFF"; enabled: Live.tc-can-touch-off; clicked => { Actions.tc-resume(true); } }
                 Btn { height: 84px; text: "ABORT"; kind: "stop"; clicked => { Actions.tc-abort(); } }
                 Btn { height: 84px; text: "RESUME"; kind: "go"; enabled: Live.tc-can-resume; clicked => { Actions.tc-resume(false); } }
             }
-            Note { text: Live.tc-touch-off-tip + ". Touch off runs after the change, from the M6 remap. The spindle cannot start while the drawbar is extended."; wrap: word-wrap; height: 52px; }
+            if Live.tc-has-drawbar: Note { text: Live.tc-touch-off-tip + ". Touch off runs after the change, from the M6 remap. The spindle cannot start while the drawbar is extended."; wrap: word-wrap; height: 52px; }
         }
     }
 }
