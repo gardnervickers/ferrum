@@ -1,0 +1,185 @@
+// SETUP (setup.rs): the configuration checker's rows in guided steps, the
+// millgui.toml settings each step asks for, and live input tests. Nothing
+// here moves the machine except the tool setter buttons, which UTIL has too.
+import { Theme, Layout } from "theme.slint";
+import { Live, Actions, SetupRow, SetupStep, StatusRow } from "state.slint";
+import { Btn, Card, Label, H3, Note, Pill, Seg, NumField } from "widgets.slint";
+
+component Fact inherits Rectangle {
+    in property <string> key;
+    in property <string> value;
+    in property <string> kind;
+    height: 74px;
+    min-width: 0px;
+    horizontal-stretch: 1;
+    background: Theme.panel2;
+    border-radius: Theme.radius-ctl;
+    VerticalLayout {
+        padding-left: 12px;
+        padding-top: 6px;
+        Label { text: key; font-size: 17px; }
+        Text {
+            text: value;
+            font-family: Theme.body;
+            font-weight: 600;
+            font-size: 26px;
+            color: kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : Theme.ink;
+            overflow: elide;
+        }
+    }
+}
+
+component StepTab inherits Rectangle {
+    in property <SetupStep> step;
+    in property <int> index;
+    in property <bool> on;
+    callback clicked();
+    height: 70px;
+    border-radius: Theme.radius-ctl;
+    background: on ? Theme.sel-soft : touch.pressed ? Theme.raised : Theme.panel2;
+    border-width: 2px;
+    border-color: on ? Theme.sel : transparent;
+    animate background, border-color { duration: Theme.quick; }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 14px;
+        spacing: 12px;
+        Text { vertical-alignment: center; width: 26px; text: index + 1; font-family: Theme.display; font-size: 26px; color: on ? Theme.sel-ink : Theme.dim; }
+        Text { vertical-alignment: center; horizontal-stretch: 1; text: step.label; font-family: Theme.display; font-size: 26px; letter-spacing: 1.4px; color: on ? Theme.sel-ink : Theme.ink; overflow: elide; }
+        if step.count > 0: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: max(28px, n.preferred-width + 12px);
+                height: 28px;
+                border-radius: 14px;
+                background: Theme.warn-soft;
+                n := Text { text: step.count; font-family: Theme.display; font-size: 20px; color: Theme.warn; horizontal-alignment: center; vertical-alignment: center; }
+            }
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+component RowView inherits Rectangle {
+    in property <SetupRow> r;
+    property <color> tone: r.level == "ok" ? Theme.good : r.level == "warn" ? Theme.warn : r.level == "bad" ? Theme.bad : r.level == "info" ? Theme.info : Theme.dim;
+    property <bool> setting: r.kind == "number" || r.kind == "choice" || r.kind == "bool";
+    background: r.level == "bad" ? Theme.bad-soft : r.level == "warn" ? Theme.warn-soft : Theme.panel2;
+    border-radius: Theme.radius-ctl;
+    HorizontalLayout {
+        padding: 14px;
+        padding-left: 18px;
+        spacing: 16px;
+        // The dot sits on the title's line.
+        VerticalLayout {
+            padding-top: 12px;
+            alignment: start;
+            Rectangle { width: 11px; height: 11px; border-radius: 5.5px; background: tone; }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 4px;
+            alignment: center;
+            Text { text: r.title; wrap: word-wrap; font-family: Theme.body; font-weight: 600; font-size: 25px; color: Theme.ink; }
+            if r.detail != "": Note { text: r.detail; }
+            if r.code != "": Rectangle {
+                background: Theme.well;
+                border-radius: Theme.radius-sm;
+                height: code.preferred-height + 16px;
+                code := Text {
+                    x: 12px;
+                    y: 8px;
+                    width: parent.width - 24px;
+                    text: r.code;
+                    wrap: word-wrap;
+                    font-family: Theme.body;
+                    font-size: 21px;
+                    color: Theme.sel-ink;
+                }
+            }
+            if r.note != "": Text { text: r.note; wrap: word-wrap; font-family: Theme.body; font-size: 19px; color: Theme.warn; }
+        }
+        // The control, in a fixed column so the rows line up.
+        if setting || r.kind == "live" || r.kind == "action": VerticalLayout {
+            width: 300px;
+            alignment: center;
+            if r.kind == "number": NumField { value: r.value; edit => { Actions.edit("setup-" + r.key); } }
+            if r.kind == "choice": Btn { height: 56px; font-size: 22px; text: r.value; clicked => { Actions.setup-tap(r.key); } }
+            if r.kind == "bool": HorizontalLayout {
+                spacing: 0px;
+                height: 56px;
+                Seg { first: true; text: "YES"; on: r.value == "YES"; clicked => { if r.value != "YES" { Actions.setup-tap(r.key); } } }
+                Seg { last: true; text: "NO"; on: r.value == "NO"; clicked => { if r.value != "NO" { Actions.setup-tap(r.key); } } }
+            }
+            if r.kind == "live": HorizontalLayout {
+                alignment: end;
+                Pill { text: r.value; kind: r.level == "ok" ? "good" : r.level == "bad" ? "bad" : r.level == "warn" ? "warn" : ""; }
+            }
+            if r.kind == "action": Btn { height: 64px; font-size: 22px; text: r.value; hold: r.key == "set-g30"; sub: r.key == "set-g30" ? "HOLD" : ""; enabled: Live.power && !Live.manual-locked; clicked => { Actions.setup-tap(r.key); } }
+        }
+    }
+}
+
+export component SetupScreen inherits Rectangle {
+    HorizontalLayout {
+        padding: 14px;
+        spacing: 14px;
+        Card {
+            width: Layout.compact ? 300px : 340px;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+                H3 { text: "SETUP"; }
+                for st[i] in Live.setup-steps: StepTab { step: st; index: i; on: i == Live.setup-step; clicked => { Actions.setup-go(i); } }
+                Rectangle { vertical-stretch: 1; }
+                if Live.setup-pending != "": Text { text: Live.setup-pending; wrap: word-wrap; font-family: Theme.body; font-size: 19px; color: Theme.warn; }
+            }
+        }
+        Card {
+            horizontal-stretch: 1;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                if Live.setup-first: Rectangle {
+                    background: Theme.info-soft;
+                    border-radius: Theme.radius-ctl;
+                    height: first.preferred-height + 24px;
+                    first := Text {
+                        x: 18px;
+                        y: 12px;
+                        width: parent.width - 36px;
+                        text: "New machine: jog, home, MDI, programs, offsets and tools work now. These steps set up the rest. Each change is saved to millgui.toml as you make it; FINISH ends setup.";
+                        wrap: word-wrap;
+                        font-family: Theme.body;
+                        font-size: 22px;
+                        color: Theme.info;
+                    }
+                }
+                H3 { text: Live.setup-title; }
+                if Live.setup-intro != "": Note { text: Live.setup-intro; }
+                if Live.setup-facts.length > 0: HorizontalLayout {
+                    spacing: 10px;
+                    for f in Live.setup-facts: Fact { key: f.key; value: f.value; kind: f.kind; }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    clip: true;
+                    Flickable {
+                        content-height: rows.preferred-height;
+                        rows := VerticalLayout {
+                            spacing: 8px;
+                            for r in Live.setup-rows: RowView { r: r; }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 14px;
+                    Btn { width: 200px; height: 64px; text: "BACK"; enabled: Live.setup-step > 0; clicked => { Actions.setup-go(Live.setup-step - 1); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    if Live.setup-step < Live.setup-steps.length - 1: Btn { width: 200px; height: 64px; text: "NEXT"; clicked => { Actions.setup-go(Live.setup-step + 1); } }
+                    if Live.setup-step == Live.setup-steps.length - 1: Btn { width: 200px; height: 64px; text: "FINISH"; kind: "go"; clicked => { Actions.setup-finish(); } }
+                }
+            }
+        }
+    }
+}

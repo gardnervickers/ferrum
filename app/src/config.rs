@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Config {
     pub path: Option<PathBuf>,
     /// (section, key, value) in file order, after #INCLUDE expansion.

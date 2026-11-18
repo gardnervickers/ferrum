@@ -417,8 +417,10 @@ export component BottomBar inherits Rectangle {
     property <length> cycle-font: Layout.compact ? 27px : 32px;
     // Nav tab geometry, shared by the tabs and the sliding plate.
     property <length> nav-pad: Layout.compact ? 8px : 14px;
-    property <length> nav-w: Layout.compact ? 80px : 104px;
-    property <length> nav-gap: Layout.compact ? 4px : 8px;
+    // Ten tabs (SETUP after nine screens) narrow to clear SINGLE BLOCK.
+    property <bool> nav-many: Live.nav.length > 9;
+    property <length> nav-w: Layout.compact ? (nav-many ? 74px : 80px) : (nav-many ? 96px : 104px);
+    property <length> nav-gap: Layout.compact ? 4px : (nav-many ? 6px : 8px);
     // Which tab is chosen (-1: none). Kept by the tabs themselves.
     property <int> nav-index: -1;
     background: Theme.bar;
@@ -443,21 +445,42 @@ export component BottomBar inherits Rectangle {
         spacing: root.nav-gap;
         for n[i] in Live.nav: VerticalLayout {
             alignment: center;
-            Btn {
-                property <bool> chosen: Live.screen == n.id;
-                init => { if self.chosen { root.nav-index = i; } }
-                changed chosen => {
-                    if self.chosen { root.nav-index = i; } else if root.nav-index == i { root.nav-index = -1; }
-                }
-                glide: true;
+            Rectangle {
                 width: root.nav-w;
                 height: 96px;
-                font-size: Layout.compact ? 20px : 24px;
-                flat: true;
-                icon: n.icon;
-                text: n.label;
-                on: self.chosen;
-                clicked => { Actions.navigate(n.id); }
+                Btn {
+                    property <bool> chosen: Live.screen == n.id;
+                    init => { if self.chosen { root.nav-index = i; } }
+                    changed chosen => {
+                        if self.chosen { root.nav-index = i; } else if root.nav-index == i { root.nav-index = -1; }
+                    }
+                    glide: true;
+                    width: parent.width;
+                    height: parent.height;
+                    font-size: Layout.compact ? 20px : 24px;
+                    flat: true;
+                    icon: n.icon;
+                    text: n.label;
+                    on: self.chosen;
+                    clicked => { Actions.navigate(n.id); }
+                }
+                // A count in the corner, over the icon's right.
+                if n.badge > 0: Rectangle {
+                    x: parent.width - self.width - 8px;
+                    y: 8px;
+                    width: max(26px, badge-text.preferred-width + 12px);
+                    height: 26px;
+                    border-radius: 13px;
+                    background: Theme.warn;
+                    badge-text := Text {
+                        text: n.badge;
+                        font-family: Theme.display;
+                        font-size: 18px;
+                        color: Theme.frame;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
             }
         }
         Rectangle { horizontal-stretch: 1; }

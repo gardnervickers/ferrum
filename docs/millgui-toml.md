@@ -15,6 +15,13 @@ Without a `millgui.toml`, millgui still reads the older places: the INI's
 `[MILLGUI]MACHINE_CONFIG`) for `[buttons]` and `[model]`. When both name a
 setting, `millgui.toml` wins.
 
+The SETUP screen (always last in the nav bar) edits it for you: it shows
+the same checks as `millgui --check`, in six steps, with the settings each
+step needs and a live test of the probe and tool setter inputs. A change is
+written to `millgui.toml` at once, keeping your comments, and applies when
+LinuxCNC next starts. With no `millgui.toml`, SETUP opens first; FINISH
+writes the file so it stops doing that.
+
 Check what millgui makes of a machine, with or without LinuxCNC running:
 
 ```sh
@@ -35,7 +42,8 @@ park = "machine-zero"     # PARK after Z is up: "machine-zero" (X0 Y0, rotary 0)
 
 [modules]
 # In nav order. Default: run job manual probe tools offsets conv files util,
-# plus toolchange when nothing in the machine's HAL answers M6.
+# plus toolchange when nothing in the machine's HAL answers M6. SETUP is
+# always added last.
 # drives, drawbar, interlock, pendant and load need matching HAL.
 enabled = "run manual files offsets tools util"
 
@@ -48,6 +56,7 @@ style = "dialog"          # "dialog" | "external" | "drawbar"; default detected 
 scratch_tools = [200, 249]  # TOOLS > NEW SCRATCH numbers; a change to one warns about touch-off
 
 [probe]
+enabled = true            # false: no probe, PROBE leaves the nav bar
 tool = 99                 # default [PROBE]TOOL_NUMBER, else 99
 
 [toolsetter]
@@ -57,7 +66,7 @@ enabled = true            # default: on when UTIL is
 probe_tripped = "motion.probe-input"
 
 [remote]
-port = 8088               # browser screen; anyone who can reach the port can run the machine
+port = 8088               # browser screen; 0 = off. Anyone who can reach the port can run the machine
 root = "millgui/web/dist"
 
 [display]

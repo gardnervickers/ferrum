@@ -27,3 +27,6 @@ shot files
 screen util
 sleep 0.5
 shot util
+screen setup
+sleep 0.5
+shot setup

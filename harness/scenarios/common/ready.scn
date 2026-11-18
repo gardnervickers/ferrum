@@ -10,3 +10,4 @@ expect stat.homed[0] == 1
 expect stat.homed[1] == 1
 expect stat.homed[2] == 1
 idle 30
+screen run

@@ -278,7 +278,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     let ztop = format!("G53 Z{} {}", mi.units.fmt(mi.z_top), mi.units.name());
     v.push(
         Check::new("machine.z-top", G::Machine, L::Info, format!("Retracts go to {ztop}"))
-            .detail(if mc.machine.z_top.is_some() { "From [machine]z_top." } else { "Just under [AXIS_Z]MAX_LIMIT. Set [machine]z_top to change it." })
+            .detail(if mc.machine.z_top.is_some() { "From [machine]z_top." } else { "Default: just under [AXIS_Z]MAX_LIMIT." })
             .fix(Fix::Setting("machine.z_top")),
     );
     if !mi.trivial_kins {
@@ -367,7 +367,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
         } else if cfg.get("PROBE", "TOOL_NUMBER").is_some() {
             "[PROBE]TOOL_NUMBER"
         } else {
-            "the default; set [probe]tool"
+            "millgui's default"
         };
         v.push(Check::new("probe.tool", G::Probe, L::Info, format!("The probe is T{tool}")).detail(format!("From {src}.")).fix(Fix::Setting("probe.tool")));
         let missing = missing_subs(cfg, crate::probe::MACROS);

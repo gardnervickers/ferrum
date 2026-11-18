@@ -8,7 +8,8 @@ export struct PillData { text: string, kind: string, hint: string }
 // a moving axis does not restart their animations (an extra frame each time).
 export struct DroRow { axis: string, homed: bool }
 export struct DroPos { work: string, mach: string, dtg: string }
-export struct NavItem { id: string, label: string, icon: string }
+// `badge`: a count shown on the entry (SETUP's rows that need attention).
+export struct NavItem { id: string, label: string, icon: string, badge: int }
 export struct MsgRow { time: string, text: string, kind: string }
 export struct MdiCard { label: string, desc: string, fill: string, moves: bool }
 export struct FileRow { name: string, dir: bool, modified: string, size: string }
@@ -26,6 +27,13 @@ export struct ProbeOpt { id: string, label: string, on: bool, enabled: bool }
 export struct ProbeParam { id: string, label: string, value: string, unit: string, changed: bool, def: string }
 export struct WarmStage { rpm: string, minutes: string, state: string }
 export struct StatusRow { key: string, value: string, kind: string }
+// SETUP (setup.rs). A step's entry: `count` rows need attention.
+export struct SetupStep { label: string, count: int }
+// One SETUP row. kind: "check" (a checker row), "number" | "choice" |
+// "bool" (a millgui.toml setting, `key`), "live" (an input test),
+// "action" (a button, `key`). level: "ok" | "info" | "warn" | "bad" | "".
+// `code`: INI or HAL lines to add; `note`: a saved change waiting for a restart.
+export struct SetupRow { kind: string, key: string, level: string, title: string, detail: string, value: string, code: string, note: string }
 export struct JobOp { pos: string, badge: string, kind: string, name: string, detail: string, enabled: bool, state: string, can-toggle: bool, selected: bool, progress: float, progress-text: string, stop-after: bool }
 export struct ConvField { key: string, label: string, value: string, unit: string, choice: bool }
 // One face of the backplot's view cube, in a 100 × 100 box.
@@ -392,6 +400,18 @@ export global Live {
     in property <string> text-value;
     in property <bool> text-caps;
     in property <string> text-error;
+
+    // SETUP (setup.rs)
+    in property <[SetupStep]> setup-steps;
+    in property <int> setup-step;
+    in property <string> setup-title;
+    in property <string> setup-intro;
+    in property <[StatusRow]> setup-facts;
+    in property <[SetupRow]> setup-rows;
+    // No millgui.toml yet: SETUP opened first, with a sentence on what works.
+    in property <bool> setup-first;
+    // Saved changes that apply when LinuxCNC (and millgui) next start.
+    in property <string> setup-pending;
 }
 
 export global Actions {
@@ -545,4 +565,8 @@ export global Actions {
     callback ut-blast();
     callback ut-go-g30();
     callback ut-set-g30();
+    // SETUP: show a step; tap a row (a setting or a button); FINISH.
+    callback setup-go(step: int);
+    callback setup-tap(key: string);
+    callback setup-finish();
 }

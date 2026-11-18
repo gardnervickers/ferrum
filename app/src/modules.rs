@@ -127,6 +127,8 @@ const ICON_TOOLS: &str = "M9 3h6v6l-3 12-3-12z";
 const ICON_OFFSETS: &str = "M4 20V4h16M12 10A2 2 0 1 0 16 10A2 2 0 1 0 12 10";
 const ICON_CONV: &str = "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8 9h8M8 13h8M8 17h5";
 const ICON_FILES: &str = "M4 6h6l2 2h8v11H4z";
+// A wrench.
+const ICON_SETUP: &str = "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z";
 const ICON_UTIL: &str =
     "M9 12A3 3 0 1 0 15 12A3 3 0 1 0 9 12M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2";
 
@@ -525,6 +527,7 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
         "conv" => screen("conv", "CONV", ICON_CONV),
         "files" => screen("files", "FILES", ICON_FILES),
         "util" => screen("util", "UTIL", ICON_UTIL),
+        "setup" => screen("setup", "SETUP", ICON_SETUP),
         "probe" => Some(Box::new(Probe { tool: crate::machine_cfg::get().probe_tool(cfg), ..Probe::default() })),
         "toolchange" => Some(Box::new(ToolChange::default())),
         "drives" => Some(Box::new(Drives { axes: cfg.coordinates().chars().collect(), ready: Vec::new(), faults: Vec::new() })),
@@ -543,11 +546,18 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
 pub fn build(cfg: &Config, hal: &dyn crate::checks::Hal) -> (Vec<Box<dyn Module>>, Vec<String>) {
     let mc = crate::machine_cfg::get();
     let mut list = mc.module_ids(cfg, DEFAULT_MODULES);
+    // `[probe]enabled = false`: no probe on this machine.
+    if mc.probe.enabled == Some(false) {
+        list.retain(|m| m != "probe");
+    }
     if !list.iter().any(|m| m == "drawbar" || m == "toolchange")
         && crate::checks::toolchange_style(mc, &list, hal).0 == crate::machine_cfg::ToolChangeStyle::Dialog
     {
         list.push("toolchange".into());
     }
+    // SETUP is always there, last.
+    list.retain(|m| m != "setup");
+    list.push("setup".into());
     let mut modules: Vec<Box<dyn Module>> = Vec::new();
     let mut problems = Vec::new();
     for id in list.iter().map(String::as_str) {
@@ -600,7 +610,7 @@ mod tests {
         let (mods, problems) = build(&cfg, &crate::checks::NoHal);
         let ids: Vec<_> = mods.iter().map(|m| m.id()).collect();
         // Nothing answers M6, so the tool change dialog comes too.
-        assert_eq!(ids, ["run", "manual", "toolchange"]);
+        assert_eq!(ids, ["run", "manual", "toolchange", "setup"]);
         assert_eq!(problems.len(), 1);
         std::fs::remove_dir_all(d).ok();
     }

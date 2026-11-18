@@ -25,6 +25,7 @@ mod remote;
 mod restart;
 mod renderer;
 mod settings;
+mod setup;
 mod textentry;
 mod toolchange;
 mod offsets;
@@ -843,6 +844,11 @@ fn main() -> Result<(), slint::PlatformError> {
                                 job::apply_status(j, &s);
                             }
                         });
+                        SETUP.with(|t| {
+                            if let Some(t) = t.borrow().as_ref() {
+                                setup::apply_status(ui, t, &s);
+                            }
+                        });
                         // The backplot follows the tool in this same frame.
                         plot::with(|p| plot::redraw_due(ui, p, Duration::from_millis(15)));
                     }
@@ -897,9 +903,10 @@ fn main() -> Result<(), slint::PlatformError> {
     let manual = manual::wire(&ui, &handle, &cfg, settings::Settings::load(), axes.contains(&3));
     // The configuration check switches off what this machine cannot run,
     // with the reason on the screen (the simulator has no machine to check).
+    let ids: Vec<String> = modules.iter().map(|m| m.id().to_string()).collect();
+    let check_rows = checks::run(&checks::Inputs { cfg: &cfg, mc: machine_cfg::get(), mi: machine_info::get(), notes: &notes, modules: &ids, hal: hal.as_ref() });
     if !args.sim {
-        let ids: Vec<String> = modules.iter().map(|m| m.id().to_string()).collect();
-        let rows = checks::run(&checks::Inputs { cfg: &cfg, mc: machine_cfg::get(), mi: machine_info::get(), notes: &notes, modules: &ids, hal: hal.as_ref() });
+        let rows = &check_rows;
         let live = ui.global::<Live>();
         // Coolant buttons only for the outputs that are wired, unless
         // [buttons] says otherwise.
@@ -911,13 +918,13 @@ fn main() -> Result<(), slint::PlatformError> {
         if unwired("flood", "iocontrol.0.coolant-flood") {
             live.set_quick_flood(false);
         }
-        if let Some(why) = checks::blocked(&rows, checks::Feature::Probe) {
+        if let Some(why) = checks::blocked(rows, checks::Feature::Probe) {
             live.set_probe_blocked(why.into());
         }
-        if let Some(why) = checks::blocked(&rows, checks::Feature::Job) {
+        if let Some(why) = checks::blocked(rows, checks::Feature::Job) {
             live.set_job_blocked(why.into());
         }
-        if let Some(why) = checks::blocked(&rows, checks::Feature::Conv) {
+        if let Some(why) = checks::blocked(rows, checks::Feature::Conv) {
             live.set_conv_blocked(why.into());
         }
         let attention = rows.iter().filter(|c| c.level != checks::Level::Ok && c.level != checks::Level::Info).count();
@@ -970,8 +977,18 @@ fn main() -> Result<(), slint::PlatformError> {
     PROBE.with(|p| *p.borrow_mut() = Some(probe));
     let setter = modules.iter().find_map(|m| m.setter());
     let util_state = if args.sim { settings::Settings::memory() } else { settings::Settings::at("util") };
-    let (util, _util_timer) = util::wire(&ui, &handle, &cfg, tc_io.clone(), setter, util_state);
+    let (util, _util_timer) = util::wire(&ui, &handle, &cfg, tc_io.clone(), setter.clone(), util_state);
     UTIL.with(|u| *u.borrow_mut() = Some(util));
+    // SETUP: the check's rows with their fixes. With no millgui.toml it
+    // opens first (not in the simulator, nor when -screen names one).
+    {
+        let mut asked = machine_cfg::get().clone();
+        asked.toolchange.style = None;
+        let detected = checks::toolchange_style(&asked, &ids, hal.as_ref()).0;
+        let first = !args.sim && args.screen.is_none() && machine_cfg::get().path.is_none();
+        let s = setup::wire(&ui, &cfg, check_rows, ids.clone(), detected, setter, first);
+        SETUP.with(|t| *t.borrow_mut() = Some(s));
+    }
     let _tc_timer = tc_io.map(|io| toolchange::wire(&ui, &handle, &cfg, io));
     picker::wire(&ui);
     let ids: Vec<&str> = modules.iter().map(|m| m.id()).collect();
@@ -1105,7 +1122,7 @@ fn set_nav(ui: &MainWindow, modules: &[Box<dyn Module>], screen: Option<&str>) {
     let nav: Vec<NavItem> = modules
         .iter()
         .filter_map(|m| m.nav())
-        .map(|n| NavItem { id: n.id.into(), label: n.label.into(), icon: n.icon.into() })
+        .map(|n| NavItem { id: n.id.into(), label: n.label.into(), icon: n.icon.into(), badge: 0 })
         .collect();
     let first = nav.first().map(|n| n.id.clone()).unwrap_or_default();
     live.set_screen(screen.map(SharedString::from).unwrap_or(first));
@@ -1400,6 +1417,7 @@ thread_local! {
     static PROBE: RefCell<Option<Rc<RefCell<probe::Probe>>>> = const { RefCell::new(None) };
     static UTIL: RefCell<Option<Rc<RefCell<util::Util>>>> = const { RefCell::new(None) };
     static JOB: RefCell<Option<Rc<RefCell<job::Job>>>> = const { RefCell::new(None) };
+    static SETUP: RefCell<Option<Rc<RefCell<setup::Setup>>>> = const { RefCell::new(None) };
     /// The status handler lives on the UI thread; the machine thread only
     /// posts events to it.
     static UI_EVENT: RefCell<Option<UiEventFn>> = RefCell::new(None);

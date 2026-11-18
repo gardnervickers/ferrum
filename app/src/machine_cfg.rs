@@ -297,6 +297,14 @@ impl MachineCfg {
         Some(c)
     }
 
+    /// The millgui.toml SETUP writes (the one read, or the one millgui
+    /// would read), and the older file to start a new one from.
+    pub fn target(&self, cfg: &Config) -> (PathBuf, Option<PathBuf>) {
+        let path = cfg.get("MILLGUI", "CONFIG").map(|p| cfg.dir().join(p.trim())).unwrap_or_else(|| cfg.dir().join(FILE));
+        let seed = self.path.clone().filter(|p| *p != path);
+        (path, seed)
+    }
+
     pub fn apply(&self, ui: &MainWindow) {
         let live = ui.global::<Live>();
         live.set_quick_mist(self.buttons.mist);
@@ -331,7 +339,8 @@ impl MachineCfg {
     /// The remote screen's port: None when off, Err when the INI's is not a number.
     pub fn remote_port(&self, cfg: &Config) -> Option<Result<u16, String>> {
         if let Some(p) = self.remote.port {
-            return Some(Ok(p));
+            // 0: off, even when the INI names a port.
+            return (p != 0).then_some(Ok(p));
         }
         let p = cfg.get("MILLGUI", "REMOTE_PORT")?;
         Some(p.trim().parse::<u16>().map_err(|_| "[MILLGUI]REMOTE_PORT is not a port number".to_string()))
