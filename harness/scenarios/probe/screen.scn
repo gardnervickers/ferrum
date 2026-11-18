@@ -1,0 +1,55 @@
+title PROBE screen: load offer, dialogs, a changed value, and the bar's STOP ends a run
+needs probe-basic
+allow-error Stopped
+allow-error without making contact    # LinuxCNC says so when a G38 move is aborted
+include ../common/ready.scn
+mdi G10 L2 P1 X0 Y0 Z0
+screen probe
+# Only the tool is in the way: the screen offers the change where it says why.
+expect prop.pr-load-offer == true
+expect prop.pr-ready contains "Load the probe"
+shot offer-load
+include ../common/load-probe.scn
+expect prop.pr-load-offer == false
+expect prop.pr-ready == ""
+do probe-mode "find"
+do probe-shape "block"
+do probe-target "ctr"
+shot ready-stock-center
+do probe-shape "top"
+do probe-target "top"
+# A value changed for this run: amber on the screen, in ALL SETTINGS with its default.
+do probe-step "3020" 1
+expect prop.pr-changed == true
+set pr-dialog "more"
+sleep 0.4
+shot all-settings
+set pr-dialog "defaults"
+sleep 0.4
+shot defaults
+set pr-dialog "job"
+sleep 0.4
+shot add-to-job
+set pr-dialog ""
+# High over the sim stock (top at machine Z-250), so the probe is still on its way down at the STOP.
+mdi G53 G0 X215 Y-90
+mdi G0 Z-205
+idle 10
+sleep 1                                   # millgui goes back to manual mode after the MDI
+expect prop.pr-ready == ""
+do probe-run
+wait prop.pr-running == true within 5
+sleep 1.5
+shot running
+do stop
+wait prop.pr-running == false within 20
+idle 30
+expect prop.pr-result contains "stopped"
+expect stat.g5x_offset[2] ~= 0
+expect stat.probe_tripped == false
+# The run's value went back to the default (#3020 = 50 on mymill).
+mdi (DEBUG,P3020=#3020)
+wait prop.messages contains "P3020=50.0" within 5
+shot stopped
+do probe-reset-all
+expect prop.pr-changed == false

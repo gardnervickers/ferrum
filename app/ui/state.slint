@@ -268,6 +268,8 @@ export global Live {
 
     // PROBE screen (probe.rs). Picture paths are SVG data in a 400x300 box.
     in property <string> pr-mode: "find";
+    // The open dialog: "" | "more" | "defaults" | "wcs" | "job" (per screen, not mirrored).
+    in-out property <string> pr-dialog;
     in property <[ProbeItem]> pr-shapes;
     in property <string> pr-shape-label;
     in property <string> pr-title;
@@ -306,6 +308,9 @@ export global Live {
     in property <string> pr-pill-kind;
     in property <string> pr-load-label;
     in property <bool> pr-load-enabled;
+    // Only the tool in the spindle is in the way: the screen offers the
+    // change where it otherwise says why it cannot start.
+    in property <bool> pr-load-offer;
     in property <string> pr-run-label: "HOLD TO PROBE";
     in property <bool> pr-running;
     // Why a run can't start now ("" = ready).

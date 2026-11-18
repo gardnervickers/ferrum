@@ -588,7 +588,11 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     let m = machine.clone();
     // A restart under way loads the original program again once the abort
     // leaves the interpreter idle.
-    actions.on_stop(move || m.send(Command::Abort));
+    actions.on_stop(move || {
+        m.send(Command::Abort);
+        // A probe run sends its routine line by line: end it too.
+        with_probe(|p| p.stopped());
+    });
     let (m, st, weak) = (machine.clone(), state.clone(), ui.as_weak());
     actions.on_gcode_run_from_selected(move || {
         let Some(ui) = weak.upgrade() else { return };
@@ -687,6 +691,8 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             if id == "files" {
                 ui.global::<Actions>().invoke_files_refresh();
             }
+            // A PROBE dialog left open does not come back with the screen.
+            live.set_pr_dialog("".into());
             live.set_screen(id);
         }
     });
@@ -1340,6 +1346,8 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                         "probe-shape" => actions.invoke_probe_shape(v.into()),
                         "probe-target" => actions.invoke_probe_target(v.into()),
                         "probe-opt" => actions.invoke_probe_opt(v.into()),
+                        "probe-dialog" => live.set_pr_dialog(v.into()),
+                        "probe-step" => actions.invoke_probe_step(v.into(), 1),
                         // The preview held at <ms> into its loop.
                         "probe-at" => probe_anim::freeze(&ui, v.parse().unwrap_or(0.0)),
                         _ => {}
@@ -1518,7 +1526,7 @@ fn with_probe(f: impl FnOnce(&mut probe::Probe)) {
     });
 }
 
-/// PROBE screen -> JOB page (+ JOB / + CHECK), and a check's tool
+/// PROBE screen -> JOB page (ADD TO JOB: set the offset, or check a size), and a check's tool
 /// correction -> the tool table.
 fn wire_job_probing(ui: &MainWindow, j: &Rc<RefCell<job::Job>>) {
     let actions = ui.global::<Actions>();

@@ -28,7 +28,7 @@ mod mirror {
 }
 
 /// Per-screen state, never mirrored.
-const LOCAL: &[&str] = &["remote", "screen", "run-tab", "jog-tab", "files-tab", "drawer-open", "plot-dx", "plot-dy", "plot-landed"];
+const LOCAL: &[&str] = &["remote", "screen", "run-tab", "jog-tab", "files-tab", "drawer-open", "plot-dx", "plot-dy", "plot-landed", "pr-dialog"];
 /// Browser-side edits the Pi accepts (two-way properties the actions read).
 const FROM_REMOTE: &[&str] = &["mdi-text", "gcode-selected"];
 /// Actions each screen handles for itself.
@@ -291,7 +291,8 @@ fn handle(weak: &slint::Weak<MainWindow>, client: &Arc<Client>, text: &str) {
             REMOTE.with(|r| {
                 if let Some(r) = r.borrow().as_ref() {
                     for (k, v) in set {
-                        if FROM_REMOTE.contains(&k.as_str()) {
+                        // The harness also opens the PROBE screen's dialogs.
+                        if FROM_REMOTE.contains(&k.as_str()) || (harness() && k == "pr-dialog") {
                             r.borrow_mut().accept(&ui, &client, k, v.clone());
                         }
                     }

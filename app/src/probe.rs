@@ -229,6 +229,9 @@ struct Run {
     what: String,
     kind: &'static str,
     flow_step: Option<&'static str>,
+    /// No line before this: LinuxCNC drops an MDI line sent while it is
+    /// still aborting, and the restore after a STOP must not be lost.
+    not_before: Option<Instant>,
     /// When the last line finished. The macro's result lines come over
     /// LinuxCNC's error channel and can arrive just after the status shows
     /// it idle, so the run ends a moment later (`RESULT_GRACE`).
@@ -236,6 +239,8 @@ struct Run {
 }
 
 const RESULT_GRACE: Duration = Duration::from_millis(400);
+/// How long after a STOP before the defaults are put back.
+const ABORT_SETTLE: Duration = Duration::from_millis(600);
 
 /// How long LinuxCNC must sit still before millgui writes the defaults.
 const QUIET_FOR: Duration = Duration::from_secs(3);
@@ -379,7 +384,7 @@ impl Probe {
     fn options(&self, sel: &Target) -> (&'static str, Vec<ProbeOpt>, &'static str, Vec<ProbeOpt>) {
         let it = |id: &str, label: &str, on: bool| ProbeOpt { id: id.into(), label: label.into(), on, enabled: true };
         match (self.shape, sel.kind) {
-            (_, "edge") if self.mode == "find" => ("EDGE ANGLE", vec![it("angle-off", "NO", !self.angle), it("angle-on", "ALSO MEASURE", self.angle)], "", vec![]),
+            (_, "edge") if self.mode == "find" => ("EDGE ANGLE", vec![it("angle-off", "NO", !self.angle), it("angle-on", "MEASURE IT TOO", self.angle)], "", vec![]),
             ("block", "stock" | "two") => {
                 let one = if self.both { "" } else { side_axis(self.start) };
                 let axes = vec![it("both", "X AND Y", self.both), it("axis-X", "X ONLY", one == "X"), it("axis-Y", "Y ONLY", one == "Y")];
@@ -476,6 +481,16 @@ impl Probe {
         })
     }
 
+    /// What is wrong with the tool in the spindle for `t`, if anything.
+    fn tool_problem(&self, t: &Target, tool: i32) -> Option<String> {
+        match Self::needs(t.kind) {
+            Needs::Probe if tool != self.probe_tool => Some(format!("Load the probe (T{}) first", self.probe_tool)),
+            Needs::Tool if tool == self.probe_tool || tool <= 0 => Some("Load the tool to measure (not the probe)".into()),
+            Needs::Empty if tool != 0 => Some("Unload the spindle (T0) before probing the nose".into()),
+            _ => None,
+        }
+    }
+
     /// The checks the GUI can make before offering a run. The macros make
     /// their own checks too; these only avoid a pointless start.
     fn check(&self, t: &Target) -> Result<(), String> {
@@ -492,12 +507,8 @@ impl Probe {
         if s.busy() || self.run.is_some() {
             return Err("Wait for the running command to finish".into());
         }
-        let tool = s.tool_in_spindle;
-        match Self::needs(t.kind) {
-            Needs::Probe if tool != self.probe_tool => return Err(format!("Load the probe (T{}) first", self.probe_tool)),
-            Needs::Tool if tool == self.probe_tool || tool <= 0 => return Err("Load the tool to measure (not the probe)".into()),
-            Needs::Empty if tool != 0 => return Err("Unload the spindle (T0) before probing the nose".into()),
-            _ => {}
+        if let Some(why) = self.tool_problem(t, s.tool_in_spindle) {
+            return Err(why);
         }
         if t.kind == "nose" {
             if let Some(io) = &self.io {
@@ -692,20 +703,28 @@ impl Probe {
         self.results.clear();
         let what = self.selected().label;
         self.result_text = format!("Running: {what}");
-        self.run = Some(Run { steps, restore, sent: None, failed: None, restoring: false, restore_failed: false, what, kind: t.kind, flow_step, done_at: None });
+        self.run = Some(Run { steps, restore, sent: None, failed: None, restoring: false, restore_failed: false, what, kind: t.kind, flow_step, not_before: None, done_at: None });
         self.pump();
         Ok(())
     }
 
     fn stop(&mut self) {
         self.machine.send(Command::Abort);
+        self.stopped();
+    }
+
+    /// The bar's STOP aborted LinuxCNC: a run from this screen ends here
+    /// (no further step is sent) and its defaults go back.
+    pub fn stopped(&mut self) {
         if let Some(r) = &mut self.run {
             if !r.restoring {
                 r.failed.get_or_insert_with(|| "Stopped".into());
                 r.steps.clear();
                 r.sent = None;
+                r.not_before = Some(Instant::now() + ABORT_SETTLE);
             }
         }
+        self.refresh();
     }
 
     /// Advance the run on each status: one MDI line at a time, each sent
@@ -733,6 +752,12 @@ impl Probe {
         if run.failed.is_some() && !run.restoring {
             run.steps.clear();
         }
+        // After a STOP: wait for the abort to be over (the 100 ms timer
+        // comes back here).
+        if run.not_before.is_some_and(|t| Instant::now() < t) || (run.not_before.is_some() && s.busy()) {
+            return;
+        }
+        run.not_before = None;
         if run.steps.is_empty() && !run.restoring {
             run.restoring = true;
             run.steps = std::mem::take(&mut run.restore);
@@ -768,7 +793,7 @@ impl Probe {
         }
         let results = std::mem::take(&mut self.results);
         if let Some(e) = &run.failed {
-            self.result_text = format!("{} failed: {e}", run.what);
+            self.result_text = if e == "Stopped" { format!("{}: stopped", run.what) } else { format!("{} failed: {e}", run.what) };
             self.flow = None;
             self.note(format!("Probe routine failed: {e}"), true);
             return;
@@ -843,7 +868,7 @@ impl Probe {
                 let _ = num;
             }
         }
-        self.result_text = lines.join("\n");
+        self.result_text = lines.join("   ·   ");
         self.note(format!("{}: done", run.what), false);
     }
 
@@ -958,7 +983,7 @@ impl Probe {
             Vec::new()
         };
         crate::models::sync(live.get_pr_spots(), spots, |m| live.set_pr_spots(m));
-        // Choices under the picture: two labelled rows, always the same
+        // Choices for the target: two labelled groups, always the same
         // buttons for a target (a choice that doesn't apply is disabled, not
         // removed), so nothing moves under the finger.
         let (l1, o1, l2, o2) = self.options(&sel);
@@ -980,6 +1005,7 @@ impl Probe {
             }
         };
         let mut fields: Vec<ProbeParam> = key.iter().map(|n| row(*n)).collect();
+        let n_key = fields.len();
         for (i, l) in locals(sel.kind).iter().enumerate() {
             fields.push(ProbeParam {
                 id: format!("L{i}").into(),
@@ -1011,11 +1037,15 @@ impl Probe {
         let want = ids(sel.kind, sel.kind == "edge" && self.angle);
         let slot_of = slots(&lists, &want);
         let mut placed: Vec<ProbeParam> = (0..3).map(|_| ProbeParam::default()).collect();
+        // ALL SETTINGS: what the routine asks for (as on the screen, the
+        // operator's own inputs first), then every other value it reads.
+        let mut more: Vec<ProbeParam> = fields[n_key..].to_vec();
+        more.extend(fields[..n_key].iter().cloned());
+        more.extend(self.used_params(sel.kind).into_iter().filter(|n| !key.contains(n)).map(row));
         for (f, slot) in fields.into_iter().zip(slot_of) {
             placed[slot] = f;
         }
         crate::models::sync(live.get_pr_params(), placed, |m| live.set_pr_params(m));
-        let more: Vec<ProbeParam> = self.used_params(sel.kind).into_iter().filter(|n| !key.contains(n)).map(row).collect();
         crate::models::sync(live.get_pr_more(), more, |m| live.set_pr_more(m));
         live.set_pr_changed(!self.runv.is_empty() || !self.locv.is_empty());
         // #3014 is [probe]tool (SETUP), not a default to edit here.
@@ -1047,7 +1077,11 @@ impl Probe {
             "setter" => "tool length on the setter".into(),
             _ => "spindle nose reference".into(),
         };
-        live.set_pr_routine(format!("Runs: {what}").into());
+        let mut what = what;
+        if let Some(c) = what.get(..1) {
+            what.replace_range(..1, &c.to_uppercase());
+        }
+        live.set_pr_routine(what.into());
         live.set_pr_note(
             match self.mode {
                 "find" => "",
@@ -1078,6 +1112,10 @@ impl Probe {
         live.set_pr_pill_kind(kind.into());
         live.set_pr_load_label(match needs { Needs::Probe => format!("LOAD PROBE T{}", self.probe_tool), _ => "UNLOAD SPINDLE".into() }.into());
         live.set_pr_load_enabled(!ok && needs != Needs::Tool);
+        let blocked = self.check(&sel).err();
+        // The wrong tool is the only thing in the way: offer the change
+        // in place of the reason.
+        live.set_pr_load_offer(!ok && needs != Needs::Tool && blocked.is_some() && blocked == self.tool_problem(&sel, tool));
         let run_label = match (&self.flow, sel.kind) {
             (Some(Flow::StockMeasured { .. }), "stock") | (Some(Flow::TwoReady { .. }), "two") => "HOLD TO APPLY".to_string(),
             (Some(Flow::TwoFirst { .. }), "two") => "HOLD: OPPOSITE FACE".into(),
@@ -1088,7 +1126,7 @@ impl Probe {
         };
         live.set_pr_run_label(run_label.into());
         live.set_pr_running(self.run.is_some());
-        live.set_pr_ready(self.check(&sel).err().unwrap_or_default().into());
+        live.set_pr_ready(blocked.unwrap_or_default().into());
         live.set_pr_job_ok(self.job_routine(&sel).is_some());
         live.set_pr_job_check(self.job_measurable());
     }
@@ -1243,7 +1281,7 @@ impl Probe {
         let due = self.restore_after.is_none_or(|t| Instant::now() >= t);
         if self.restore_pending && self.run.is_none() && settled && due {
             let lines = Self::assign_lines(self.defaults.iter().map(|(n, v)| (*n, *v)));
-            self.run = Some(Run { steps: Vec::new(), restore: lines, sent: None, failed: None, restoring: false, restore_failed: false, what: "Restore probe defaults".into(), kind: "", flow_step: None, done_at: None });
+            self.run = Some(Run { steps: Vec::new(), restore: lines, sent: None, failed: None, restoring: false, restore_failed: false, what: "Restore probe defaults".into(), kind: "", flow_step: None, not_before: None, done_at: None });
             self.restore_pending = false;
             self.restore_after = None;
         }

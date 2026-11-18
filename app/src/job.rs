@@ -288,7 +288,7 @@ impl Job {
             (s["note"].as_str().unwrap_or("").to_string(), s["note_tone"].as_str().unwrap_or("").to_string())
         };
         let note = if note.is_empty() && n == 0 {
-            "No ops yet. Use ADD PROGRAM for a Fusion program, ADD TO JOB on the CONV page, + JOB on the PROBE page, or ADD STEP.".to_string()
+            "No ops yet. Use ADD PROGRAM for a Fusion program, ADD TO JOB on the CONV or PROBE page, or ADD STEP.".to_string()
         } else {
             note
         };

@@ -19,7 +19,7 @@ if [ -z "${SKIP_APT:-}" ]; then
     libudev-dev libmodbus-dev libusb-1.0-0-dev libtirpc-dev libedit-dev libreadline-dev \
     libboost-python-dev libglu1-mesa-dev libgl1-mesa-dev libxmu-dev libxinerama-dev \
     libepoxy-dev libxkbcommon-dev libxkbcommon-x11-0 libfontconfig-dev libfreetype-dev \
-    tcl-dev tk-dev bwidget tclx libtk-img python3-dev python3-tk python3-gi python3-yapps \
+    tcl-dev tk-dev bwidget tclx libtk-img python3-dev python3-tk python3-gi python3-yapps yapps2 \
     python3-opengl python3-xlib python3-numpy intltool gettext groff asciidoc psmisc procps \
     xvfb openbox xdotool imagemagick docbook-xml docbook-xsl xsltproc libxml2-utils >/dev/null
 fi

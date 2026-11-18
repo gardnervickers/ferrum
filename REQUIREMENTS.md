@@ -143,9 +143,16 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [ ] Check on the Pi: python3 can import mymill_job/mymill_vcp from the config folder, and the
       built program reads mymill-job.stamp from millgui's component. 2026-11-13: the Pi's config
       checkout (131b64c) predates mymill_job, so JOB and CONV fail there until it is updated.
-- [x] Probing inside jobs: PROBE › FIND › + JOB adds the set-up routine as a job op (stock center,
+- [x] Probe screen simplified (Gardner, 2026-11-18: "really busy"): no step headings; the three key
+      values are one-tap rows (keypad) and every other value, − / +, per-value RESET and the saved
+      defaults are under ALL SETTINGS; the target's choices sit beside the values so the picture has
+      the whole card; one slot says ready / why not, or offers LOAD PROBE when only the tool is in
+      the way; one ADD TO JOB button asks SET or CHECK; the screen's own STOP is gone (the bar's STOP
+      ends a probe run and puts its values back); the amber approach arrows only show without the
+      preview. Harness: `probe/screen`.
+- [x] Probing inside jobs: PROBE › FIND › ADD TO JOB › SET adds the set-up routine as a job op (stock center,
       corners, edge, top, boss, bore, pocket, slot/ridge) that starts where the probe was taught;
-      + JOB CHECK adds a measure-only op (#3030 = 1) that reports through `MYMILL-MEASURE` and can
+      ADD TO JOB › CHECK A SIZE adds a measure-only op (#3030 = 1) that reports through `MYMILL-MEASURE` and can
       pause out of tolerance. The JOB page check strip sets what it measures, nominal, tolerance,
       the op that cut it and pause/keep going; for a conversational helical bore it offers the tool
       diameter correction (as a wear adjustment, logged on the timeline). `jobcore/src/probe.rs`.
