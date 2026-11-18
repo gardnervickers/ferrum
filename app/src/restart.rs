@@ -429,7 +429,18 @@ impl Plan {
         if !self.changes_tool {
             modal.extend(self.tlo.clone());
         }
-        let mut v = vec![modal.join(" "), format!("{} (millgui restart: Z to the top)", jobcore::mill_ops::machine_top())];
+        // The top of travel in the units the program left in force (G53 Z
+        // is read in them).
+        let mi = crate::machine_info::get();
+        let units = if self.modal.iter().any(|m| m == "G20") {
+            "IN"
+        } else if self.modal.iter().any(|m| m == "G21") {
+            "MM"
+        } else {
+            mi.units.upper()
+        };
+        let top = jobcore::mill_ops::machine_top_in(Some(mi.units.upper()), units);
+        let mut v = vec![modal.join(" "), format!("{top} (millgui restart: Z to the top)")];
         let mut setup = Vec::new();
         if let Some(f) = self.feed {
             setup.push(format!("F{}", fmt(f)));

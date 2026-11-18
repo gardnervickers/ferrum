@@ -399,7 +399,7 @@ Plan:
 | UTIL | `go_to_g30`, `set_g30_position` | `G53 G0 Z0` |
 | PROBE (stock Probe Basic) | `probe_{x,y}_{plus,minus}_wco`, `probe_z_minus_wco`, `probe_*_top_corner`, `probe_*_inside_corner`, `probe_round_boss`, `probe_round_pocket_center_start`, `probe_rect_pocket_center_start`, `probe_ridge_{x,y}`, `probe_valley_{x,y}_center_start`, `probe_top_left_edge_angle` (and its siblings), `probe_cal_round_pocket` | `#3014` to `#3033`; several end in G91 (millgui restores modes) |
 | PROBE (this repo) | `probe_auto_stock_center/apply`, `probe_two_face/_apply`, `probe_a_*` (5), `probe_spindle_nose`, `tool_touch_off` | `mymill_probe_safe_move_*`, `mymill_probe_coordinate_ready`, `mymill_modes_*` (HAL latches again), `M50`, G30 |
-| JOB | `mymill_probe_assert_no_contact`, `go_to_home`, the FIND routines above; `o<probe>`/`f360_*` in Fusion-posted files are refused | `#<_hal[mymill-job.*]>`, `#<_task>` |
+| JOB | the FIND routines above (the contact check after the guarded approach is written into the job, no `mymill_probe_assert_no_contact`), `go_to_home`; `o<probe>`/`f360_*` in Fusion-posted files are refused | `#<_hal[mymill-job.*]>`, `#<_task>` |
 | machine side, not millgui | `on_abort`, `m6_toolchange_optional_touch_off`, `python/toplevel.py` | M6 remap uses Python; that is the machine's choice and millgui must keep working without it |
 
 What a stranger lacks: all of them. See 5 for what to ship.

@@ -419,9 +419,6 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     live.set_unit(mi.units.name().into());
     live.set_unit_up(mi.units.upper().into());
     live.set_per_axis_home(mi.per_axis_home());
-    live.set_probe_blocked(mi.units_block("probe").unwrap_or_default().into());
-    live.set_job_blocked(mi.units_block("job").unwrap_or_default().into());
-    live.set_conv_blocked(mi.units_block("conv").unwrap_or_default().into());
     live.set_home_all_ok(mi.home_all || !mi.per_axis_home());
     match mi.rotary() {
         Some(r) => {

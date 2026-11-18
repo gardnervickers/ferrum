@@ -188,22 +188,25 @@ pub fn parse(op: &Op) -> Result<Parsed> {
     Ok(Parsed { mode, routine, label: s("label"), calls, values, wcs, start, start_machine, measure })
 }
 
-/// Default MEASURE settings for a routine.
-pub fn default_measure(routine: &str) -> Value {
+/// Default MEASURE settings for a routine: ±0.02 mm, or ±0.001 in on an
+/// inch machine.
+pub fn default_measure(routine: &str, inch: bool) -> Value {
     let value = values_for(routine).first().copied().unwrap_or("");
-    json!({"value": value, "nominal": Value::Null, "tol": 0.02, "op": Value::Null, "on_fail": "pause"})
+    let tol = if inch { 0.001 } else { 0.02 };
+    json!({"value": value, "nominal": Value::Null, "tol": tol, "op": Value::Null, "on_fail": "pause"})
 }
 
 /// The op's lines between the job's MACHINE_TOP lines (two-space indent
 /// added by the caller). `position` names the op in messages; `tag` is the
-/// op's o-word stem.
-pub fn body(op: &Op, position: usize, tag: &str, probe_tool: i64) -> Result<Vec<String>> {
+/// op's o-word stem; `units_code` is the machine's G20 or G21: the probe
+/// settings, the start and the routines are in machine units.
+pub fn body(op: &Op, position: usize, tag: &str, probe_tool: i64, units_code: &str) -> Result<Vec<String>> {
     let p = parse(op)?;
     let mut out = vec![
         format!("(MYMILL-PROBE {} {})", p.mode.to_uppercase(), comment_text(&p.label)),
         "M5".into(),
         "M9".into(),
-        "G21 G90 G94 G17 G40 G80 G91.1 G49".into(),
+        format!("{units_code} G90 G94 G17 G40 G80 G91.1 G49"),
         format!("o<job_{tag}_tool> if [#<_current_tool> NE {probe_tool}]"),
         format!("  T{probe_tool} M6"),
         format!("o<job_{tag}_tool> endif"),
@@ -214,6 +217,10 @@ pub fn body(op: &Op, position: usize, tag: &str, probe_tool: i64) -> Result<Vec<
     // its defaults back when a job stops part way).
     let mut set: Vec<(u16, f64)> = p.values.clone();
     set.push((3030, if p.mode == "find" { 0.0 } else { 1.0 }));
+    // The routines check #3014 against the loaded tool: the job loads
+    // probe_tool, so it says so too (LinuxCNC may not hold the screen's
+    // probe settings yet).
+    set.push((3014, probe_tool as f64));
     for (n, _) in &set {
         out.push(format!("#<_job_p{n}> = #{n}"));
     }
@@ -224,11 +231,12 @@ pub fn body(op: &Op, position: usize, tag: &str, probe_tool: i64) -> Result<Vec<
     match p.start_machine {
         Some([x, y, z]) => {
             // From the top of travel (the tool change may have left Z
-            // anywhere), so the way down is the start's machine Z.
+            // anywhere), so the way down is the start's machine Z less
+            // the top's.
             out.push(machine_top());
             out.push(format!("G53 G0 X{} Y{}", fmt(x), fmt(y)));
             out.push("F[#3017]".into());
-            out.push(format!("G91 G38.3 Z{}", fmt(z)));
+            out.push(format!("G91 G38.3 Z{}", fmt(z - crate::mill_ops::machine_top_z())));
             out.push("G90".into());
         }
         None => {
@@ -238,7 +246,12 @@ pub fn body(op: &Op, position: usize, tag: &str, probe_tool: i64) -> Result<Vec<
             out.push(format!("G38.3 Z{}", fmt(z)));
         }
     }
-    out.push("o<mymill_probe_assert_no_contact> call".into());
+    // Fail closed: contact on the way down aborts (the check
+    // mymill_probe_assert_no_contact makes, written out so the job needs
+    // no subroutine besides the routines).
+    out.push(format!("o<job_{tag}_contact> if [#5070 EQ 1]"));
+    out.push("  (abort, Probe made unexpected contact during protected positioning move)".into());
+    out.push(format!("o<job_{tag}_contact> endif"));
     if let Some(m) = &p.measure {
         out.push(format!("{} = -999999", result_param(&m.value)));
     }
@@ -287,9 +300,10 @@ pub fn needs(op: &Op) -> Vec<String> {
     }
 }
 
-/// One line for the JOB page.
-pub fn detail(op: &Op) -> String {
+/// One line for the JOB page, to 3 places (4 on an inch machine).
+pub fn detail(op: &Op, inch: bool) -> String {
     let Ok(p) = parse(op) else { return String::new() };
+    let round3 = |v: f64| if inch { (v * 10000.0).round() / 10000.0 } else { round3(v) };
     // The name already says what is probed.
     let start = match p.start_machine {
         Some(m) => format!("STARTS AT MACHINE X{} Y{} Z{}", fmt(round3(m[0])), fmt(round3(m[1])), fmt(round3(m[2]))),
@@ -323,7 +337,7 @@ pub fn set_measure(op: &mut Op, changes: &Map<String, Value>) -> Result<()> {
         return Err(bad(op, "only probing ops have measure settings."));
     }
     let routine = op.params.get("routine").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let mut m = op.params.get("measure").and_then(|m| m.as_object()).cloned().unwrap_or_else(|| default_measure(&routine).as_object().unwrap().clone());
+    let mut m = op.params.get("measure").and_then(|m| m.as_object()).cloned().unwrap_or_else(|| default_measure(&routine, false).as_object().unwrap().clone());
     for (k, v) in changes {
         if !["nominal", "tol", "value", "op", "on_fail"].contains(&k.as_str()) {
             return Err(bad(op, &format!("unknown measure setting {k}.")));
@@ -384,16 +398,20 @@ mod tests {
 
     #[test]
     fn find_body_loads_the_probe_and_guards_the_approach() {
-        let b = body(&op("find"), 2, "op2", 99).unwrap();
+        let b = body(&op("find"), 2, "op2", 99, "G21").unwrap();
         let t = b.join("\n");
         assert!(t.contains("T99 M6"));
         assert!(t.contains("G43 H99"));
         assert!(t.contains("#3030 = 0"));
+        assert!(t.contains("#3014 = 99\n") && t.contains("#3014 = #<_job_p3014>"));
         assert!(t.contains("#<_job_p3025> = #3025"));
         assert!(t.contains("#3025 = 10\n"));
         let rapid = b.iter().position(|l| l == "G0 X10 Y20").unwrap();
         let guard = b.iter().position(|l| l == "G38.3 Z-3").unwrap();
         let call = b.iter().position(|l| l == "  o<probe_round_pocket_center_start> call").unwrap();
+        // Contact on the way down aborts, before the routine.
+        let contact = b.iter().position(|l| l == "o<job_op2_contact> if [#5070 EQ 1]").unwrap();
+        assert!(guard < contact && contact < call && b[contact + 1].contains("(abort,"));
         // The routine runs on the machine only, not in the preview.
         assert_eq!(b[call - 1], "o<job_op2_live> if [#<_task> EQ 1]");
         assert_eq!(b[call + 1], "o<job_op2_live> endif");
@@ -408,7 +426,7 @@ mod tests {
     fn find_starts_at_the_taught_machine_position() {
         let mut o = op("find");
         o.params.insert("start_machine".into(), json!([215.0, -150.0, -130.0]));
-        let b = body(&o, 1, "op1", 99).unwrap();
+        let b = body(&o, 1, "op1", 99, "G21").unwrap();
         let at = |l: &str| b.iter().position(|x| x == l).unwrap_or_else(|| panic!("no {l} in {b:?}"));
         // Top of travel, over the start, guarded down by the machine Z.
         assert_eq!(b[at("G53 G0 X215 Y-150") - 1], machine_top());
@@ -416,11 +434,11 @@ mod tests {
         assert_eq!(at("G91 G38.3 Z-130"), at("G53 G0 X215 Y-150") + 2);
         assert_eq!(at("G90"), at("G91 G38.3 Z-130") + 1);
         assert!(!b.iter().any(|l| l == "G0 X10 Y20"));
-        assert!(detail(&o).contains("STARTS AT MACHINE X215 Y-150 Z-130"), "{}", detail(&o));
+        assert!(detail(&o, false).contains("STARTS AT MACHINE X215 Y-150 Z-130"), "{}", detail(&o, false));
         // A check starts in its work system even if a machine start is given.
         let mut m = op("measure");
         m.params.insert("start_machine".into(), json!([215.0, -150.0, -130.0]));
-        assert!(body(&m, 1, "op1", 99).unwrap().iter().any(|l| l == "G0 X10 Y20"));
+        assert!(body(&m, 1, "op1", 99, "G21").unwrap().iter().any(|l| l == "G0 X10 Y20"));
         // Above machine Z 0 there is nowhere to come down from.
         o.params.insert("start_machine".into(), json!([215.0, -150.0, 1.0]));
         assert!(parse(&o).is_err());
@@ -428,7 +446,7 @@ mod tests {
 
     #[test]
     fn measure_reports_and_pauses_out_of_tolerance() {
-        let b = body(&op("measure"), 3, "op3", 99).unwrap();
+        let b = body(&op("measure"), 3, "op3", 99, "G21").unwrap();
         let t = b.join("\n");
         assert!(t.contains("#3030 = 1"));
         assert!(t.contains("#<_job_m> = #1010"));
@@ -455,7 +473,7 @@ mod tests {
         ch.insert("nominal".into(), json!(12.0));
         set_measure(&mut o, &ch).unwrap();
         assert_eq!(o.needs, vec!["op:deadbeef"]);
-        assert!(detail(&o).contains("Ø 12 ±0.02"));
+        assert!(detail(&o, false).contains("Ø 12 ±0.02"));
         let mut ch = Map::new();
         ch.insert("tol".into(), json!(0));
         assert!(set_measure(&mut o, &ch).is_err());

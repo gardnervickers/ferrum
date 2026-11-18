@@ -160,8 +160,49 @@ fn orbit(ty: &str) -> bool {
     matches!(ty, "bore" | "thread")
 }
 
-/// Starting values, metric, from the mill's usual tools (mockup).
+/// Starting values in the machine's units: the program units are the
+/// machine's (`IN` on an inch machine) and the lengths and feeds are round
+/// numbers in them.
 fn default(ty: &str, key: &str) -> &'static str {
+    if crate::machine_info::get().units.inch() {
+        default_inch(ty, key)
+    } else {
+        default_mm(ty, key)
+    }
+}
+
+/// Starting values, inch: the same operations sized for an inch machine.
+fn default_inch(ty: &str, key: &str) -> &'static str {
+    let drill = matches!(ty, "xy" | "grid" | "circle");
+    match key {
+        "units" => "IN",
+        "z_clear" => "0.5",
+        "retract" => if ty == "thread" { "0.05" } else { "0.1" },
+        "xy_feed" => match ty { "face" => "35", "thread" => "12", _ => "20" },
+        "z_feed" => if drill { "5" } else { "12" },
+        "z_end" => match ty { "face" => "-0.02", "bore" => "-0.4", _ => "-0.3" },
+        "x_end" => "4",
+        "y_end" => "-2.5",
+        "step_over" => "1.4",
+        "step_down" => "0.02",
+        "cycle_param" => "0.08",
+        "x0" => "0.4",
+        "y0" => "-0.4",
+        "dx" => "3",
+        "dy" => "-1.5",
+        "cx" => if ty == "circle" { "2" } else { "0" },
+        "cy" => if ty == "circle" { "-1.2" } else { "0" },
+        "circle_d" => "1.25",
+        "diameter" => if ty == "thread" { "0.25" } else { "0.5" },
+        "preset" => "1/4-20 UNC",
+        "pitch" => "0.05",
+        "drill" => "0.201",
+        _ => default_mm(ty, key),
+    }
+}
+
+/// Starting values, metric, from the mill's usual tools (mockup).
+fn default_mm(ty: &str, key: &str) -> &'static str {
     let drill = matches!(ty, "xy" | "grid" | "circle");
     match key {
         "wcs" => "G54",
@@ -204,6 +245,10 @@ fn default(ty: &str, key: &str) -> &'static str {
         "hand" => "RH",
         _ => "0",
     }
+}
+
+fn round4(v: f64) -> f64 {
+    (v * 10000.0).round() / 10000.0
 }
 
 fn fmt(v: f64) -> String {
@@ -249,7 +294,9 @@ impl Conv {
             "xy" => {
                 let saved = self.settings.list(&format!("conv.xy.hole."));
                 if saved.is_empty() && self.settings.get("conv.xy.holes-set").is_none() {
-                    return vec![(10.0, -10.0), (90.0, -10.0), (90.0, -50.0), (10.0, -50.0)];
+                    // In the starting units (the machine's).
+                    let k = crate::machine_info::get().units.from_mm(1.0);
+                    return [(10.0, -10.0), (90.0, -10.0), (90.0, -50.0), (10.0, -50.0)].iter().map(|(x, y)| (round4(x * k), round4(y * k))).collect();
                 }
                 saved.iter().filter_map(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))).collect()
             }
@@ -449,11 +496,17 @@ impl Conv {
         }
     }
 
+    /// A tool table length (machine units) in the program's units.
+    fn in_units(&self, v: f64) -> f64 {
+        let machine = crate::machine_info::get().units.upper();
+        jobcore::mill_ops::convert(v, machine, &self.get("units"))
+    }
+
     fn tool_dia(&self) -> f64 {
         let t = self.num("tool_number") as i32;
         let path = self.job.borrow().tool_table();
         let tools = std::fs::read_to_string(path).map(|s| crate::tools::parse(&s)).unwrap_or_default();
-        tools.iter().find(|x| x.t == t).map_or(0.0, |x| x.d)
+        tools.iter().find(|x| x.t == t).map_or(0.0, |x| self.in_units(x.d))
     }
 
     fn tool_label(&self) -> String {
@@ -461,8 +514,38 @@ impl Conv {
         let path = self.job.borrow().tool_table();
         let tools = std::fs::read_to_string(path).map(|s| crate::tools::parse(&s)).unwrap_or_default();
         match tools.iter().find(|x| x.t == t) {
-            Some(x) => format!("T{t}  ·  Ø{}  ·  {}", fmt(x.d), x.comment.to_uppercase()),
+            // The size in the program's units, which the fields use.
+            Some(x) => format!("T{t}  ·  Ø{}  ·  {}", fmt(self.in_units(x.d)), x.comment.to_uppercase()),
             None => format!("T{t} IS NOT IN THE TOOL TABLE"),
+        }
+    }
+
+    /// The program units changed from `from` to `to`: every length and
+    /// feed of this operation (and the hole list) is converted, so the
+    /// operation cuts the same part.
+    fn convert_units(&mut self, from: &str, to: &str) {
+        if from == to {
+            return;
+        }
+        let c = |v: f64| round4(jobcore::mill_ops::convert(v, from, to));
+        let keys: Vec<&'static str> = SETUP
+            .iter()
+            .chain(op_fields(&self.ty))
+            .filter(|f| matches!(f.kind, Kind::Len | Kind::Feed))
+            .filter(|f| !(f.key == "cycle_param" && matches!(self.get("cycle").as_str(), "DWELL" | "DRILL" | "MANUAL")))
+            .map(|f| f.key)
+            .collect();
+        for k in keys {
+            let v = c(self.num(k));
+            self.set(k, fmt(v));
+        }
+        if self.ty == "thread" {
+            let d = c(self.num("drill"));
+            self.set("drill", fmt(d));
+        }
+        if self.ty == "xy" {
+            let holes: Vec<(f64, f64)> = self.holes().iter().map(|(x, y)| (c(*x), c(*y))).collect();
+            self.set_holes(&holes);
         }
     }
 
@@ -537,7 +620,7 @@ impl Conv {
                 let c = (200.0, 150.0);
                 circle(&mut outline, c, d / 2.0 * s);
                 outline.push_str("M200 25V275M75 150H325");
-                let tool = self.job.borrow().tool_diameter(self.num("tool_number") as i32);
+                let tool = self.in_units(self.job.borrow().tool_diameter(self.num("tool_number") as i32));
                 if self.ty == "bore" {
                     let fin = ((d - tool) / 2.0).max(0.0);
                     let passes = if tool > 0.0 { (fin / (tool / 2.0) - 1e-9).ceil().clamp(1.0, 20.0) as usize } else { 1 };
@@ -705,6 +788,10 @@ pub fn wire(ui: &MainWindow, job: Rc<RefCell<Job>>, settings: Settings) -> Rc<Re
         match f.kind {
             Kind::Choice(opts) => {
                 if let Some(v) = opts.get(i) {
+                    if key == "units" {
+                        let from = c.get("units");
+                        c.convert_units(&from, v);
+                    }
                     c.set(key, v);
                 }
             }

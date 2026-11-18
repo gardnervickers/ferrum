@@ -5,8 +5,9 @@
 //!
 //! Positions, velocities and limits from LinuxCNC are in the machine's
 //! units ([TRAJ]LINEAR_UNITS), so millgui only needs the units for what it
-//! adds itself: labels, decimals, and its own starting values, which are
-//! written in millimetres and converted with `Units::from_mm`.
+//! adds itself: labels, decimals, and its own starting values (round
+//! numbers per unit with `Units::pick`, or millimetres converted with
+//! `Units::from_mm`). PROBE, CONV and JOB work in machine units too.
 
 use crate::config::Config;
 use machine::{Status, AXIS_LETTERS, JOINTS};
@@ -88,6 +89,20 @@ impl Units {
     /// A length to the unit's decimals.
     pub fn fmt(self, v: f64) -> String {
         format!("{v:.*}", self.decimals())
+    }
+
+    /// A length rounded to the unit's decimals (no "-0").
+    pub fn round(self, v: f64) -> f64 {
+        let k = 10f64.powi(self.decimals() as i32);
+        (v * k).round() / k + 0.0
+    }
+
+    /// "mm/min" or "in/min".
+    pub fn feed(self) -> &'static str {
+        match self {
+            Units::Mm => "mm/min",
+            Units::Inch => "in/min",
+        }
     }
 
     /// A length for G-code: the unit's decimals, without trailing zeros.
@@ -252,32 +267,20 @@ impl MachineInfo {
         self.units.from_mm(v)
     }
 
-    /// Why a screen written for millimetres is off on this machine: PROBE,
-    /// JOB and CONV use macros and starting values in mm that have not been
-    /// checked in inches yet.
-    pub fn units_block(&self, screen: &str) -> Option<String> {
-        let name = match screen {
-            "probe" => "Probing and tool touch-off",
-            "job" => "The job builder",
-            "conv" => "Conversational programming",
-            _ => return None,
-        };
-        self.units.inch().then(|| {
-            format!(
-                "{name} is not available on inch machines yet. Its macros and starting values are written in millimetres \
-                 and have not been checked in inches. Everything else (jog, MDI, programs, offsets, tools) works in inches."
-            )
-        })
-    }
 }
 
 /// The top of Z travel to retract to: half a millimetre inside
 /// [AXIS_Z]MAX_LIMIT, or machine 0 when the limit is within a millimetre of
-/// it (the PM-728VT homes Z at the top and calls it 0).
+/// it (the PM-728VT homes Z at the top and calls it 0; an inch limit at
+/// exactly 0 gives -0.0001, see below).
 pub fn z_top(units: Units, z_max: Option<f64>) -> f64 {
     let Some(max) = z_max else { return 0.0 };
     if max.abs() <= units.from_mm(1.0) && max >= 0.0 {
-        0.0
+        // LinuxCNC plans in mm and converts each move to inches, so with a
+        // tool offset on, a move that keeps Z exactly on an inch limit can
+        // come out a rounding error past it ("would exceed joint 2's
+        // positive limit"). A limit at 0 in inches keeps a step below.
+        if units.inch() && max < 0.0001 { -0.0001 } else { 0.0 }
     } else {
         let v = max - units.from_mm(0.5);
         // No more decimals than the units show.
@@ -459,16 +462,6 @@ mod tests {
     }
 
     #[test]
-    fn inch_machines_block_probe_job_and_conv() {
-        let inch = MachineInfo { units: Units::Inch, ..MachineInfo::default() };
-        for screen in ["probe", "job", "conv"] {
-            assert!(inch.units_block(screen).is_some());
-            assert!(MachineInfo::default().units_block(screen).is_none());
-        }
-        assert!(inch.units_block("manual").is_none());
-    }
-
-    #[test]
     fn z_top_rules() {
         assert_eq!(z_top(Units::Mm, Some(0.001)), 0.0);
         assert_eq!(z_top(Units::Mm, Some(0.0)), 0.0);
@@ -476,6 +469,8 @@ mod tests {
         assert_eq!(z_top(Units::Mm, Some(-10.0)), -10.5);
         assert_eq!(z_top(Units::Mm, None), 0.0);
         assert_eq!(z_top(Units::Inch, Some(4.0)), 3.9803);
+        assert_eq!(z_top(Units::Inch, Some(0.0)), -0.0001);
+        assert_eq!(z_top(Units::Inch, Some(0.01)), 0.0);
     }
 
     #[test]

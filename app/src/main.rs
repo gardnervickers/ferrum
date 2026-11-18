@@ -1679,7 +1679,7 @@ fn wire_job_probing(ui: &MainWindow, j: &Rc<RefCell<job::Job>>) {
         let live = ui.global::<Live>();
         match r {
             Ok(()) => {
-                live.set_message(format!("T{tool} diameter is now {d:.3}. BUILD AND LOAD to cut with it.").into());
+                live.set_message(format!("T{tool} diameter is now {}. BUILD AND LOAD to cut with it.", machine_info::get().units.fmt(d)).into());
                 live.set_message_error(false);
                 if let Some(id) = id {
                     t.borrow_mut().mark_corrected(&id);

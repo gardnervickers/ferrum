@@ -175,7 +175,8 @@ impl Tools {
             wear[axis] = Some(0.0);
         }
         let what = ["length", "diameter"][axis];
-        let cause = if adjust { format!("Wear adjust {v:+.3} {what}") } else { "Edited on TOOLS".to_string() };
+        let dp = crate::machine_info::get().units.decimals();
+        let cause = if adjust { format!("Wear adjust {v:+.dp$} {what}") } else { "Edited on TOOLS".to_string() };
         self.write(sel, new, wear, &cause)
     }
 
@@ -327,7 +328,8 @@ impl Tools {
 
 /// "-0.020": a wear adjustment beside its value, empty for none.
 fn wear_text(w: f64) -> String {
-    if w.abs() > history::EPS { format!("{w:+.3}") } else { String::new() }
+    let dp = crate::machine_info::get().units.decimals();
+    if w.abs() > history::EPS { format!("{w:+.dp$}") } else { String::new() }
 }
 
 /// Timeline restore: put a tool's earlier length (0) and/or diameter (1)
@@ -578,7 +580,7 @@ pub fn apply_status(ui: &MainWindow, tools: &Rc<RefCell<Tools>>, s: &Status) {
         st.show(ui);
         let tool = st.tools.iter().find(|t| t.t == s.tool_in_spindle && s.tool_in_spindle > 0);
         LOADED.with(|l| l.set(tool.map(|t| (t.d, t.z))));
-        let dia = tool.map(|t| format!("{:.3}", t.d));
+        let dia = tool.map(|t| crate::machine_info::get().units.fmt(t.d));
         ui.global::<Live>().set_tool_dia(dia.unwrap_or_else(|| "-".into()).into());
     }
 }

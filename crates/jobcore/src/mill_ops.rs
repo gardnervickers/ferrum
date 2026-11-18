@@ -21,6 +21,31 @@ pub fn set_machine_top(z: &str) {
     }
 }
 
+/// `machine_top` for a program in `units` ("MM" or "IN") on a machine in
+/// `machine_units`: the same machine Z, converted when the program uses the
+/// other units (a G53 Z is read in the units in force). With the machine's
+/// units unknown, or Z 0, it is `machine_top` as is.
+pub fn machine_top_in(machine_units: Option<&str>, units: &str) -> String {
+    top_in(machine_top(), machine_units, units)
+}
+
+/// Machine Z of `machine_top` (0 when it cannot be read).
+pub fn machine_top_z() -> f64 {
+    machine_top().strip_prefix("G53 G0 Z").and_then(|z| z.parse().ok()).unwrap_or(0.0)
+}
+
+fn top_in(top: String, machine_units: Option<&str>, units: &str) -> String {
+    let Some(m) = machine_units.map(py::strip_upper) else { return top };
+    let u = py::strip_upper(units);
+    if m == u {
+        return top;
+    }
+    match top.strip_prefix("G53 G0 Z").and_then(|z| z.parse::<f64>().ok()) {
+        Some(z) if z != 0.0 => format!("G53 G0 Z{}", crate::gcode::fmt(convert(z, &m, &u))),
+        _ => top,
+    }
+}
+
 const DEFAULT_TOP: &str = "G53 G0 Z0";
 static MACHINE_TOP: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
 pub const DRILL_TYPES: [&str; 7] = ["DRILL", "PECK", "BREAK", "DWELL", "TAP", "RIGID TAP", "MANUAL"];
@@ -99,6 +124,10 @@ pub struct Generator {
     pub z_clear: f64,
     pub xy_feed: f64,
     pub max_spindle_rpm: Option<f64>,
+    /// The machine's linear units ("MM" or "IN") when known: the retract to
+    /// the top of travel is converted for a program in the other units.
+    /// Not a job field.
+    pub machine_units: Option<String>,
     // face and orbit ops
     pub tool_diameter: f64,
     // face
@@ -172,6 +201,7 @@ impl Generator {
             z_clear: 0.0,
             xy_feed: 0.0,
             max_spindle_rpm: None,
+            machine_units: None,
             tool_diameter: 0.0,
             step_over: 0.0,
             step_down: 0.0,
@@ -472,7 +502,7 @@ impl Generator {
         let tool = self.tool_d()?;
         let mut g = vec![
             if py::strip_upper(&self.units) == "IN" { "G20".to_string() } else { "G21".to_string() },
-            machine_top(),
+            self.top(),
             format!("T{} M6", tool),
             format!("G43 H{}", tool),
             self.wcs.clone(),
@@ -487,6 +517,11 @@ impl Generator {
         g.push(format!("G0 X{} Y{}", f4(first.0), f4(first.1)));
         g.push(format!("G0 Z{}", f4(self.z_clear)));
         Ok(g)
+    }
+
+    /// The retract to the top of travel in this op's units.
+    pub fn top(&self) -> String {
+        machine_top_in(self.machine_units.as_deref(), &self.units)
     }
 
     /// `_end_op`.
@@ -800,17 +835,28 @@ impl Generator {
 
 /// `program_lines`: the standard preamble and epilog, numbered.
 pub fn program_lines(ops: &[Vec<String>]) -> Vec<String> {
+    program_lines_to(ops, &machine_top())
+}
+
+/// `program_lines` ending with the retract `top` (`Generator::top`, in the
+/// units the ops leave in force).
+pub fn program_lines_to(ops: &[Vec<String>], top: &str) -> Vec<String> {
     let mut lines = vec!["G90 G94 G17 G40 G49 G80 G91.1".to_string()];
     for op in ops {
         lines.extend(op.iter().cloned());
     }
-    lines.push(machine_top());
+    lines.push(top.to_string());
     lines.push("M30".into());
     lines.iter().enumerate().map(|(i, l)| format!("N{} {}", (i + 1) * 10, l)).collect()
 }
 
 pub fn program_text(ops: &[Vec<String>]) -> String {
     program_lines(ops).join("\n") + "\n"
+}
+
+/// `program_text` ending with the retract `top`.
+pub fn program_text_to(ops: &[Vec<String>], top: &str) -> String {
+    program_lines_to(ops, top).join("\n") + "\n"
 }
 
 // -- thread presets ---------------------------------------------------------------
@@ -1073,6 +1119,21 @@ mod tests {
         let mut h = orbit(Kind::HelicalBore);
         h.diameter = 5.0;
         assert!(ops_error(h.helical()).contains("larger than the tool"));
+    }
+
+    #[test]
+    fn the_top_of_travel_in_the_program_units() {
+        let t = |top: &str, m: Option<&str>, u: &str| top_in(top.to_string(), m, u);
+        assert_eq!(t("G53 G0 Z0", Some("IN"), "MM"), "G53 G0 Z0");
+        assert_eq!(t("G53 G0 Z3.9803", Some("IN"), "IN"), "G53 G0 Z3.9803");
+        assert_eq!(t("G53 G0 Z3.9803", Some("IN"), "MM"), "G53 G0 Z101.0996");
+        assert_eq!(t("G53 G0 Z99.5", Some("MM"), "IN"), "G53 G0 Z3.9173");
+        // Machine units unknown: as before.
+        assert_eq!(t("G53 G0 Z99.5", None, "IN"), "G53 G0 Z99.5");
+        let mut g = face_op();
+        g.units = "IN".into();
+        g.machine_units = Some("IN".into());
+        assert_eq!(g.top(), machine_top());
     }
 
     #[test]

@@ -23,3 +23,12 @@ probe_tol = 0.002
 # The probe values millgui starts a new machine with (probe_defaults.rs).
 seed_slow = 1
 seed_xy_clear = 0.2
+# PROBE on the block (scenarios/probe/stock-routines): its left edge, the
+# probe (T99) above it and beside it, the feed there, the result tolerance.
+block_left = 1.5
+probe_left_x = 1.0
+probe_up_z = -1.2
+probe_side_z = -1.8
+probe_feed = 20
+probe_fine = 0.001
+unit = in

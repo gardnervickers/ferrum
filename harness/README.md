@@ -73,7 +73,8 @@ scenarios fail with "File not open". CI does this with the
 `PROBE_BASIC_TOKEN` secret, and skips `mymill` without it.
 
 The stock configs use LinuxCNC's own `INCREMENTS` lines (`1 mm, .01 in, ...`),
-loop the joints back, acknowledge tool changes at once (`tc-loop`; sim-inch
+turn on `HAL_PIN_VARS` (a built JOB checks its stamp through a HAL pin), loop
+the joints back, acknowledge tool changes at once (`tc-loop`; sim-inch
 leaves M6 to millgui's dialog, `tc-dialog`) and put the probe
 a stock block (`BLOCK` in stock.py) that trips the probe input, which `hal sim-probe 1`
 also trips by hand. To add a machine,

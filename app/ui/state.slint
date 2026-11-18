@@ -144,8 +144,8 @@ export global Live {
     // Outline of the cube cells a tap would pick, or empty.
     in property <string> cube-hot;
     in property <bool> plot-machine: true;
-    // Why a screen is off on this machine ("" when it is not): PROBE, JOB
-    // and CONV on inch machines.
+    // Why a screen is off on this machine ("" when it is not): what the
+    // configuration check found missing (checks.rs).
     in property <string> probe-blocked;
     in property <string> job-blocked;
     in property <string> conv-blocked;

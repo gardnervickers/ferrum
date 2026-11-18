@@ -124,8 +124,9 @@ arguments and read everything from `#30xx`.
    compensation off (G40), G52/G92 offset all zero, target WCS rotation 0,
    `#3031` = 0; tool-setter target needs a tool that is not the probe and
    is > 0; nose target needs T0 and the HAL nose reference not already
-   valid; rotary targets need an A axis. Inch machines are refused outright
-   (`units_block("probe")`): **all probing is mm-only in millgui.**
+   valid; rotary targets need an A axis. (When this was written millgui
+   refused probing on inch machines; it no longer does, and millgui's own
+   macros work in machine units.)
 2. If the chosen FIND work system differs from the active one, millgui sends
    e.g. `G55` first, so **the macro always writes the active WCS (`#5220`)**
    and never needs a WCS argument.
@@ -1069,9 +1070,9 @@ recovery arm / clear; pins `mode-recovery-pending.out`,
 `[TOOL_SETTER]SPINDLE_NOSE_DIAMETER`.
 
 Units summary: the vendor (Probe Basic) families are unit-agnostic; the
-tool setter, spindle nose and rotary macros force or assume mm; millgui
-refuses all probing on inch machines, so a new implementation may assume mm
-throughout but should say so in an abort when `#<_metric>` = 0.
+tool setter, spindle nose and rotary macros force or assume mm. millgui's
+own macros work in machine units (mm or inch) and refuse to run when the
+program units differ from the machine's.
 
 ---
 

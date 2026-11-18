@@ -210,11 +210,22 @@ impl Helper {
         let tools = read_tool_table(&session::resolve(dir, &table), &table)?;
         let probe = c.get("probe_tool").filter(|v| py::truthy(v)).cloned().unwrap_or(Value::Number(99.into()));
         let rpm = |key: &str| c.get(key).and_then(py::as_number);
-        Ok(Machine::new(tools, py::to_int(&probe)?, rpm("max_forward_rpm"), rpm("max_reverse_rpm")))
+        let mut m = Machine::new(tools, py::to_int(&probe)?, rpm("max_forward_rpm"), rpm("max_reverse_rpm"));
+        m.units = match c.get("units").and_then(|u| u.as_str()).map(py::strip_upper).as_deref() {
+            Some("MM") => Some("MM".into()),
+            Some("IN" | "INCH") => Some("IN".into()),
+            _ => None,
+        };
+        Ok(m)
     }
 
     fn machine(&self) -> Result<Machine> {
         Self::machine_from(&self.cfg, &self.config_dir)
+    }
+
+    /// The init request says the machine is in inches.
+    fn inch(&self) -> bool {
+        matches!(self.cfg.get("units").and_then(|u| u.as_str()).map(py::strip_upper).as_deref(), Some("IN" | "INCH"))
     }
 
     /// Run `f` on the session with the machine source; AttributeError like
@@ -270,7 +281,7 @@ impl Helper {
                 let source = op.params.get("source").cloned().unwrap_or(Value::String(String::new()));
                 Ok(format!("T{}  ·  FROM {}", py::str_of(&tool), py::str_of(&source).to_uppercase()))
             }
-            "probe" => Ok(crate::probe::detail(op)),
+            "probe" => Ok(crate::probe::detail(op, self.inch())),
             _ => Ok(String::new()),
         }
     }
@@ -620,8 +631,10 @@ impl Helper {
         }
         let machine = self.machine()?;
         let tool = if gen.tool_number.fract() == 0.0 { machine.tool(gen.tool_number as i64).copied() } else { None };
+        gen.machine_units = machine.units.clone();
         if gen.has_attr("tool_diameter") {
-            gen.tool_diameter = tool.map(|t| t.diameter).unwrap_or(0.0);
+            // The tool table is in machine units; the op may be in the other.
+            gen.tool_diameter = tool.map(|t| machine.length_in(t.diameter, &gen.units)).unwrap_or(0.0);
         }
         gen.max_spindle_rpm = machine.max_rpm(&py::strip_upper(&gen.spindle_dir));
         Ok(gen)
@@ -674,7 +687,7 @@ impl Helper {
                 _ => "conv".into(),
             };
             let path = self.free_program_path(&name)?;
-            let text = mill_ops::program_text(&[lines]);
+            let text = mill_ops::program_text_to(&[lines], &gen.top());
             std::fs::write(session::resolve(&self.config_dir, &path), text).map_err(|e| Error::io(&e, &path))?;
             out.insert("message".into(), Value::String(format!("Saved {} and loaded it.", basename(&path))));
             out.insert("load".into(), Value::String(path));

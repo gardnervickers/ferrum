@@ -5,7 +5,7 @@
 
 use crate::config::Config;
 use crate::machine_cfg::{MachineCfg, ToolChangeStyle};
-use crate::machine_info::{MachineInfo, Units};
+use crate::machine_info::MachineInfo;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -263,12 +263,6 @@ pub fn run(i: &Inputs) -> Vec<Check> {
             L::Ok,
             format!("{} machine, axes {}", if mi.units.inch() { "Inch" } else { "Metric" }, mi.axes.iter().map(|a| a.letter).collect::<String>()),
         )),
-    }
-    if mi.units == Units::Inch {
-        for (id, f, what) in [("probe.inch", Feature::Probe, "PROBE"), ("job.inch", Feature::Job, "JOB"), ("conv.inch", Feature::Conv, "CONV")] {
-            let group = if f == Feature::Probe { G::Probe } else { G::Job };
-            v.push(Check::new(id, group, L::Blocks(vec![f]), format!("{what} is off on inch machines")).detail(mi.units_block(&what.to_lowercase()).unwrap_or_default()));
-        }
     }
     let limits = ["X", "Y", "Z"].iter().filter(|a| mi.has_axis(a.chars().next().unwrap())).all(|a| {
         let s = format!("AXIS_{a}");
@@ -699,20 +693,24 @@ mod tests {
         cfg.path = Some("/nonexistent/stock.ini".into());
         cfg.insert("TRAJ", "LINEAR_UNITS", "inch");
         cfg.insert("DISPLAY", "INCREMENTS", ".1in, 1/16 in, banana");
+        cfg.insert("RS274NGC", "HAL_PIN_VARS", "1");
         let mi = MachineInfo::from_ini(&cfg);
         let mc = MachineCfg::default();
         let modules: Vec<String> = "run probe job".split(' ').map(String::from).collect();
         let hal = FakeHal { pins: [("motion.probe-input", "")].into(), writers: HashMap::new() };
         let c = run(&Inputs { cfg: &cfg, mc: &mc, mi: &mi, notes: &[], modules: &modules, hal: &hal });
         let ids: Vec<&str> = c.iter().map(|c| c.id).collect();
-        assert!(ids.contains(&"probe.inch") && ids.contains(&"machine.increments"), "{ids:?}");
-        assert!(blocked(&c, Feature::Probe).is_some());
-        assert!(blocked(&c, Feature::Job).is_some());
+        assert!(ids.contains(&"machine.increments"), "{ids:?}");
+        // PROBE, JOB and CONV work in inches: only the missing probe input
+        // stops PROBE here.
+        assert!(!ids.iter().any(|id| id.ends_with(".inch")), "{ids:?}");
+        assert!(blocked(&c, Feature::Job).is_none());
+        assert!(blocked(&c, Feature::Conv).is_none());
         assert!(blocked(&c, Feature::Core).is_none());
         let r = c.iter().find(|c| c.id == "machine.increments").unwrap();
         assert!(r.title.contains("banana") && !r.title.contains("1/16"), "{}", r.title);
         assert!(c.iter().any(|c| c.id == "probe.input" && c.blocks(Feature::Probe)));
-        assert!(report(&c).contains("OFF  PROBE is off on inch machines"));
+        assert!(!report(&c).contains("inch machines"));
         // No parameter file and no millgui.toml values: starting values.
         let r = c.iter().find(|c| c.id == "probe.values").unwrap();
         assert!(r.level == Level::Attention && r.title.contains("starting values"), "{r:?}");

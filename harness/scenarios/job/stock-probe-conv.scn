@@ -1,0 +1,64 @@
+title JOB on an inch machine: a FIND TOP FACE op and a CONV drilling op, built and run
+needs inch stock tc-dialog
+include ../common/ready.scn
+# The probe (T99) without a change; G54 Z0 at machine 0 until the job probes it.
+# G54 X is 4 in left of machine 0 so the drilled holes (X 0.39 to 3.54) miss
+# the block: the sim trips the probe input on any tool inside it.
+mdi M61 Q99 G43
+idle 30
+mdi G54
+mdi G10 L2 P1 X-4 Y0 Z0
+# Teach the FIND op over the block, the tip above its top.
+mdi G53 G0 Z${probe_up_z}
+mdi G53 G0 X${block_x} Y${block_y}
+screen probe
+do probe-mode "find"
+do probe-shape "top"
+do probe-target "top"
+do probe-wcs "G54"
+screen job
+do job-new
+screen probe
+do probe-add-job false
+screen job
+wait prop.job-ops.len == 1 within 5
+expect prop.job-ops[0].detail contains STARTS AT MACHINE X${block_x} Y${block_y} Z${probe_up_z}
+# CONV: the starting hole pattern (inches) with T3, the 1/8 in drill.
+screen conv
+do conv-type "xy"
+do conv-section "tool"
+expect prop.conv-fields[3].unit == in/min
+do conv-field "tool_number"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "3"
+do keypad-done true
+wait prop.keypad-open == false within 5
+expect prop.conv-error == false
+expect prop.conv-summary contains Peck 4 holes with T3 from Z0 to Z-0.3
+do conv-add
+screen job
+wait prop.job-ops.len == 2 within 5
+shot job-inch-list
+do job-build
+wait stat.file contains .ngc within 20
+# Built in inches: the job, the probing op and the drilling op.
+expect prop.gcode-lines contains G20 G90 G94 G17 G40 G49 G80 G91.1 G97
+expect prop.gcode-lines contains G20 G90 G94 G17 G40 G80 G91.1 G49
+expect prop.gcode-lines contains G98 G83 R0.1000 Z-0.3000 Q0.0800 F5.0000
+expect prop.gcode-lines !contains G21
+do cycle-start
+wait stat.interp_state != 1 within 10
+# Op 1 probes the top face, then op 2's M6 asks for T3.
+wait prop.tc-open == true within 180
+expect prop.tc-tool contains T3
+expect stat.g5x_offset[2] ~= ${block_top} +- ${probe_fine}
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+idle 300
+expect stat.tool_in_spindle == 3
+expect prop.job-running == false
+expect stat.program_units == 1
+shot job-inch-done
+expect ui-errors.len == 0

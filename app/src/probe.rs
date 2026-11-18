@@ -111,26 +111,49 @@ fn param(n: u16) -> Option<&'static Param> {
     PARAMS.iter().find(|p| p.n == n)
 }
 
-fn step_of(n: u16) -> f64 {
+/// The machine's units.
+fn units() -> crate::machine_info::Units {
+    crate::machine_info::get().units
+}
+
+/// A value's unit on this machine: PARAMS names them in mm, which on an
+/// inch machine are inches ("in", "in/min"): the macros work in machine
+/// units.
+fn unit_of(unit: &str, u: crate::machine_info::Units) -> &'static str {
+    match unit {
+        "mm" => u.name(),
+        "mm/min" => u.feed(),
+        _ => "",
+    }
+}
+
+/// The − / + step for a value, in machine units.
+fn step_of(n: u16, u: crate::machine_info::Units) -> f64 {
     let p = param(n);
-    if p.is_some_and(|p| !p.seg.is_empty()) {
+    if p.is_some_and(|p| !p.seg.is_empty()) || n == crate::probe_defaults::PROBE_TOOL {
         1.0
     } else if p.is_some_and(|p| p.unit.contains("/min")) {
-        10.0
+        u.pick(10.0, 0.5)
     } else if [3019, 3021, 3009, 3022].contains(&n) {
-        0.5
+        u.pick(0.5, 0.02)
     } else if n == 3033 || n == 3032 {
-        0.1
+        u.pick(0.1, 0.005)
     } else {
-        1.0
+        u.pick(1.0, 0.05)
     }
 }
 
 fn fmt_value(n: u16, v: f64) -> String {
+    fmt_in(n, v, units())
+}
+
+/// A value to the unit's decimals (3 in mm, 4 in inches), trailing zeros
+/// dropped.
+fn fmt_in(n: u16, v: f64, u: crate::machine_info::Units) -> String {
     if let Some(p) = param(n).filter(|p| !p.seg.is_empty()) {
         return p.seg.get(v as usize).map_or_else(|| format!("{v}"), |s| s.to_string());
     }
-    let s = format!("{v:.3}");
+    let s = u.fmt(v);
     let s = s.trim_end_matches('0').trim_end_matches('.');
     if s.is_empty() || s == "-" { "0".into() } else { s.into() }
 }
@@ -192,17 +215,24 @@ fn side_axis(c: char) -> &'static str {
 }
 
 /// Operator-only inputs that are macro arguments, not #30xx parameters.
+/// Lengths in machine units: a starting value for each.
 #[derive(Clone, Copy)]
 struct Local {
     label: &'static str,
-    default: f64,
+    mm: f64,
+    inch: f64,
+}
+impl Local {
+    fn default(&self) -> f64 {
+        units().pick(self.mm, self.inch)
+    }
 }
 fn locals(kind: &str) -> &'static [Local] {
     match kind {
-        "stock" => &[Local { label: "Max span", default: 150.0 }],
-        "cyl" => &[Local { label: "Reference dia est.", default: 30.0 }],
-        "dia" | "runout" => &[Local { label: "Diameter est.", default: 25.0 }],
-        "defl" => &[Local { label: "Diameter est.", default: 25.0 }, Local { label: "X span", default: 50.0 }],
+        "stock" => &[Local { label: "Max span", mm: 150.0, inch: 6.0 }],
+        "cyl" => &[Local { label: "Reference dia est.", mm: 30.0, inch: 1.25 }],
+        "dia" | "runout" => &[Local { label: "Diameter est.", mm: 25.0, inch: 1.0 }],
+        "defl" => &[Local { label: "Diameter est.", mm: 25.0, inch: 1.0 }, Local { label: "X span", mm: 50.0, inch: 2.0 }],
         _ => &[],
     }
 }
@@ -419,7 +449,7 @@ impl Probe {
     }
 
     fn local(&self, kind: &str, i: usize) -> f64 {
-        self.locv.get(&i).copied().unwrap_or_else(|| locals(kind).get(i).map_or(0.0, |l| l.default))
+        self.locv.get(&i).copied().unwrap_or_else(|| locals(kind).get(i).map_or(0.0, |l| l.default()))
     }
 
     /// The macro call for the selected target, or why it can't run.
@@ -454,7 +484,7 @@ impl Probe {
                 _ => {
                     self.token += 1;
                     let s = match self.start { 'L' => 0, 'R' => 1, 'F' => 2, _ => 3 };
-                    (format!("o<probe_auto_stock_center> call [{s}] [{:.3}] [{}]", self.local("stock", 0), self.token), Some("stock-measure"))
+                    (format!("o<probe_auto_stock_center> call [{s}] [{}] [{}]", units().fmt(self.local("stock", 0)), self.token), Some("stock-measure"))
                 }
             },
             "two" => {
@@ -469,11 +499,11 @@ impl Probe {
                     }
                 }
             }
-            "cyl" => (format!("o<probe_a_setup_cylinder_center> call [{:.3}] [1] [0]", self.local("cyl", 0)), None),
+            "cyl" => (format!("o<probe_a_setup_cylinder_center> call [{}] [1] [0]", units().fmt(self.local("cyl", 0))), None),
             "flat" => ("o<probe_a_rotary> call [1]".into(), None),
-            "dia" => (format!("o<probe_a_measure_diameter> call [{:.3}] [1]", self.local("dia", 0)), None),
-            "runout" => (format!("o<probe_a_measure_runout> call [{:.3}] [1]", self.local("runout", 0)), None),
-            "defl" => (format!("o<probe_a_measure_deflection> call [{:.3}] [{:.3}] [1]", self.local("defl", 0), self.local("defl", 1)), None),
+            "dia" => (format!("o<probe_a_measure_diameter> call [{}] [1]", units().fmt(self.local("dia", 0))), None),
+            "runout" => (format!("o<probe_a_measure_runout> call [{}] [1]", units().fmt(self.local("runout", 0))), None),
+            "defl" => (format!("o<probe_a_measure_deflection> call [{}] [{}] [1]", units().fmt(self.local("defl", 0)), units().fmt(self.local("defl", 1))), None),
             "ring" => ("o<probe_cal_round_pocket> call".into(), None),
             "setter" => ("o<tool_touch_off> call".into(), None),
             "nose" => ("o<probe_spindle_nose> call".into(), None),
@@ -494,9 +524,6 @@ impl Probe {
     /// The checks the GUI can make before offering a run. The macros make
     /// their own checks too; these only avoid a pointless start.
     fn check(&self, t: &Target) -> Result<(), String> {
-        if let Some(why) = crate::machine_info::get().units_block("probe") {
-            return Err(why);
-        }
         let s = self.status.as_ref().ok_or("Not connected to LinuxCNC")?;
         if !s.power_on() {
             return Err("Turn the machine on first".into());
@@ -592,16 +619,21 @@ impl Probe {
             "stock" => {
                 let side = match self.start { 'L' => 0, 'R' => 1, 'F' => 2, _ => 3 };
                 vec![
-                    format!("o<probe_auto_stock_center> call [{side}] [{:.3}] [1]", self.local("stock", 0)),
+                    format!("o<probe_auto_stock_center> call [{side}] [{}] [1]", units().fmt(self.local("stock", 0))),
                     "o<probe_auto_stock_apply> call [1]".to_string(),
                 ]
             }
             _ => vec![self.plain_call(&t).ok_or("No routine for this target")?],
         };
-        let values: serde_json::Map<String, serde_json::Value> =
-            self.used_params(t.kind).into_iter().filter(|n| *n != 3030 && *n != 3014).map(|n| (n.to_string(), serde_json::json!(self.pv(n)))).collect();
+        // Every routine checks #3015-#3022 (o<millgui_probe_ready>), so the
+        // op carries them all and does not depend on millgui having written
+        // its settings to LinuxCNC before the job runs.
+        let mut nums: Vec<u16> = (3015..=3022).collect();
+        nums.extend(self.used_params(t.kind).into_iter().filter(|n| *n != 3030 && *n != 3014 && !(3015..=3022).contains(n)));
+        let values: serde_json::Map<String, serde_json::Value> = nums.into_iter().map(|n| (n.to_string(), serde_json::json!(self.pv(n)))).collect();
         let w = s.work_position();
-        let r3 = |v: f64| (v * 1000.0).round() / 1000.0;
+        // To the machine's decimals (3 in mm, 4 in inches).
+        let r3 = |v: f64| mi.units.round(v);
         let label = t.label.clone();
         // "TOP FACE · SETS Z" checks as "CHECK TOP FACE": a check sets nothing.
         let name = if measure { format!("CHECK {}", label.split(" · ").next().unwrap_or(&label)) } else { label.clone() };
@@ -817,7 +849,7 @@ impl Probe {
                 if let Some((_, v)) = results.iter().find(|(n, _)| n == "auto_stock_panel.receive_result") {
                     if v.len() == 9 && v[0] as u32 == self.token {
                         self.flow = Some(Flow::StockMeasured { token: self.token, center: (v[7], v[8]), size: (v[5], v[6]) });
-                        lines.push(format!("Stock {:.3} × {:.3}", v[5], v[6]));
+                        lines.push(format!("Stock {} × {}", fmt3(v[5]), fmt3(v[6])));
                         lines.push("Hold APPLY to set X0 Y0 at the center".into());
                     }
                 }
@@ -835,7 +867,7 @@ impl Probe {
                         let axis = if side_axis(self.start) == "X" { 0 } else { 1 };
                         let dir = if self.start == 'L' || self.start == 'F' { 1 } else { -1 };
                         self.flow = Some(Flow::TwoFirst { token: self.token, axis, dir });
-                        lines.push(format!("First face at {:.3}", v[2]));
+                        lines.push(format!("First face at {}", fmt3(v[2])));
                         lines.push("Jog to the opposite side, then hold to probe it".into());
                     }
                 }
@@ -849,7 +881,7 @@ impl Probe {
                 if let Some((_, v)) = results.iter().find(|(n, _)| n == "two_face_probe_panel.receive_result") {
                     if v.len() == 6 && v[1] as u32 == tok {
                         self.flow = Some(Flow::TwoReady { token: tok, width: v[4] });
-                        lines.push(format!("Width {:.3}, center {:.3}", v[4], v[5]));
+                        lines.push(format!("Width {}, center {}", fmt3(v[4]), fmt3(v[5])));
                         lines.push("Hold APPLY to set zero at the center".into());
                     }
                 }
@@ -1007,7 +1039,7 @@ impl Probe {
                 id: n.to_string().into(),
                 label: p.map_or("", |p| p.label).into(),
                 value: fmt_value(n, self.pv(n)).into(),
-                unit: p.map_or("", |p| p.unit).into(),
+                unit: p.map_or("", |p| unit_of(p.unit, units())).into(),
                 changed: self.runv.contains_key(&n),
                 def: fmt_value(n, self.defaults.get(&n).copied().unwrap_or(0.0)).into(),
             }
@@ -1019,9 +1051,9 @@ impl Probe {
                 id: format!("L{i}").into(),
                 label: l.label.into(),
                 value: fmt_value(0, self.local(sel.kind, i)).into(),
-                unit: "mm".into(),
+                unit: units().name().into(),
                 changed: self.locv.contains_key(&i),
-                def: fmt_value(0, l.default).into(),
+                def: fmt_value(0, l.default()).into(),
             });
         }
         // Each value keeps its slot across the shape's targets and options,
@@ -1212,7 +1244,8 @@ impl Probe {
     }
 
     fn set_value(&mut self, id: &str, v: f64) {
-        let v = (v * 1000.0).round() / 1000.0;
+        // To the machine's decimals (3 in mm, 4 in inches).
+        let v = units().round(v);
         if let Some(i) = id.strip_prefix('L').and_then(|i| i.parse::<usize>().ok()) {
             self.locv.insert(i, v.max(0.0));
             return;
@@ -1302,8 +1335,9 @@ impl Probe {
     }
 }
 
+/// A result to the machine's decimals (3 in mm, 4 in inches).
 fn fmt3(v: f64) -> String {
-    format!("{v:.3}")
+    units().fmt(v)
 }
 
 fn result_label(name: &str) -> String {
@@ -1632,7 +1666,8 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
     let p = probe.clone();
     actions.on_probe_step(move |id, dir| {
         let mut p = p.borrow_mut();
-        let step = id.parse::<u16>().map_or(0.5, step_of);
+        let u = units();
+        let step = id.parse::<u16>().map_or(u.pick(0.5, 0.02), |n| step_of(n, u));
         let v = (p.get_value(&id) + step * dir as f64).max(0.0);
         p.set_value(&id, v);
         p.refresh();
@@ -1936,5 +1971,23 @@ mod tests {
         assert_eq!(fmt_value(3019, 2.0), "2");
         assert_eq!(fmt_value(3032, 0.059), "0.059");
         assert_eq!(fmt_value(3030, 1.0), "POSITION ONLY");
+    }
+
+    #[test]
+    fn values_in_inches() {
+        use crate::machine_info::Units::{Inch, Mm};
+        // Four places, the units the macros use, steps in inches.
+        assert_eq!(fmt_in(3032, 0.00234, Inch), "0.0023");
+        assert_eq!(fmt_in(3032, 0.00234, Mm), "0.002");
+        assert_eq!(fmt_in(3019, 0.2, Inch), "0.2");
+        assert_eq!(unit_of(param(3015).unwrap().unit, Inch), "in/min");
+        assert_eq!(unit_of(param(3019).unwrap().unit, Inch), "in");
+        assert_eq!(unit_of(param(3015).unwrap().unit, Mm), "mm/min");
+        assert_eq!(unit_of(param(3030).unwrap().unit, Inch), "");
+        assert_eq!(step_of(3019, Inch), 0.02);
+        assert_eq!(step_of(3019, Mm), 0.5);
+        assert_eq!(step_of(3016, Inch), 0.5);
+        assert_eq!(step_of(3018, Mm), 1.0);
+        assert_eq!(step_of(3036, Inch), 1.0);
     }
 }

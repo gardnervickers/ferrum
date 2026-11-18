@@ -306,8 +306,9 @@ impl Job {
         let id = op.and_then(|o| o["id"].as_str()).unwrap_or("");
         live.set_job_check_value(value_name(p["value"].as_str().unwrap_or("")).into());
         live.set_job_check_values(p["values"].as_array().map_or(0, |a| a.len()) as i32);
-        live.set_job_check_nominal(p["nominal"].as_f64().map_or("NONE".into(), |v| format!("{v:.3}")).into());
-        live.set_job_check_tol(format!("±{:.3}", p["tol"].as_f64().unwrap_or(0.0)).into());
+        let u = crate::machine_info::get().units;
+        live.set_job_check_nominal(p["nominal"].as_f64().map_or("NONE".into(), |v| u.fmt(v)).into());
+        live.set_job_check_tol(format!("±{}", u.fmt(p["tol"].as_f64().unwrap_or(0.0))).into());
         live.set_job_check_op(match (p["op_pos"].as_i64(), p["op_name"].as_str()) {
             (Some(n), Some(name)) => format!("OP {n} · {name}"),
             _ => "NO OP".into(),
@@ -341,7 +342,8 @@ impl Job {
         // No correction from a routine that left no result (the −999999
         // placeholder), or from an error too big to be tool wear: that is a
         // wrong nominal, the wrong feature or a bad probe, not the tool.
-        if (v - n).abs() < 0.0005 || (v - n).abs() > MAX_CORRECTION {
+        let u = crate::machine_info::get().units;
+        if (v - n).abs() < u.from_mm(0.0005) || (v - n).abs() > u.from_mm(MAX_CORRECTION) {
             return None;
         }
         let (t, d) = (p["tool"].as_i64()? as i32, p["diameter"].as_f64()?);
@@ -349,7 +351,7 @@ impl Job {
         if !(new > 0.0) {
             return None;
         }
-        Some((t, new, format!("SET T{t} Ø {d:.3} → {new:.3}")))
+        Some((t, new, format!("SET T{t} Ø {} → {}", u.fmt(d), u.fmt(new))))
     }
 
     /// The selected check's reading has been used to correct its tool.
@@ -410,7 +412,8 @@ impl Job {
     }
 }
 
-/// The largest size error (mm) a check offers to fix as tool wear.
+/// The largest size error (mm; converted on an inch machine) a check offers
+/// to fix as tool wear.
 const MAX_CORRECTION: f64 = 0.5;
 
 fn value_name(v: &str) -> &'static str {
@@ -427,16 +430,16 @@ fn reading_text(v: f64, probe: &Value) -> String {
     if v <= -999998.0 {
         return "NO RESULT".into();
     }
-    // Three decimals without a "-0.000".
-    let r = |x: f64| ((x * 1000.0).round() / 1000.0) + 0.0;
-    let v = r(v);
+    // The machine's decimals (3 in mm, 4 in inches) without a "-0.000".
+    let u = crate::machine_info::get().units;
+    let v = u.round(v);
     match probe["nominal"].as_f64() {
         Some(n) => {
-            let d = r(v - n);
+            let d = u.round(v - n);
             let sign = if d < 0.0 { "−" } else { "+" };
-            format!("{v:.3} ({sign}{:.3})", d.abs())
+            format!("{} ({sign}{})", u.fmt(v), u.fmt(d.abs()))
         }
-        None => format!("{v:.3}"),
+        None => u.fmt(v),
     }
 }
 
@@ -446,8 +449,8 @@ struct Keys(Rc<RefCell<Job>>);
 impl crate::manual::KeypadTarget for Keys {
     fn label(&self, what: &str) -> Option<String> {
         match what {
-            "jc-nominal" => Some("CHECK · NOMINAL MM".into()),
-            "jc-tol" => Some("CHECK · TOLERANCE ± MM".into()),
+            "jc-nominal" => Some(format!("CHECK · NOMINAL {}", crate::machine_info::get().units.upper())),
+            "jc-tol" => Some(format!("CHECK · TOLERANCE ± {}", crate::machine_info::get().units.upper())),
             _ => None,
         }
     }
@@ -503,6 +506,8 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         "probe_tool": crate::machine_cfg::get().probe_tool(cfg) as i64,
         "max_forward_rpm": mi.max_rpm.map_or(Value::Null, |v| json!(v)),
         "max_reverse_rpm": if mi.reverse { num("SPINDLE_0", "MAX_REVERSE_VELOCITY") } else { json!(0.0) },
+        // The tool table and probe settings are in these; ops may be in either.
+        "units": mi.units.upper(),
     });
     let init_nc = init["nc_folder"].as_str().unwrap_or_default().to_string();
     let mut pins = None;

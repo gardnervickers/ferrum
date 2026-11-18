@@ -421,7 +421,8 @@ impl JobSession {
         let mut params = params;
         if params.get("mode").and_then(|v| v.as_str()) == Some("measure") && !params.contains_key("measure") {
             let routine = params.get("routine").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            params.insert("measure".into(), crate::probe::default_measure(&routine));
+            let inch = machine().map(|m| m.inch()).unwrap_or(false);
+            params.insert("measure".into(), crate::probe::default_measure(&routine, inch));
         }
         let mut op = Op::new((hooks.new_id)(), name.to_string(), "probe", params);
         op.provides = crate::probe::provides(&op);

@@ -5,7 +5,8 @@
 
 What a new millgui user's machine looks like: a plain INI in the style of
 LinuxCNC's configs/sim/axis (its INCREMENTS line included), with millgui's
-probe macros on SUBROUTINE_PATH as `millgui --check --write-ini` sets it up;
+probe macros on SUBROUTINE_PATH and HAL_PIN_VARS on (for JOB) as
+`millgui --check --write-ini` sets it up;
 joints looped back, a stock block that trips the probe input (signal `sim-probe` trips it by hand), tool changes acknowledged at
 once, spindle always at speed. No Probe Basic, no mymill HAL, no pendant.
 For the harness only; it never talks to a machine.
@@ -80,6 +81,8 @@ CYCLE_TIME = 0.001
 [RS274NGC]
 PARAMETER_FILE = sim.var
 SUBROUTINE_PATH = {out / 'subroutines'}:{REPO / 'millgui' / 'macros'}
+# A built job checks its stamp through #<_hal[...]> (millgui --check --write-ini sets it).
+HAL_PIN_VARS = 1
 
 [EMCMOT]
 EMCMOT = motmod

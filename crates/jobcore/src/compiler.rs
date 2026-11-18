@@ -3,7 +3,7 @@
 //! (`mymill_job/conversational.py`).
 
 use crate::gcode::{self, comment_text, fmt, oword, strip_comment, words};
-use crate::mill_ops::{machine_top, GenError, Generator, Kind};
+use crate::mill_ops::{convert, machine_top, GenError, Generator, Kind};
 use crate::model::{Job, Op, Setup, MAX_OPS};
 use crate::py::{self, Error, Result};
 use serde_json::{Map, Value};
@@ -27,11 +27,39 @@ pub struct Machine {
     pub max_reverse_rpm: Option<f64>,
     pub blend_tolerance_mm: f64,
     pub sync_input: i64,
+    /// The machine's linear units, "MM" or "IN", when the screen says
+    /// (`units` in the init request). The tool table and the probe settings
+    /// are in these units, and the job runs in them between ops. Unknown:
+    /// millimetres, with tool sizes taken as they are (the Python helper).
+    pub units: Option<String>,
 }
 
 impl Machine {
     pub fn new(tools: BTreeMap<i64, Tool>, probe_tool: i64, max_forward_rpm: Option<f64>, max_reverse_rpm: Option<f64>) -> Machine {
-        Machine { tools, probe_tool, max_forward_rpm, max_reverse_rpm, blend_tolerance_mm: 0.001, sync_input: 0 }
+        Machine { tools, probe_tool, max_forward_rpm, max_reverse_rpm, blend_tolerance_mm: 0.001, sync_input: 0, units: None }
+    }
+
+    /// G20 or G21: the machine's own units.
+    pub fn units_code(&self) -> &'static str {
+        if self.inch() { "G20" } else { "G21" }
+    }
+
+    pub fn inch(&self) -> bool {
+        self.units.as_deref() == Some("IN")
+    }
+
+    /// A tool table length (machine units) in a program's `units`.
+    pub fn length_in(&self, v: f64, units: &str) -> f64 {
+        match &self.units {
+            Some(m) => convert(v, m, units),
+            None => v,
+        }
+    }
+
+    /// The diameter of tool `v` (a JSON tool number) in `units`, 0 when it
+    /// is not in the table.
+    pub fn diameter_in(&self, v: &Value, units: &str) -> f64 {
+        self.tool_for(v).map_or(0.0, |t| self.length_in(t.diameter, units))
     }
 
     pub fn tool(&self, number: i64) -> Option<&Tool> {
@@ -196,7 +224,7 @@ pub fn compile_job(job: &Job, machine: &Machine) -> Result<CompiledJob> {
     let mut lines: Vec<String> = vec![
         format!("(MYMILL-JOB {})", comment_text(&job.name)),
         "(Built by the JOB page. Do not edit: the JOB page checks the stamp.)".into(),
-        "G21 G90 G94 G17 G40 G49 G80 G91.1 G97".into(),
+        format!("{} G90 G94 G17 G40 G49 G80 G91.1 G97", machine.units_code()),
         "o<job_stamp> if [#<_task> EQ 1]".into(),
         format!("  o<job_stamp_check> if [{} NE {{STAMP_PIN}}]", pin("stamp")),
         "    (abort, The JOB page does not match this program. Rebuild the job.)".into(),
@@ -395,7 +423,7 @@ fn wrap(position: usize, total: usize, op: &Op, setup: Option<&Setup>, body: &[S
     match setup {
         None if op.kind == "probe" => {
             // Checked in resolve().
-            let body = crate::probe::body(op, position, &tag, machine.probe_tool).unwrap_or_default();
+            let body = crate::probe::body(op, position, &tag, machine.probe_tool, machine.units_code()).unwrap_or_default();
             out.extend(body.iter().map(|l| format!("  {}", l)));
         }
         None => {
@@ -432,6 +460,11 @@ fn wrap(position: usize, total: usize, op: &Op, setup: Option<&Setup>, body: &[S
             out.extend(body.iter().map(|l| format!("  {}", l)));
             out.push("  G80".into());
             out.push("  G40".into());
+            // Back to the machine's units, which the job keeps between ops
+            // (the next op's retract and the probe settings are in them).
+            if machine.units.as_deref().is_some_and(|m| m != units) {
+                out.push(format!("  {}", machine.units_code()));
+            }
             out.push(format!("  {}", machine_top()));
         }
     }
@@ -625,9 +658,9 @@ pub fn build_conversational(op: &Op, machine: &Machine) -> Result<(Setup, Vec<St
     for (key, value) in &params {
         gen.set_attr(key, value)?;
     }
-    let tool = machine.tool_for(&params["tool_number"]).copied();
+    gen.machine_units = machine.units.clone();
     if needs_diameter {
-        gen.tool_diameter = tool.map(|t| t.diameter).unwrap_or(0.0);
+        gen.tool_diameter = machine.diameter_in(&params["tool_number"], &gen.units);
     }
     gen.max_spindle_rpm = machine.max_rpm(params["spindle_dir"].as_str().unwrap_or(""));
     let cycle_text = match &cycle {
@@ -687,7 +720,7 @@ fn strip_wrapper(op: &Op, gen: &Generator, lines: &[String]) -> Result<Vec<Strin
     if lines.len() < head.len() || lines[..head.len()] != head[..] {
         return Err(Error::job(format!("Op \"{}\": the generator header does not match the job contract.", op.name)));
     }
-    if !head.iter().take(2).any(|l| *l == machine_top()) {
+    if !head.iter().take(2).any(|l| *l == gen.top()) {
         return Err(Error::job(format!("Op \"{}\": the generator no longer lifts to the machine top first.", op.name)));
     }
     let tail = gen.end_op();
@@ -859,6 +892,46 @@ mod tests {
             p.insert("measure".into(), py::loads(&m).unwrap());
         }
         Op::new(id.into(), "Bore center".into(), "probe", p)
+    }
+
+    /// An inch machine: the tool table, the probe settings and the job
+    /// between ops are in inches; an op in mm gets the tool's size in mm and
+    /// hands the machine back in inches.
+    #[test]
+    fn an_inch_machine_job() {
+        let mut m = machine(&[]);
+        m.units = Some("IN".into());
+        // T1 is 1/4 in.
+        m.tools.insert(1, Tool { number: 1, diameter: 0.25, length: 1.2 });
+        let inch_bore = {
+            let p = params(r#"{"type": "helical_bore", "center": [1, 1], "diameter": 0.5, "ramp_angle": 2.0, "tool_number": 1, "spindle_rpm": 4000.0, "z_end": -0.25, "wcs": "G54", "coolant": "OFF", "units": "IN", "spindle_dir": "CW", "z_start": 0.0, "retract": 0.1, "z_feed": 10.0, "z_clear": 0.5, "xy_feed": 20.0}"#);
+            Op::new("00000001".into(), "Bore in".into(), "conversational", p)
+        };
+        // The mm bore of 12 with a 1/4 in (6.35 mm) tool.
+        let job = Job { name: "Inch".into(), ops: vec![inch_bore, bore("00000002"), probe_op("00000003", "find", None)] };
+        let c = compile_job(&job, &m).unwrap();
+        let lines: Vec<&str> = c.text.lines().collect();
+        assert_eq!(lines[3], "G20 G90 G94 G17 G40 G49 G80 G91.1 G97");
+        assert!(lines.contains(&"  G20 G90 G94 G17 G40 G80 G91.1 G97 G64 P0"), "{}", c.text);
+        // Inch bore: final radius (0.5 - 0.25) / 2, in inches.
+        assert!(lines.contains(&"  G1 X1.1250 Y1.0000 F10.0000"), "{}", c.text);
+        // Millimetre bore: the tool is 6.35 mm, final radius (12 - 6.35) / 2.
+        assert!(c.text.contains("G1 X52.8250 Y30.0000"), "{}", c.text);
+        let op2 = lines.iter().position(|l| l.starts_with("(MYMILL-OP 2/3")).unwrap();
+        let op3 = lines.iter().position(|l| l.starts_with("(MYMILL-OP 3/3")).unwrap();
+        let mm = &lines[op2..op3];
+        assert!(mm.contains(&"  G21 G90 G94 G17 G40 G80 G91.1 G97 G64 P0.001"));
+        // Back in inches before the retract that ends the mm op.
+        let end = mm.iter().position(|l| *l == "o<job_op2> endif").unwrap();
+        assert_eq!(mm[end - 2..end], ["  G20", "  G53 G0 Z0"]);
+        // The probing op runs in machine units.
+        assert!(lines.contains(&"  G20 G90 G94 G17 G40 G80 G91.1 G49"), "{}", c.text);
+        // The same tool in an mm op on a mm machine is taken as it is.
+        let mut mm_machine = machine(&[]);
+        mm_machine.units = Some("MM".into());
+        let c = compile_job(&Job { name: "Mm".into(), ops: vec![bore("00000002")] }, &mm_machine).unwrap();
+        assert!(c.text.starts_with("(MYMILL-JOB STAMP=") && c.text.contains("\nG21 G90 G94"));
+        assert!(!c.text.contains("\n  G20"));
     }
 
     #[test]
