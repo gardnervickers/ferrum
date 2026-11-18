@@ -364,6 +364,21 @@ fn main() -> ExitCode {
                 );
                 continue;
             }
+            if let Some(e) = &sc.error {
+                println!("[{}] {}: FAIL (scenario: {e})", c.name, sc.name);
+                results.push(Result_ {
+                    config: c.name.clone(),
+                    scenario: sc.name.clone(),
+                    title: sc.title.clone(),
+                    outcome: Outcome::Fail,
+                    detail: e.clone(),
+                    secs: 0.0,
+                    shots: vec![],
+                    steps: vec![],
+                    log: None,
+                });
+                continue;
+            }
             let r = run_one(&env, c, &sc, &out, &hd, a.update_goldens);
             println!(
                 "[{}] {}: {} ({:.1}s){}",

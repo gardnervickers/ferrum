@@ -81,6 +81,9 @@ pub struct Scenario {
     pub name: String,
     pub title: String,
     pub needs: Vec<String>,
+    /// A line that could not be read (a var this config lacks): reported
+    /// only when the scenario runs here, so `needs` can skip it first.
+    pub error: Option<String>,
     /// (config name or tag, reason)
     pub xfail: Vec<(String, String)>,
     pub allow_errors: Vec<String>,
@@ -132,7 +135,13 @@ impl Scenario {
             if line.is_empty() {
                 continue;
             }
-            let line = substitute(&line, vars).map_err(|e| format!("{file}:{no}: {e}"))?;
+            let line = match substitute(&line, vars) {
+                Ok(l) => l,
+                Err(e) => {
+                    self.error.get_or_insert(format!("{file}:{no}: {e}"));
+                    continue;
+                }
+            };
             let (word, rest) = split_word(&line);
             let err = |m: &str| format!("{file}:{no}: {m}: {line}");
             let step = match word {

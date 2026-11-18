@@ -1,6 +1,5 @@
 title FIND CENTER IN X and IN Y (two faces) on the sim STOCK block
 needs probe-basic probe-geometry
-xfail mymill: Probe Basic-era quirk Q4 (millgui/macros/SPEC.md): millgui sends stage 2 the stage-1 token and the old probe_two_face wants a larger one (millgui/macros accepts it), so the opposite face aborts "Opposite face does not match first touch"
 # First face from outside, jog (MDI here) round to the opposite face, probe
 # it, then APPLY: the axis's G54 offset goes to the middle.
 include ../common/probe-start.scn

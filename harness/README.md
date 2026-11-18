@@ -140,12 +140,9 @@ geometry; the numbers are in `configs/mymill/vars`. One scenario per
 routine family runs it from the PROBE screen and checks the work offset
 written and the sizes reported (`needs probe-basic probe-geometry`).
 
-The same scenarios against millgui's own macros (`millgui/macros`, searched
-first; routines it lacks still come from Probe Basic and `subroutines/`):
-
-```sh
-millgui/harness/run -c mymill-own probe-routines
-```
+mymill searches millgui's own macros (`millgui/macros`) first, so these
+check them; to compare with another set, `millgui/sim/make-config --macros
+DIR` puts DIR ahead of them in a config of your own.
 
 ## How it drives millgui
 

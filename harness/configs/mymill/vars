@@ -126,10 +126,10 @@ tilt_back_y = -87.1
 tilt_back_edge = -84.1017
 # What Probe Basic's edge-angle macros write to the other axis: the start's
 # *work* coordinate (start - wcs0), not the machine one (see edge-angle.scn).
-tilt_left_wy = -92.75
-tilt_right_wy = -142.75
-tilt_front_wx = 47.5
-tilt_back_wx = 97.5
+tilt_left_wy = -7.25
+tilt_right_wy = -7.25
+tilt_front_wx = 12.5
+tilt_back_wx = 12.5
 # RING gauge: bore D20 at (45,-60), top -265. CAL starts over the ring
 # 13 left of its centre, the tip 5 above the top.
 ring_x = 45

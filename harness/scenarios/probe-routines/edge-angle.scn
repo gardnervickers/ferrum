@@ -6,12 +6,9 @@ needs probe-basic probe-geometry
 # (50) along it and touches again: angle = atan(delta / 50), +2 on every
 # edge. It writes X (or Y) so the first touch is 0 and Z at the top.
 #
-# Probe Basic quirk (SPEC.md Q5), recorded as its real behaviour: the
-# other axis gets the start's *work* coordinate as its offset
-# (G10 L2 Y[#<y_start_position>] with no + offset), so with G54 at
-# wcs0 it is start - wcs0 (tilt_*_wy / tilt_*_wx), not a machine value.
-# millgui's own macros leave that axis alone: configs/mymill-own/vars.extra
-# sets tilt_*_wy / tilt_*_wx to its wcs0 value.
+# The other axis is left alone (millgui's macros; Probe Basic's wrote the
+# start's work coordinate there, SPEC.md Q5): tilt_*_wy / tilt_*_wx are
+# its wcs0 value.
 include ../common/probe-start.scn
 do probe-shape "block"
 do probe-opt "angle-on"

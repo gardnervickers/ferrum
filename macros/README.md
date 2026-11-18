@@ -9,7 +9,8 @@ They were written for millgui from a behaviour description
 GPL-3), without their code, and they keep the same call names, arguments,
 `#3004`–`#3037` inputs and result lines, so either set works with millgui.
 The harness checks every routine against simulated parts with known
-dimensions (`harness/scenarios/probe-routines`, config `mymill-own`).
+dimensions (`harness/scenarios/probe-routines`, on the `mymill` config, whose INI
+searches this folder first).
 
 ## Using them
 

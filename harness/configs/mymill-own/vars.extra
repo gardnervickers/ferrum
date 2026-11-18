@@ -1,7 +1,0 @@
-# Over ../mymill/vars (vars is a link to it). millgui's own edge-angle macros
-# write only the probed axis and Z, so the other axis keeps its wcs0 value
-# (Probe Basic's write the start's work coordinate there: SPEC quirk Q5).
-tilt_left_wy = -7.25
-tilt_right_wy = -7.25
-tilt_front_wx = 12.5
-tilt_back_wx = 12.5
