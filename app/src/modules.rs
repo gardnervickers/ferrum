@@ -4,8 +4,8 @@
 //! nets (`millgui/hal/<id>.hal`), no status pills.
 
 use crate::config::Config;
-use hal::{BitPin, Component, Dir, FloatPin};
-use linuxcnc::Status;
+use lcnc::hal::{Component, In, Out};
+use machine::Status;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -96,9 +96,9 @@ pub trait Module {
 
 /// Tool setter pins (millgui/hal/probe.hal).
 pub struct SetterHal {
-    pub blast_request: BitPin,
-    pub blast_active: BitPin,
-    pub triggered: BitPin,
+    pub blast_request: Out<bool>,
+    pub blast_active: In<bool>,
+    pub triggered: In<bool>,
 }
 
 /// Modules enabled when millgui.ini does not list any.
@@ -134,9 +134,9 @@ impl Module for Screen {
 /// Probe screen plus the probe status pill from probe_manager.
 #[derive(Default)]
 struct Probe {
-    selected: Option<BitPin>,
-    fault: Option<BitPin>,
-    tripped: Option<BitPin>,
+    selected: Option<In<bool>>,
+    fault: Option<In<bool>>,
+    tripped: Option<In<bool>>,
     setter: Option<Rc<SetterHal>>,
 }
 
@@ -148,13 +148,13 @@ impl Module for Probe {
         Some(NavEntry { id: "probe", label: "PROBE", icon: ICON_PROBE })
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
-        self.selected = Some(comp.bit("probe.wireless-selected", Dir::In)?);
-        self.fault = Some(comp.bit("probe.fault", Dir::In)?);
-        self.tripped = Some(comp.bit("probe.tripped", Dir::In)?);
+        self.selected = Some(comp.pin("probe.wireless-selected")?);
+        self.fault = Some(comp.pin("probe.fault")?);
+        self.tripped = Some(comp.pin("probe.tripped")?);
         self.setter = Some(Rc::new(SetterHal {
-            blast_request: comp.bit("probe.blast-request", Dir::Out)?,
-            blast_active: comp.bit("probe.blast-active", Dir::In)?,
-            triggered: comp.bit("probe.toolsetter", Dir::In)?,
+            blast_request: comp.pin("probe.blast-request")?,
+            blast_active: comp.pin("probe.blast-active")?,
+            triggered: comp.pin("probe.toolsetter")?,
         }));
         Ok(())
     }
@@ -185,8 +185,8 @@ impl Module for Probe {
 /// Servo drive readiness from HLFB, per axis (millgui/hal/drives.hal).
 struct Drives {
     axes: Vec<char>,
-    ready: Vec<(char, BitPin)>,
-    faults: Vec<(char, BitPin)>,
+    ready: Vec<(char, In<bool>)>,
+    faults: Vec<(char, In<bool>)>,
 }
 
 impl Module for Drives {
@@ -196,8 +196,8 @@ impl Module for Drives {
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
         for a in &self.axes {
             let l = a.to_ascii_lowercase();
-            self.ready.push((*a, comp.bit(&format!("drives.ready-{l}"), Dir::In)?));
-            self.faults.push((*a, comp.bit(&format!("drives.fault-{l}"), Dir::In)?));
+            self.ready.push((*a, comp.pin(&format!("drives.ready-{l}"))?));
+            self.faults.push((*a, comp.pin(&format!("drives.fault-{l}"))?));
         }
         Ok(())
     }
@@ -244,8 +244,8 @@ impl Module for Drawbar {
         "drawbar"
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
-        let extended = comp.bit("drawbar.extended", Dir::In)?;
-        let rearm = comp.bit("drawbar.spindle-rearm-required", Dir::In)?;
+        let extended = comp.pin("drawbar.extended")?;
+        let rearm = comp.pin("drawbar.spindle-rearm-required")?;
         self.io = Some(Rc::new(crate::toolchange::HalIo::create(comp, extended, rearm)?));
         Ok(())
     }
@@ -281,9 +281,9 @@ impl Module for Drawbar {
 /// manager's fault; drives-not-ready stays unlinked unless a HAL adds it.
 #[derive(Default)]
 struct Interlock {
-    held: Option<BitPin>,
-    probe_fault: Option<BitPin>,
-    drives_not_ready: Option<BitPin>,
+    held: Option<In<bool>>,
+    probe_fault: Option<In<bool>>,
+    drives_not_ready: Option<In<bool>>,
 }
 
 impl Module for Interlock {
@@ -291,9 +291,9 @@ impl Module for Interlock {
         "interlock"
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
-        self.held = Some(comp.bit("interlock.held", Dir::In)?);
-        self.probe_fault = Some(comp.bit("interlock.probe-fault", Dir::In)?);
-        self.drives_not_ready = Some(comp.bit("interlock.drives-not-ready", Dir::In)?);
+        self.held = Some(comp.pin("interlock.held")?);
+        self.probe_fault = Some(comp.pin("interlock.probe-fault")?);
+        self.drives_not_ready = Some(comp.pin("interlock.drives-not-ready")?);
         Ok(())
     }
     fn pills(&self, s: Option<&Status>, out: &mut Vec<Pill>) {
@@ -323,7 +323,7 @@ impl Module for Interlock {
 /// does the scaling, so any source works (spindle current, drive torque).
 #[derive(Default)]
 struct Load {
-    value: Option<FloatPin>,
+    value: Option<In<f64>>,
     /// Pins were asked for: this is the machine, not the simulator.
     real: bool,
 }
@@ -334,7 +334,7 @@ impl Module for Load {
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
         self.real = true;
-        self.value = Some(comp.float("load.value", Dir::In)?);
+        self.value = Some(comp.pin("load.value")?);
         Ok(())
     }
     fn load(&self, s: Option<&Status>) -> Option<f64> {
@@ -356,16 +356,16 @@ impl Module for Load {
 /// pendant is there.
 #[derive(Default)]
 struct Pendant {
-    connected: Option<BitPin>,
-    asleep: Option<BitPin>,
+    connected: Option<In<bool>>,
+    asleep: Option<In<bool>>,
     /// whb.button.start-pause: the driver raises it when task is already in AUTO.
-    start: Option<BitPin>,
+    start: Option<In<bool>>,
     /// whb.halui.mode.auto: otherwise the driver asks for AUTO first.
-    auto_request: Option<BitPin>,
+    auto_request: Option<In<bool>>,
     /// The driver's other mode requests (it asks for MANUAL or teleop on
     /// every wheel step, joint mode before HOME), passed on to halui only
     /// while nothing runs: a switch out of MDI aborts a probe macro.
-    modes: Vec<(BitPin, BitPin)>,
+    modes: Vec<(In<bool>, Out<bool>)>,
     was_down: Cell<bool>,
     last: Cell<Option<Instant>>,
 }
@@ -379,7 +379,7 @@ const PENDANT_MODES: [&str; 4] = ["manual", "teleop", "joint", "mdi"];
 /// Whether a pendant mode request may reach halui now: nothing running,
 /// queued or paused (a switch would abort it).
 fn pendant_modes_ok(s: Option<&Status>) -> bool {
-    s.is_some_and(|s| !s.busy() && s.interp == linuxcnc::Interp::Idle && s.queued_mdi == 0)
+    s.is_some_and(|s| !s.busy() && s.interp == machine::Interp::Idle && s.queued_mdi == 0)
 }
 
 impl Pendant {
@@ -400,12 +400,12 @@ impl Module for Pendant {
         "pendant"
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
-        self.connected = Some(comp.bit("pendant.connected", Dir::In)?);
-        self.asleep = Some(comp.bit("pendant.asleep", Dir::In)?);
-        self.start = Some(comp.bit("pendant.start", Dir::In)?);
-        self.auto_request = Some(comp.bit("pendant.auto-request", Dir::In)?);
+        self.connected = Some(comp.pin("pendant.connected")?);
+        self.asleep = Some(comp.pin("pendant.asleep")?);
+        self.start = Some(comp.pin("pendant.start")?);
+        self.auto_request = Some(comp.pin("pendant.auto-request")?);
         for m in PENDANT_MODES {
-            self.modes.push((comp.bit(&format!("pendant.ask-{m}"), Dir::In)?, comp.bit(&format!("pendant.mode-{m}"), Dir::Out)?));
+            self.modes.push((comp.pin(&format!("pendant.ask-{m}"))?, comp.pin(&format!("pendant.mode-{m}"))?));
         }
         Ok(())
     }
@@ -492,9 +492,9 @@ mod tests {
         let mut s = Status::default();
         assert!(!pendant_modes_ok(None));
         assert!(pendant_modes_ok(Some(&s)));
-        s.interp = linuxcnc::Interp::Reading;
+        s.interp = machine::Interp::Reading;
         assert!(!pendant_modes_ok(Some(&s)));
-        s.interp = linuxcnc::Interp::Paused;
+        s.interp = machine::Interp::Paused;
         assert!(!pendant_modes_ok(Some(&s)));
     }
 

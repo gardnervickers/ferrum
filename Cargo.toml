@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["app", "crates/hal", "crates/jobcore", "crates/lcnc", "crates/linuxcnc", "crates/preview", "crates/uimirror", "web"]
+members = ["app", "crates/jobcore", "crates/lcnc", "crates/machine", "crates/preview", "crates/uimirror", "web"]
 # The browser build targets wasm32; `cargo build` on its own builds the machine screen.
-default-members = ["app", "crates/hal", "crates/jobcore", "crates/lcnc", "crates/linuxcnc", "crates/preview", "crates/uimirror"]
+default-members = ["app", "crates/jobcore", "crates/lcnc", "crates/machine", "crates/preview", "crates/uimirror"]
 
 [workspace.package]
 edition = "2021"

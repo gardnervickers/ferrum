@@ -9,7 +9,7 @@
 
 use crate::config::Config;
 use crate::{Actions, JobOp, Live, MainWindow};
-use linuxcnc::{Command, Handle, Interp, Status};
+use machine::{Command, Handle, Interp, Status};
 use serde_json::{json, Value};
 use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
@@ -44,18 +44,18 @@ impl Helper {
 
 /// The component the built program reads (`#<_hal[mymill-job.stamp]>`).
 struct Pins {
-    _comp: hal::Component,
-    stamp: hal::S32Pin,
-    skip: Vec<hal::BitPin>,
-    stop_after: hal::BitPin,
+    _comp: lcnc::hal::Component,
+    stamp: lcnc::hal::Out<i32>,
+    skip: Vec<lcnc::hal::Out<bool>>,
+    stop_after: lcnc::hal::Out<bool>,
 }
 
 impl Pins {
     fn new() -> Result<Self, String> {
-        let comp = hal::Component::new("mymill-job")?;
-        let stamp = comp.s32("stamp", hal::Dir::Out)?;
-        let skip = (1..=MAX_OPS).map(|p| comp.bit(&format!("skip-{p}"), hal::Dir::Out)).collect::<Result<Vec<_>, _>>()?;
-        let stop_after = comp.bit("stop-after", hal::Dir::Out)?;
+        let comp = lcnc::hal::Component::new("mymill-job")?;
+        let stamp = comp.pin("stamp")?;
+        let skip = (1..=MAX_OPS).map(|p| comp.pin(&format!("skip-{p}"))).collect::<Result<Vec<_>, _>>()?;
+        let stop_after = comp.pin("stop-after")?;
         comp.ready()?;
         Ok(Self { _comp: comp, stamp, skip, stop_after })
     }
@@ -153,7 +153,7 @@ impl Job {
             }
         }
         if let Some(path) = r["load"].as_str() {
-            self.machine.send(Command::ProgramOpen(path.to_string()));
+            self.machine.send(Command::ProgramOpen(path.into()));
         }
     }
 

@@ -4,7 +4,8 @@
 //! forwards operator messages, and runs commands from a queue so the UI thread
 //! never blocks on LinuxCNC.
 
-use crate::status::*;
+use crate::{Interp, Machine, Mode, Status};
+use lcnc::{Command, JogTarget, JointSel, Message, MessageKind, Serial, TrajMode, Wcs, JOINTS};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,14 +19,25 @@ pub enum Event {
     Disconnected(String),
 }
 
+/// What the worker takes from its queue.
+enum Request {
+    Cmd(Command),
+    SimToolChanged,
+}
+
 #[derive(Clone)]
 pub struct Handle {
-    tx: Sender<Command>,
+    tx: Sender<Request>,
 }
 
 impl Handle {
     pub fn send(&self, cmd: Command) {
-        let _ = self.tx.send(cmd);
+        let _ = self.tx.send(Request::Cmd(cmd));
+    }
+
+    /// Simulator only: the operator finished the pending M6.
+    pub fn sim_tool_changed(&self) {
+        let _ = self.tx.send(Request::SimToolChanged);
     }
 
     /// A handle with no machine behind it (tests): commands are dropped.
@@ -46,8 +58,10 @@ where
     Handle { tx }
 }
 
-fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: &mut dyn FnMut(Event)) {
-    let mut last: Option<Status> = None;
+fn run(m: &mut dyn Machine, rx: &Receiver<Request>, period: Duration, on_event: &mut dyn FnMut(Event)) {
+    // The last status reported, and the simulator's tool change with it.
+    let mut last: Option<lcnc::Status> = None;
+    let mut last_tool: Option<i32> = None;
     let mut connected = true;
     // Report a lost connection only after it stays lost for a second; the
     // first polls after connecting can come before task publishes status.
@@ -58,7 +72,8 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
         let start = Instant::now();
         loop {
             match rx.try_recv() {
-                Ok(cmd) => {
+                Ok(Request::SimToolChanged) => m.sim_tool_changed(),
+                Ok(Request::Cmd(cmd)) => {
                     let is_mdi = matches!(cmd, Command::Mdi(_));
                     // Put modes back from a finished macro before anything
                     // that reads them: the next MDI line, or a program.
@@ -74,7 +89,7 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
                         Command::Mdi(line) if is_macro_call(line) => true,
                         _ => false,
                     };
-                    let snap = if call && modes.is_none() { m.poll().ok().filter(|s| !s.busy() && s.queued_mdi == 0) } else { None };
+                    let snap = if call && modes.is_none() { m.poll().ok().filter(|s| !s.busy() && s.queued_mdi == 0).cloned() } else { None };
                     let picks_mode = required_mode(&cmd).is_some() || matches!(cmd, Command::SetMode(_));
                     let sent = execute(m, &last, cmd, on_event);
                     if call {
@@ -90,38 +105,49 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
                 Err(TryRecvError::Disconnected) => return,
             }
         }
+        // Decide from the borrowed status; act (send, report) after.
+        let tool = m.sim_tool_change();
+        let mut flush = false;
+        let mut due = None;
+        let mut changed = None;
         match m.poll() {
             Ok(s) => {
                 connected = true;
                 failing_since = None;
-                if modes.as_ref().is_some_and(|r| r.done(&s)) {
-                    if let Some(sent) = flush_modes(m, &last, &mut modes, on_event) {
-                        back = after_mdi(back.take(), Some(sent));
-                    }
-                }
-                if back.as_ref().is_some_and(|b| b.overtaken(&s)) {
+                flush = modes.as_ref().is_some_and(|r| r.done(s));
+                if back.as_ref().is_some_and(|b| b.overtaken(s)) {
                     // Someone else (the pendant, halui) changed mode after
                     // the MDI command: follow them, don't switch back later.
                     back = None;
                 }
-                if modes.is_some() {
-                    // The mode goes back after the restore, not before it.
-                } else if let Some(mode) = back.as_mut().and_then(|b| b.due(&s)) {
-                    back = None;
-                    let _ = m.send(&Command::SetMode(mode));
+                // With a restore pending, the mode goes back after it.
+                if modes.is_none() {
+                    due = back.as_mut().and_then(|b| b.due(s));
                 }
-                if last.as_ref() != Some(&s) {
-                    on_event(Event::Status(Box::new(s.clone())));
-                    last = Some(s);
+                if last.as_ref() != Some(s) || last_tool != tool {
+                    changed = Some(s.clone());
                 }
             }
             Err(e) => {
                 let since = *failing_since.get_or_insert_with(Instant::now);
                 if connected && since.elapsed() >= Duration::from_secs(1) {
-                    on_event(Event::Disconnected(e));
+                    on_event(Event::Disconnected(e.to_string()));
                     connected = false;
                 }
             }
+        }
+        if let Some(s) = changed {
+            on_event(Event::Status(Box::new(Status { lcnc: s.clone(), sim_tool_change: tool })));
+            last = Some(s);
+            last_tool = tool;
+        }
+        if flush {
+            if let Some(sent) = flush_modes(m, &last, &mut modes, on_event) {
+                back = after_mdi(back.take(), Some(sent));
+            }
+        } else if let Some(mode) = due {
+            back = None;
+            let _ = m.send(&Command::SetMode(mode));
         }
         while let Some(msg) = m.next_message() {
             on_event(Event::Message(msg));
@@ -139,7 +165,7 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Command>, period: Duration, on_event: 
 struct MdiReturn {
     mode: Mode,
     /// The last MDI command sent; nothing goes back before task echoes it.
-    serial: i32,
+    serial: Serial,
     idle_since: Option<Instant>,
 }
 
@@ -148,7 +174,7 @@ struct MdiReturn {
 /// lines.
 const MDI_RETURN_AFTER: Duration = Duration::from_millis(500);
 
-fn after_mdi(back: Option<MdiReturn>, sent: Option<(Mode, i32)>) -> Option<MdiReturn> {
+fn after_mdi(back: Option<MdiReturn>, sent: Option<(Mode, Serial)>) -> Option<MdiReturn> {
     let (before, serial) = sent?;
     match back {
         Some(b) => Some(MdiReturn { serial, idle_since: None, ..b }),
@@ -160,19 +186,18 @@ fn after_mdi(back: Option<MdiReturn>, sent: Option<(Mode, i32)>) -> Option<MdiRe
 impl MdiReturn {
     /// Task left MDI after it took the command: another program (the
     /// pendant asking for MANUAL to jog) changed mode.
-    fn overtaken(&self, s: &Status) -> bool {
+    fn overtaken(&self, s: &lcnc::Status) -> bool {
         s.mode != Mode::Mdi && s.echo_serial >= self.serial
     }
 
     /// The mode to go back to, once MDI has finished and stayed idle.
-    fn due(&mut self, s: &Status) -> Option<Mode> {
+    fn due(&mut self, s: &lcnc::Status) -> Option<Mode> {
         if s.mode != Mode::Mdi {
             // Someone else (the pendant, a program run) changed mode.
             self.idle_since = None;
             return None;
         }
-        // RCS_EXEC (2) while task still works on the command.
-        let done = s.echo_serial >= self.serial && s.command_status != 2 && s.interp == Interp::Idle && s.queued_mdi == 0;
+        let done = s.finished(self.serial) && s.interp == Interp::Idle && s.queued_mdi == 0;
         if !done {
             self.idle_since = None;
             return None;
@@ -193,7 +218,7 @@ impl MdiReturn {
 struct ModeRestore {
     before: Modes,
     /// The last macro call sent; nothing is restored before task echoes it.
-    serial: i32,
+    serial: Serial,
 }
 
 /// The modes a restore puts back.
@@ -202,7 +227,7 @@ struct Modes {
     units: Option<i32>,
     plane: Option<i32>,
     feed: Option<i32>,
-    wcs: i32,
+    wcs: Wcs,
     distance: Option<i32>,
     /// G43 on (from the tool table), and the tool it was for.
     tool_offset: bool,
@@ -210,7 +235,7 @@ struct Modes {
 }
 
 impl Modes {
-    fn of(s: &Status) -> Self {
+    fn of(s: &lcnc::Status) -> Self {
         // Codes are stored as code * 10, in fixed slots; look them up by
         // value so the slot layout doesn't matter.
         let pick = |set: &[i32]| s.active_gcodes[1..].iter().copied().find(|g| set.contains(g));
@@ -218,7 +243,7 @@ impl Modes {
             units: pick(&[200, 210]),
             plane: pick(&[170, 180, 190]),
             feed: pick(&[930, 940, 950]),
-            wcs: s.g5x_index,
+            wcs: s.wcs,
             distance: pick(&[900, 910]),
             tool_offset: s.active_gcodes[1..].contains(&430),
             tool: s.tool_in_spindle,
@@ -234,8 +259,8 @@ impl Modes {
                 w.push(g(c));
             }
         }
-        if self.wcs != now.wcs && (1..=9).contains(&self.wcs) {
-            w.push(["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"][self.wcs as usize - 1].to_string());
+        if self.wcs != now.wcs && self.wcs.index().is_some() {
+            w.push(self.wcs.name().to_string());
         }
         if let Some(c) = self.distance.filter(|c| Some(*c) != now.distance) {
             w.push(g(c));
@@ -257,7 +282,7 @@ fn is_macro_call(line: &str) -> bool {
 
 /// Start (or extend) a restore for a macro call that was sent. The modes
 /// from before the first of a run of calls are the ones that come back.
-fn after_macro(r: Option<ModeRestore>, snap: Option<Status>, sent: Option<(Mode, i32)>) -> Option<ModeRestore> {
+fn after_macro(r: Option<ModeRestore>, snap: Option<lcnc::Status>, sent: Option<(Mode, Serial)>) -> Option<ModeRestore> {
     let Some((_, serial)) = sent else { return r };
     match r {
         Some(r) => Some(ModeRestore { serial, ..r }),
@@ -268,8 +293,8 @@ fn after_macro(r: Option<ModeRestore>, snap: Option<Status>, sent: Option<(Mode,
 impl ModeRestore {
     /// The call is over: echoed, task no longer executing it, interpreter
     /// idle. Holds after a stop or E-stop too.
-    fn done(&self, s: &Status) -> bool {
-        s.echo_serial >= self.serial && s.command_status != 2 && s.interp == Interp::Idle && s.queued_mdi == 0
+    fn done(&self, s: &lcnc::Status) -> bool {
+        s.finished(self.serial) && s.interp == Interp::Idle && s.queued_mdi == 0
     }
 }
 
@@ -277,8 +302,8 @@ impl ModeRestore {
 /// and wait for it to finish (a following switch to AUTO would abort it).
 /// After an E-stop it stays pending until the machine is on and homed.
 /// Returns the mode and serial of the restore line, when one was sent.
-fn flush_modes(m: &mut dyn Machine, last: &Option<Status>, modes: &mut Option<ModeRestore>, on_event: &mut dyn FnMut(Event)) -> Option<(Mode, i32)> {
-    let s = m.poll().ok().or_else(|| last.clone())?;
+fn flush_modes(m: &mut dyn Machine, last: &Option<lcnc::Status>, modes: &mut Option<ModeRestore>, on_event: &mut dyn FnMut(Event)) -> Option<(Mode, Serial)> {
+    let s = fresh(m, last)?;
     let r = modes.as_ref()?;
     if !r.done(&s) {
         return None;
@@ -292,7 +317,7 @@ fn flush_modes(m: &mut dyn Machine, last: &Option<Status>, modes: &mut Option<Mo
     }
     *modes = None;
     let sent = execute(m, last, Command::Mdi(line.clone()), on_event)?;
-    wait_for(m, Duration::from_secs(2), |s| s.echo_serial >= sent.1 && s.command_status != 2 && s.interp == Interp::Idle);
+    wait_for(m, Duration::from_secs(2), |s| s.finished(sent.1) && s.interp == Interp::Idle);
     on_event(Event::Message(Message { kind: MessageKind::Text, text: format!("Modes put back after the macro: {line}") }));
     Some(sent)
 }
@@ -302,7 +327,7 @@ fn flush_modes(m: &mut dyn Machine, last: &Option<Status>, modes: &mut Option<Mo
 /// (RS274NGC_STARTUP_CODE): absolute moves, XY plane, no cutter comp, no
 /// canned cycle, feed per minute, incremental arc centres. Units, the work
 /// system and the tool offset are the operator's and stay as they are.
-fn start_words(s: &Status) -> Option<String> {
+fn start_words(s: &lcnc::Status) -> Option<String> {
     let g = &s.active_gcodes[1..];
     let has = |c: i32| g.contains(&c);
     let mut w = Vec::new();
@@ -330,14 +355,14 @@ fn start_words(s: &Status) -> Option<String> {
 /// Before CYCLE START (or a first single step) from idle, set the modes a
 /// program expects, in MDI, and wait for it: the switch to AUTO that
 /// follows would abort it.
-fn start_modes(m: &mut dyn Machine, last: &Option<Status>, on_event: &mut dyn FnMut(Event)) {
-    let Some(s) = m.poll().ok().or_else(|| last.clone()) else { return };
+fn start_modes(m: &mut dyn Machine, last: &Option<lcnc::Status>, on_event: &mut dyn FnMut(Event)) {
+    let Some(s) = fresh(m, last) else { return };
     if s.busy() || !(s.power_on() && s.all_homed()) {
         return;
     }
     let Some(line) = start_words(&s) else { return };
     if let Some((_, serial)) = execute(m, last, Command::Mdi(line.clone()), on_event) {
-        wait_for(m, Duration::from_secs(2), |s| s.echo_serial >= serial && s.command_status != 2 && s.interp == Interp::Idle);
+        wait_for(m, Duration::from_secs(2), |s| s.finished(serial) && s.interp == Interp::Idle);
         on_event(Event::Message(Message { kind: MessageKind::Text, text: format!("Set {line} for the program start") }));
     }
 }
@@ -356,7 +381,7 @@ fn required_mode(cmd: &Command) -> Option<Mode> {
         | Command::JogIncr { .. }
         | Command::Home(_)
         | Command::Unhome(_)
-        | Command::SpindleOn(_)
+        | Command::SpindleOn { .. }
         | Command::SpindleOff => {
             Some(Mode::Manual)
         }
@@ -374,7 +399,7 @@ fn describe(cmd: &Command) -> &'static str {
         Command::JogCont { .. } | Command::JogIncr { .. } => "Jog",
         Command::Home(_) => "Homing",
         Command::Unhome(_) => "Unhome",
-        Command::SpindleOn(_) => "Spindle start",
+        Command::SpindleOn { .. } => "Spindle start",
         Command::SpindleOff => "Spindle stop",
         _ => "Command",
     }
@@ -385,21 +410,22 @@ fn mode_name(m: Mode) -> &'static str {
         Mode::Manual => "MANUAL",
         Mode::Auto => "AUTO",
         Mode::Mdi => "MDI",
+        Mode::Unknown(_) => "an unknown",
     }
 }
 
 /// Returns the mode task was in before the command and the command's serial,
 /// once it was sent.
-fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &mut dyn FnMut(Event)) -> Option<(Mode, i32)> {
+fn execute(m: &mut dyn Machine, last: &Option<lcnc::Status>, cmd: Command, on_event: &mut dyn FnMut(Event)) -> Option<(Mode, Serial)> {
     // Decide from a fresh status, not the last periodic poll: an earlier
     // command in the same batch may have switched mode or started motion,
     // and a mode switch while something runs aborts it (task's
     // emcTaskSetMode aborts motion and the interpreter).
-    let now = m.poll().ok().or_else(|| last.clone());
+    let now = fresh(m, last);
     if let (Some(want), Some(s)) = (required_mode(&cmd), &now) {
         if s.mode != want && !s.busy() {
             if let Err(e) = m.send(&Command::SetMode(want)) {
-                on_event(Event::Message(Message { kind: MessageKind::Error, text: e }));
+                on_event(Event::Message(Message { kind: MessageKind::Error, text: e.to_string() }));
                 return None;
             }
             wait_for(m, Duration::from_millis(500), |s| s.mode == want);
@@ -428,46 +454,49 @@ fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &
     }
     let last = &now;
     // Jogging: teleop (axis jogs) when homed, free mode (joint jogs) when not.
-    if let (Command::JogCont { .. } | Command::JogIncr { .. }, Some(s)) = (&cmd, m.poll().ok().or_else(|| last.clone())) {
+    if let (Command::JogCont { .. } | Command::JogIncr { .. }, Some(s)) = (&cmd, fresh(m, last)) {
         let want = s.all_homed();
-        if (s.traj_mode == 3) != want {
+        if (s.traj_mode == TrajMode::Teleop) != want {
             let _ = m.send(&Command::Teleop(want));
-            wait_for(m, Duration::from_millis(500), |s| (s.traj_mode == 3) == want);
+            wait_for(m, Duration::from_millis(500), |s| (s.traj_mode == TrajMode::Teleop) == want);
         }
     }
+    let teleop = fresh(m, last).is_some_and(|s| s.traj_mode == TrajMode::Teleop);
+    let cmd = jog_in_mode(cmd, teleop);
     // Homing: motion must be in free (joint) mode, as LinuxCNC's own GUIs
     // make sure before they home; homed machines sit in teleop.
     if let (Command::Home(_), Some(_)) = (&cmd, last) {
-        if let Ok(s) = m.poll() {
-            if s.traj_mode != 1 {
-                let _ = m.send(&Command::Teleop(false));
-                wait_for(m, Duration::from_millis(500), |s| s.traj_mode == 1);
-            }
+        if m.poll().is_ok_and(|s| s.traj_mode != TrajMode::Free) {
+            let _ = m.send(&Command::Teleop(false));
+            wait_for(m, Duration::from_millis(500), |s| s.traj_mode == TrajMode::Free);
         }
     }
     let before = now.as_ref().map_or(Mode::Manual, |s| s.mode);
     let serial = match m.send(&cmd) {
         Ok(serial) => serial,
         Err(e) => {
-            on_event(Event::Message(Message { kind: MessageKind::Error, text: e }));
+            on_event(Event::Message(Message { kind: MessageKind::Error, text: e.to_string() }));
             return None;
         }
     };
     // Say so when a home command was taken but nothing started: LinuxCNC
     // drops it without a message when motion is not enabled.
     if let Command::Home(j) = cmd {
-        let started = |s: &Status| {
+        let started = |s: &lcnc::Status| {
             let n = s.joints.min(JOINTS);
-            if j < 0 { s.homing[..n].iter().any(|h| *h) || s.all_homed() } else { (j as usize) < n && (s.homing[j as usize] || s.homed[j as usize]) }
+            match j {
+                JointSel::All => s.homing[..n].iter().any(|h| *h) || s.all_homed(),
+                JointSel::Joint(j) => (j as usize) < n && (s.homing[j as usize] || s.homed[j as usize]),
+            }
         };
         let mut seen = None;
         let end = Instant::now() + Duration::from_millis(1500);
         while Instant::now() < end {
             if let Ok(s) = m.poll() {
-                if started(&s) {
+                if started(s) {
                     return None;
                 }
-                seen = Some(s);
+                seen = Some(s.clone());
             }
             while let Some(msg) = m.next_message() {
                 on_event(Event::Message(msg));
@@ -478,7 +507,7 @@ fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &
             // Short: the header shows one line (tap it for the log).
             let why = if !s.power_on() || !s.enabled {
                 ": machine not on"
-            } else if s.traj_mode != 1 {
+            } else if s.traj_mode != TrajMode::Free {
                 ": not in joint mode"
             } else if s.mode != Mode::Manual {
                 ": not in manual mode"
@@ -492,15 +521,34 @@ fn execute(m: &mut dyn Machine, last: &Option<Status>, cmd: Command, on_event: &
     Some((before, serial))
 }
 
-fn wait_for(m: &mut dyn Machine, timeout: Duration, done: impl Fn(&Status) -> bool) {
+fn wait_for(m: &mut dyn Machine, timeout: Duration, done: impl Fn(&lcnc::Status) -> bool) {
     let end = Instant::now() + timeout;
     while Instant::now() < end {
-        if let Ok(s) = m.poll() {
-            if done(&s) {
-                return;
-            }
+        if m.poll().is_ok_and(&done) {
+            return;
         }
         thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// A fresh status, or the last one when the poll fails.
+fn fresh(m: &mut dyn Machine, last: &Option<lcnc::Status>) -> Option<lcnc::Status> {
+    m.poll().ok().cloned().or_else(|| last.clone())
+}
+
+/// Screens jog axes. LinuxCNC 2.9 takes axis jogs only in teleop and joint
+/// jogs only in free mode (before homing); on this trivkins mill axis N is
+/// joint N.
+fn jog_in_mode(cmd: Command, teleop: bool) -> Command {
+    let joint = |t: JogTarget| match t {
+        JogTarget::Axis(a) if !teleop => JogTarget::Joint(a.index() as u8),
+        t => t,
+    };
+    match cmd {
+        Command::JogCont { target, vel } => Command::JogCont { target: joint(target), vel },
+        Command::JogIncr { target, vel, incr } => Command::JogIncr { target: joint(target), vel, incr },
+        Command::JogStop { target } => Command::JogStop { target: joint(target) },
+        other => other,
     }
 }
 
@@ -508,13 +556,14 @@ fn wait_for(m: &mut dyn Machine, timeout: Duration, done: impl Fn(&Status) -> bo
 mod tests {
     use super::*;
     use crate::Sim;
+    use lcnc::{RcsStatus, Result, TaskState};
 
     #[test]
     fn mdi_switches_to_mdi_mode_first() {
         let mut sim = Sim::new();
         sim.send(&Command::SetState(TaskState::EstopReset)).unwrap();
         sim.send(&Command::SetState(TaskState::On)).unwrap();
-        let last = Some(sim.poll().unwrap());
+        let last = Some(sim.poll().unwrap().clone());
         execute(&mut sim, &last, Command::Mdi("G0 X0".into()), &mut |_| {});
         assert_eq!(sim.poll().unwrap().mode, Mode::Mdi);
     }
@@ -528,14 +577,14 @@ mod tests {
     }
 
     impl Machine for Jogging {
-        fn poll(&mut self) -> Result<Status, String> {
+        fn poll(&mut self) -> Result<&lcnc::Status> {
             self.sim.poll()
         }
-        fn send(&mut self, cmd: &Command) -> Result<i32, String> {
+        fn send(&mut self, cmd: &Command) -> Result<Serial> {
             self.sent.push(cmd.clone());
             if let Command::SetMode(_) = cmd {
                 self.said = true;
-                return Ok(0);
+                return Ok(Serial(0));
             }
             self.sim.send(cmd)
         }
@@ -551,7 +600,7 @@ mod tests {
         let mut sim = Sim::new();
         sim.send(&Command::SetState(TaskState::EstopReset)).unwrap();
         sim.send(&Command::SetState(TaskState::On)).unwrap();
-        sim.send(&Command::Home(-1)).unwrap();
+        sim.send(&Command::Home(JointSel::All)).unwrap();
         Jogging { sim, sent: vec![], said: false }
     }
 
@@ -582,7 +631,7 @@ mod tests {
         // to AUTO: no second switch (which would abort what just started).
         let mut m = on_jogging();
         m.sim.send(&Command::SetMode(Mode::Auto)).unwrap();
-        let mut stale = m.sim.poll().unwrap();
+        let mut stale = m.sim.poll().unwrap().clone();
         stale.mode = Mode::Mdi;
         execute(&mut m, &Some(stale), Command::ProgramRun(0), &mut |_| {});
         assert_eq!(m.sent, vec![Command::ProgramRun(0)]);
@@ -593,18 +642,18 @@ mod tests {
         assert_eq!(required_mode(&Command::Step), Some(Mode::Auto));
     }
 
-    fn mdi_idle(serial: i32) -> Status {
-        Status { mode: Mode::Mdi, interp: Interp::Idle, echo_serial: serial, command_status: 1, ..Status::default() }
+    fn mdi_idle(serial: i32) -> lcnc::Status {
+        lcnc::Status { mode: Mode::Mdi, interp: Interp::Idle, echo_serial: Serial(serial), command_status: RcsStatus::Done, ..Default::default() }
     }
 
     #[test]
     fn mdi_goes_back_to_the_mode_it_came_from_once_idle() {
-        let mut b = after_mdi(None, Some((Mode::Manual, 7))).unwrap();
+        let mut b = after_mdi(None, Some((Mode::Manual, Serial(7)))).unwrap();
         // Not echoed yet, then still executing, then queued: stay in MDI.
         assert_eq!(b.due(&mdi_idle(6)), None);
-        assert_eq!(b.due(&Status { command_status: 2, ..mdi_idle(7) }), None);
-        assert_eq!(b.due(&Status { queued_mdi: 1, ..mdi_idle(7) }), None);
-        assert_eq!(b.due(&Status { interp: Interp::Reading, ..mdi_idle(7) }), None);
+        assert_eq!(b.due(&lcnc::Status { command_status: RcsStatus::Exec, ..mdi_idle(7) }), None);
+        assert_eq!(b.due(&lcnc::Status { queued_mdi: 1, ..mdi_idle(7) }), None);
+        assert_eq!(b.due(&lcnc::Status { interp: Interp::Reading, ..mdi_idle(7) }), None);
         assert_eq!(b.due(&mdi_idle(7)), None, "not before it has been idle a while");
         b.idle_since = Some(Instant::now() - MDI_RETURN_AFTER);
         assert_eq!(b.due(&mdi_idle(7)), Some(Mode::Manual));
@@ -612,8 +661,8 @@ mod tests {
 
     #[test]
     fn a_later_mdi_line_keeps_the_original_mode_and_waits_for_its_own_echo() {
-        let b = after_mdi(None, Some((Mode::Auto, 3)));
-        let mut b = after_mdi(b, Some((Mode::Mdi, 9))).unwrap();
+        let b = after_mdi(None, Some((Mode::Auto, Serial(3))));
+        let mut b = after_mdi(b, Some((Mode::Mdi, Serial(9)))).unwrap();
         assert_eq!(b.mode, Mode::Auto);
         b.idle_since = Some(Instant::now() - MDI_RETURN_AFTER);
         assert_eq!(b.due(&mdi_idle(8)), None);
@@ -621,19 +670,19 @@ mod tests {
 
     #[test]
     fn a_mode_change_by_someone_else_cancels_the_return() {
-        let b = after_mdi(None, Some((Mode::Manual, 7))).unwrap();
+        let b = after_mdi(None, Some((Mode::Manual, Serial(7)))).unwrap();
         let mut s = mdi_idle(7);
         assert!(!b.overtaken(&s));
         s.mode = Mode::Auto;
         assert!(b.overtaken(&s));
         // Before task has the command, the old mode is not someone else's.
-        s.echo_serial = 6;
+        s.echo_serial = Serial(6);
         assert!(!b.overtaken(&s));
     }
 
     #[test]
     fn mdi_from_mdi_mode_stays_there() {
-        assert!(after_mdi(None, Some((Mode::Mdi, 4))).is_none());
+        assert!(after_mdi(None, Some((Mode::Mdi, Serial(4)))).is_none());
         assert!(after_mdi(None, None).is_none(), "nothing sent, nothing to undo");
     }
 
@@ -643,20 +692,19 @@ mod tests {
         sim.send(&Command::SetState(TaskState::EstopReset)).unwrap();
         sim.send(&Command::SetState(TaskState::On)).unwrap();
         sim.send(&Command::Teleop(true)).unwrap();
-        let last = Some(sim.poll().unwrap());
-        execute(&mut sim, &last, Command::Home(-1), &mut |_| {});
+        let last = Some(sim.poll().unwrap().clone());
+        execute(&mut sim, &last, Command::Home(JointSel::All), &mut |_| {});
         let s = sim.poll().unwrap();
-        assert_eq!(s.traj_mode, 1);
+        assert_eq!(s.traj_mode, TrajMode::Free);
         assert!(s.all_homed());
     }
 
-    fn modal(codes: &[i32], wcs: i32, tool: i32) -> Status {
-        let mut s = Status::default();
-        s.active_gcodes = [-1; 17];
+    fn modal(codes: &[i32], wcs: i32, tool: i32) -> lcnc::Status {
+        let mut s = lcnc::Status::default();
         for (i, c) in codes.iter().enumerate() {
             s.active_gcodes[i + 1] = *c;
         }
-        s.g5x_index = wcs;
+        s.wcs = Wcs::from_raw(wcs);
         s.tool_in_spindle = tool;
         s
     }
@@ -693,17 +741,17 @@ mod tests {
     #[test]
     fn restore_waits_for_the_call_and_keeps_the_first_snapshot() {
         let first = modal(&[900], 1, 0);
-        let r = after_macro(None, Some(first), Some((Mode::Manual, 5))).unwrap();
-        let r = after_macro(Some(r), Some(modal(&[910], 2, 0)), Some((Mode::Mdi, 6))).unwrap();
-        assert_eq!(r.serial, 6);
-        assert_eq!(r.before.wcs, 1);
+        let r = after_macro(None, Some(first), Some((Mode::Manual, Serial(5)))).unwrap();
+        let r = after_macro(Some(r), Some(modal(&[910], 2, 0)), Some((Mode::Mdi, Serial(6)))).unwrap();
+        assert_eq!(r.serial, Serial(6));
+        assert_eq!(r.before.wcs, Wcs::G54);
         let mut s = modal(&[910], 2, 0);
-        s.echo_serial = 5;
+        s.echo_serial = Serial(5);
         assert!(!r.done(&s));
-        s.echo_serial = 6;
-        s.command_status = 2;
+        s.echo_serial = Serial(6);
+        s.command_status = RcsStatus::Exec;
         assert!(!r.done(&s));
-        s.command_status = 1;
+        s.command_status = RcsStatus::Done;
         assert!(r.done(&s));
         // Not sent: nothing to restore.
         assert!(after_macro(None, Some(modal(&[900], 1, 0)), None).is_none());

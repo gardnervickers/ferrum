@@ -32,7 +32,7 @@ mod util;
 mod models;
 
 use config::Config;
-use linuxcnc::{Command, Event, Handle, Interp, MessageKind, Status, TaskState, AXIS_LETTERS};
+use machine::{Command, Event, Handle, Interp, JointSel, MessageKind, SpindleDirection, Status, TaskState, AXIS_LETTERS};
 use modules::{Module, Pill};
 use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
@@ -93,13 +93,13 @@ struct UiState {
     cycle_elapsed: Duration,
 }
 
-fn connect_machine(args: &Args, cfg: &Config) -> Box<dyn linuxcnc::Machine> {
+fn connect_machine(args: &Args, cfg: &Config) -> Box<dyn machine::Machine> {
     if args.sim {
-        let mut sim = linuxcnc::Sim::new();
+        let mut sim = machine::Sim::new();
         // `--open <file>` (simulator only): start powered, homed, with a program loaded.
         if let Some(f) = &args.open {
-            use linuxcnc::Machine;
-            for c in [Command::SetState(TaskState::EstopReset), Command::SetState(TaskState::On), Command::Home(-1), Command::ProgramOpen(f.to_string_lossy().into_owned())] {
+            use machine::Machine;
+            for c in [Command::SetState(TaskState::EstopReset), Command::SetState(TaskState::On), Command::Home(JointSel::All), Command::ProgramOpen(f.clone())] {
                 let _ = sim.send(&c);
             }
         }
@@ -109,7 +109,7 @@ fn connect_machine(args: &Args, cfg: &Config) -> Box<dyn linuxcnc::Machine> {
     // LinuxCNC starts the display after task is up, but give it a moment.
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
-        match linuxcnc::connect(nml.as_deref()) {
+        match machine::connect(nml.as_deref()) {
             Ok(m) => return m,
             Err(e) if Instant::now() > deadline => {
                 eprintln!("millgui: {e}");
@@ -124,8 +124,8 @@ fn connect_machine(args: &Args, cfg: &Config) -> Box<dyn linuxcnc::Machine> {
 /// enabled module's `millgui/hal/<id>.hal` and the optional
 /// [MILLGUI]POSTGUI_HALFILE. Returns the component, which must live as long
 /// as the GUI (dropping it calls hal_exit).
-fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<String>) -> Option<hal::Component> {
-    let comp = match hal::Component::new("millgui") {
+fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<String>) -> Option<lcnc::hal::Component> {
+    let comp = match lcnc::hal::Component::new("millgui") {
         Ok(c) => c,
         Err(e) => {
             notes.push(format!("HAL unavailable: {e}"));
@@ -138,7 +138,7 @@ fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<Stri
         }
     }
     if let Err(e) = comp.ready() {
-        notes.push(e);
+        notes.push(e.to_string());
         return Some(comp);
     }
     let Some(ini) = cfg.path.as_ref() else { return Some(comp) };
@@ -244,10 +244,11 @@ fn core_pills_front(s: &Status, axes: &[usize], out: &mut Vec<Pill>) {
         Pill::new("OFF", "warn")
     } else {
         match s.mode {
-            linuxcnc::Mode::Manual => Pill::new("MANUAL", "info"),
-            linuxcnc::Mode::Auto if s.interp == Interp::Paused => Pill::new("PAUSED", "warn"),
-            linuxcnc::Mode::Auto => Pill::new("AUTO", "good"),
-            linuxcnc::Mode::Mdi => Pill::new("MDI", "info"),
+            machine::Mode::Manual => Pill::new("MANUAL", "info"),
+            machine::Mode::Auto if s.interp == Interp::Paused => Pill::new("PAUSED", "warn"),
+            machine::Mode::Auto => Pill::new("AUTO", "good"),
+            machine::Mode::Mdi => Pill::new("MDI", "info"),
+            machine::Mode::Unknown(_) => Pill::new("MODE?", "warn"),
         }
     });
     let homed = |i: usize| s.homed.get(i).copied().unwrap_or(false);
@@ -272,13 +273,13 @@ fn core_pills_front(s: &Status, axes: &[usize], out: &mut Vec<Pill>) {
 
 /// Commanded spindle state (there is no speed feedback to show).
 fn core_pills_back(s: &Status, out: &mut Vec<Pill>) {
-    out.push(if s.spindle_direction == 0 || s.spindle_speed == 0.0 {
+    out.push(if s.spindle_direction.sign() == 0.0 || s.spindle_speed == 0.0 {
         Pill::new("SPINDLE CMD OFF", "")
     } else {
         Pill::new(
             format!(
                 "SPINDLE CMD {} {:.0}",
-                if s.spindle_direction > 0 { "CW" } else { "CCW" },
+                if s.spindle_direction == SpindleDirection::Forward { "CW" } else { "CCW" },
                 s.spindle_speed.abs() * s.spindle_scale
             ),
             "info",
@@ -363,11 +364,11 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     live.set_estop(s.estop());
     live.set_power(s.power_on());
     live.set_homed(axes.iter().all(|&i| s.homed.get(i).copied().unwrap_or(false)));
-    live.set_wcs(s.wcs_name().into());
+    live.set_wcs(s.wcs.name().into());
     live.set_tool(format!("T{}", s.tool_in_spindle).into());
     live.set_tc_from(format!("T{}", s.tool_in_spindle).into());
     live.set_feed(format!("{:.0}", s.feed_per_min()).into());
-    let rpm = s.spindle_speed * s.spindle_scale * s.spindle_direction.signum() as f64;
+    let rpm = s.spindle_speed * s.spindle_scale * s.spindle_direction.sign();
     live.set_rpm(format!("{:.0}", rpm.abs()).into());
     live.set_modal(s.modal_string().into());
     live.set_feed_pct((s.feed_scale * 100.0).round() as i32);
@@ -375,7 +376,7 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     live.set_spindle_pct((s.spindle_scale * 100.0).round() as i32);
     // In MDI, the file is a subroutine the command called (the M6 remap,
     // a probe macro), not the loaded program.
-    let mdi = s.mode == linuxcnc::Mode::Mdi;
+    let mdi = s.mode == machine::Mode::Mdi;
     if !mdi {
         live.set_program(
             Path::new(&s.file).file_name().map(|f| f.to_string_lossy().to_uppercase()).unwrap_or_default().into(),
@@ -394,8 +395,8 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     live.set_can_start(ready && (s.interp == Interp::Paused || (s.interp == Interp::Idle && !s.file.is_empty())));
 
     // Cycle timer: runs while a program is running in auto mode.
-    let running = s.mode == linuxcnc::Mode::Auto && s.busy();
-    let was = st.status.as_ref().is_some_and(|p| p.mode == linuxcnc::Mode::Auto && p.busy());
+    let running = s.mode == machine::Mode::Auto && s.busy();
+    let was = st.status.as_ref().is_some_and(|p| p.mode == machine::Mode::Auto && p.busy());
     if running && !was {
         st.cycle_started = Some(Instant::now());
         st.cycle_elapsed = Duration::ZERO;
@@ -431,12 +432,12 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     let m = machine.clone();
     actions.on_estop_reset(move || m.send(Command::SetState(TaskState::EstopReset)));
     let m = machine.clone();
-    actions.on_home_all(move || m.send(Command::Home(-1)));
+    actions.on_home_all(move || m.send(Command::Home(JointSel::All)));
     // trivkins: joints are numbered in [TRAJ]COORDINATES order.
     let (m, coords) = (machine.clone(), cfg.coordinates().to_ascii_uppercase());
     actions.on_home_axis(move |axis| {
         if let Some(j) = coords.find(axis.as_str()) {
-            m.send(Command::Home(j as i32));
+            m.send(Command::Home(JointSel::Joint(j as u8)));
         }
     });
     let (m, st) = (machine.clone(), state.clone());
@@ -677,7 +678,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let modules = Rc::new(modules);
 
     let weak = ui.as_weak();
-    let handle = linuxcnc::spawn(machine, Duration::from_millis(50), move |ev| {
+    let handle = machine::spawn(machine, Duration::from_millis(50), move |ev| {
         let weak = weak.clone();
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(ui) = weak.upgrade() {
@@ -728,7 +729,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         // An MDI command that calls a subroutine (the M6
                         // remap, probing) shows that file as the open one
                         // while it runs; the loaded program is unchanged.
-                        let mdi_sub = s.mode == linuxcnc::Mode::Mdi;
+                        let mdi_sub = s.mode == machine::Mode::Mdi;
                         if !mdi_sub {
                             program::sync(ui, &s.file, s.busy());
                         }
@@ -1067,7 +1068,7 @@ fn fit_desktop_window(ui: &MainWindow) {
 }
 
 fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path) -> Result<(), slint::PlatformError> {
-    use linuxcnc::Machine;
+    use machine::Machine;
     let (w, h) = args.size.unwrap_or((1920, 1080));
     let window = headless::install(w, h);
     let ui = MainWindow::new()?;
@@ -1077,16 +1078,16 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
         ui.window().dispatch_event(slint::platform::WindowEvent::Resized { size: slint::LogicalSize::new(w as f32 / s, h as f32 / s) });
     }
     set_nav(&ui, modules, args.screen.as_deref());
-    let mut sim = linuxcnc::Sim::new();
+    let mut sim = machine::Sim::new();
     for c in [
         Command::SetState(TaskState::EstopReset),
         Command::SetState(TaskState::On),
-        Command::Home(-1),
-        Command::ProgramOpen(args.open.clone().unwrap_or_else(|| sample_dir().join("bracket-sample.ngc")).to_string_lossy().into_owned()),
+        Command::Home(JointSel::All),
+        Command::ProgramOpen(args.open.clone().unwrap_or_else(|| sample_dir().join("bracket-sample.ngc"))),
     ] {
         let _ = sim.send(&c);
     }
-    let s = sim.poll().map_err(|e| slint::PlatformError::Other(e))?;
+    let s = machine::Status::from(sim.poll().map_err(|e| slint::PlatformError::Other(e.to_string()))?.clone());
     let mut st = UiState { connected: true, ..Default::default() };
     let live = ui.global::<Live>();
     live.set_connected(true);
@@ -1095,7 +1096,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     live.set_clock(chrono::Local::now().format("%H:%M").to_string().into());
     live.set_message("Simulated machine".into());
 
-    let handle = linuxcnc::spawn(Box::new(linuxcnc::Sim::new()), Duration::from_secs(3600), |_| {});
+    let handle = machine::spawn(Box::new(machine::Sim::new()), Duration::from_secs(3600), |_| {});
     let manual = manual::wire(&ui, &handle, cfg, settings::Settings::memory(), axis_indices(cfg).contains(&3));
     textentry::wire(&ui);
     mdi::wire(&ui, &handle, cfg, &mut Vec::new());
@@ -1223,7 +1224,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                     (MessageKind::Display, "(MSG, Check that the vise is clamped)"),
                     (MessageKind::Error, "Can't do MDI when machine is not on"),
                 ] {
-                    manual::log_message(&ui, &manual, &linuxcnc::Message { kind, text: text.into() });
+                    manual::log_message(&ui, &manual, &machine::Message { kind, text: text.into() });
                 }
             }
             "timeline" => {

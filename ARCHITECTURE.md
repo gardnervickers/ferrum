@@ -8,10 +8,11 @@ from `millgui.ini`, which includes the same machine config.
 
 ```
 app (Slint UI, screens, module registry)
- ├── linuxcnc   Machine boundary: Status snapshot, Command, operator messages
- │    ├── Nml   C++ shim over NML (cpp/lcnc_shim.*), Pi only
+ ├── machine    Machine trait, worker thread, millgui's mode rules
+ │    ├── lcnc::Connection  LinuxCNC over NML (crates/lcnc), Pi and sim
  │    └── Sim   in-process fake machine, Mac development and tests
- ├── hal        the GUI's own HAL component (dlopen of liblinuxcnchal)
+ ├── lcnc       standalone LinuxCNC bindings, no millgui assumptions:
+ │              typed Status/Command/Message, C++ NML shim, typed HAL pins
  └── preview    rs274 interpreter shim -> toolpath; renderer trait
       ├── Software  tiny-skia into a Slint image (works on llvmpipe)
       └── Gpu       later; same toolpath, drawn with GL

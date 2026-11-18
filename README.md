@@ -5,8 +5,8 @@ what is left: `REQUIREMENTS.md`; mockup: `docs/mockup-v16.html`.
 
 ```
 app/              Slint UI, feature modules, INI config
-crates/linuxcnc/  Machine trait: NML backend (cpp/lcnc_shim.*) and a simulated machine
-crates/hal/       the GUI's HAL component (dlopen of liblinuxcnchal)
+crates/lcnc/      standalone LinuxCNC bindings: typed status, commands, messages (NML shim), HAL pins
+crates/machine/   Machine trait (LinuxCNC or the simulator) and the worker with millgui's mode rules
 hal/<module>.hal  postgui nets, run only for enabled modules
 run               LinuxCNC DISPLAY entry on the Pi
 ```

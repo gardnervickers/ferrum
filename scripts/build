@@ -7,9 +7,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -d sysroot/usr/include/linuxcnc ] || scripts/fetch-sysroot
 ROOT="$PWD"
-export MILLGUI_SYSROOT="$ROOT/sysroot"
-export PKG_CONFIG_SYSROOT_DIR="$MILLGUI_SYSROOT"
-export PKG_CONFIG_LIBDIR="$MILLGUI_SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:$MILLGUI_SYSROOT/usr/share/pkgconfig"
+export LCNC_SYSROOT="$ROOT/sysroot"
+export PKG_CONFIG_SYSROOT_DIR="$LCNC_SYSROOT"
+export PKG_CONFIG_LIBDIR="$LCNC_SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:$MILLGUI_SYSROOT/usr/share/pkgconfig"
 export PKG_CONFIG_ALLOW_CROSS=1
 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="$ROOT/scripts/aarch64-cc"
 export CC_aarch64_unknown_linux_gnu="$ROOT/scripts/aarch64-cc"

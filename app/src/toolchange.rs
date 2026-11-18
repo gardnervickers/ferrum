@@ -17,8 +17,8 @@
 
 use crate::config::Config;
 use crate::{Actions, Live, MainWindow};
-use hal::{BitPin, Component, Dir, S32Pin};
-use linuxcnc::{Command, Handle, Status};
+use lcnc::hal::{Component, In, Out};
+use machine::{Command, Handle, Status};
 use slint::ComponentHandle;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -49,34 +49,34 @@ pub trait Io {
 
 /// Pins on `millgui.drawbar.*`, netted by millgui/hal/drawbar.hal.
 pub struct HalIo {
-    change: BitPin,
-    number: S32Pin,
-    changed: BitPin,
-    spindle_request: BitPin,
-    extended: BitPin,
-    rearm_required: BitPin,
-    nose_reference: BitPin,
-    touch_off_latched: BitPin,
-    manual_request: BitPin,
-    touch_off_set: BitPin,
-    touch_off_reset: BitPin,
+    change: In<bool>,
+    number: In<i32>,
+    changed: Out<bool>,
+    spindle_request: In<bool>,
+    extended: In<bool>,
+    rearm_required: In<bool>,
+    nose_reference: In<bool>,
+    touch_off_latched: In<bool>,
+    manual_request: Out<bool>,
+    touch_off_set: Out<bool>,
+    touch_off_reset: Out<bool>,
     manual: Cell<bool>,
 }
 
 impl HalIo {
-    pub fn create(comp: &Component, extended: BitPin, rearm_required: BitPin) -> Result<Self, String> {
+    pub fn create(comp: &Component, extended: In<bool>, rearm_required: In<bool>) -> Result<Self, String> {
         Ok(Self {
-            change: comp.bit("drawbar.tool-change", Dir::In)?,
-            number: comp.s32("drawbar.tool-number", Dir::In)?,
-            changed: comp.bit("drawbar.tool-changed", Dir::Out)?,
-            spindle_request: comp.bit("drawbar.spindle-request", Dir::In)?,
+            change: comp.pin("drawbar.tool-change")?,
+            number: comp.pin("drawbar.tool-number")?,
+            changed: comp.pin("drawbar.tool-changed")?,
+            spindle_request: comp.pin("drawbar.spindle-request")?,
             extended,
             rearm_required,
-            nose_reference: comp.bit("drawbar.nose-reference-valid", Dir::In)?,
-            touch_off_latched: comp.bit("drawbar.touch-off-requested", Dir::In)?,
-            manual_request: comp.bit("drawbar.manual-request", Dir::Out)?,
-            touch_off_set: comp.bit("drawbar.touch-off-set", Dir::Out)?,
-            touch_off_reset: comp.bit("drawbar.touch-off-reset", Dir::Out)?,
+            nose_reference: comp.pin("drawbar.nose-reference-valid")?,
+            touch_off_latched: comp.pin("drawbar.touch-off-requested")?,
+            manual_request: comp.pin("drawbar.manual-request")?,
+            touch_off_set: comp.pin("drawbar.touch-off-set")?,
+            touch_off_reset: comp.pin("drawbar.touch-off-reset")?,
             manual: Cell::new(false),
         })
     }
@@ -156,7 +156,7 @@ impl Io for SimIo {
             if self.latched.replace(false) {
                 self.machine.send(Command::Mdi("(sim: the remap would run tool_touch_off.ngc now)".into()));
             }
-            self.machine.send(Command::SimToolChanged);
+            self.machine.sim_tool_changed();
         }
     }
     fn set_manual_request(&self, on: bool) {
@@ -407,7 +407,7 @@ mod tests {
             RefCell::new(Inputs { change: true, number, spindle_request: Some(false), drawbar_extended: Some(false), touch_off_latched: Some(false), ..Default::default() }),
             Cell::new(false),
         ));
-        let mut t = ToolChange { io: io.clone(), machine: linuxcnc::Handle::detached(), probe_tool: 99, open: true, answered: false, seated: false, last: Inputs::default() };
+        let mut t = ToolChange { io: io.clone(), machine: machine::Handle::detached(), probe_tool: 99, open: true, answered: false, seated: false, last: Inputs::default() };
         t.last = io.read();
         t
     }

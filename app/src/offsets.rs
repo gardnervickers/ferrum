@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::history::{self, Target};
 use crate::manual::KeypadTarget;
 use crate::{Actions, Live, MainWindow, OffsetRow};
-use linuxcnc::{Command, Handle, Status};
+use machine::{Command, Handle, Status};
 use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -67,7 +67,7 @@ pub struct Offsets {
 
 impl Offsets {
     fn active(&self) -> Option<usize> {
-        self.status.as_ref().map(|s| (s.g5x_index - 1).clamp(0, 8) as usize)
+        self.status.as_ref().map(|s| s.wcs.index().unwrap_or(0))
     }
 
     /// MDI is only allowed with the machine on and nothing running.
@@ -302,11 +302,11 @@ fn observed_cause(s: &Status, switched: bool) -> String {
     }
     // Status says what mode the machine was in, not what wrote the offset.
     match s.mode {
-        linuxcnc::Mode::Auto => {
+        machine::Mode::Auto => {
             let name = std::path::Path::new(&s.file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             if name.is_empty() { "During a program".into() } else { format!("During program {name}") }
         }
-        linuxcnc::Mode::Mdi => "During MDI or a probe routine".into(),
+        machine::Mode::Mdi => "During MDI or a probe routine".into(),
         _ => "Outside millgui".into(),
     }
 }
@@ -320,7 +320,7 @@ pub fn rotation(o: &Rc<RefCell<Offsets>>, sys: usize) -> f64 {
 /// screen knows it, G92 and the active system from status.
 pub fn preflight_live(o: &Rc<RefCell<Offsets>>, s: &Status) -> preview::preflight::Live {
     let t = o.borrow().table;
-    let mut live = preview::preflight::Live { active: s.g5x_index.clamp(1, 9) as u8, ..Default::default() };
+    let mut live = preview::preflight::Live { active: s.wcs.index().map_or(1, |i| i as u8 + 1), ..Default::default() };
     for (i, row) in t.iter().enumerate() {
         live.wcs[i] = [row[0], row[1], row[2]];
         live.rotation[i] = row[4];
@@ -333,16 +333,16 @@ pub fn preflight_live(o: &Rc<RefCell<Offsets>>, s: &Status) -> preview::prefligh
 pub fn apply_status(ui: &MainWindow, o: &Rc<RefCell<Offsets>>, s: &Status) {
     let mut st = o.borrow_mut();
     let first = st.status.is_none();
-    let a = (s.g5x_index - 1).clamp(0, 8) as usize;
+    let a = s.wcs.index().unwrap_or(0);
     let mut row = [s.g5x_offset[0], s.g5x_offset[1], s.g5x_offset[2], s.g5x_offset[3], s.rotation_xy];
     for v in row.iter_mut() {
         if v.abs() < 1e-9 {
             *v = 0.0;
         }
     }
-    let changed = first || st.table[a] != row || st.status.as_ref().is_some_and(|o| o.g5x_index != s.g5x_index || o.g92_offset != s.g92_offset);
+    let changed = first || st.table[a] != row || st.status.as_ref().is_some_and(|o| o.wcs != s.wcs || o.g92_offset != s.g92_offset);
     if !first {
-        let switched = st.status.as_ref().is_some_and(|o| o.g5x_index != s.g5x_index);
+        let switched = st.status.as_ref().is_some_and(|o| o.wcs != s.wcs);
         match st.pending[a].take() {
             // Our own edit, now in effect: log what LinuxCNC really holds.
             Some(p) if !differs_by(&row, &st.table[a], PREDICTED) => {

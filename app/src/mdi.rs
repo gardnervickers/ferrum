@@ -4,7 +4,7 @@
 
 use crate::config::Config;
 use crate::{Actions, Live, MainWindow, MdiCard};
-use linuxcnc::{Command, Handle};
+use machine::{Command, Handle};
 use serde::Deserialize;
 use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;

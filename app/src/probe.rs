@@ -23,7 +23,7 @@ use crate::manual::KeypadTarget;
 use crate::settings::Settings;
 use crate::toolchange::Io;
 use crate::{Actions, Live, MainWindow, ProbeItem, ProbeOpt, ProbeParam, ProbeSpot};
-use linuxcnc::{Command, Handle, Message, MessageKind, Status};
+use machine::{Command, Handle, Message, MessageKind, Status};
 use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -199,7 +199,7 @@ struct Run {
     /// MDI lines still to send; the restore lines run whatever happens.
     steps: Vec<String>,
     restore: Vec<String>,
-    sent: Option<(Instant, i32, bool)>,
+    sent: Option<(Instant, machine::Serial, bool)>,
     failed: Option<String>,
     restoring: bool,
     what: String,
@@ -482,14 +482,14 @@ impl Probe {
                 return Err("WCO rotation (#3031) is not supported here; set it OFF".into());
             }
         }
-        if ["cyl", "flat", "dia", "runout", "defl"].contains(&t.kind) && !s.has_axis(3) {
+        if ["cyl", "flat", "dia", "runout", "defl"].contains(&t.kind) && !s.has_axis(machine::Axis::A) {
             return Err("The A axis is not configured".into());
         }
         Ok(())
     }
 
     fn active(&self) -> usize {
-        self.status.as_ref().map_or(0, |s| (s.g5x_index - 1).clamp(0, 8) as usize)
+        self.status.as_ref().map_or(0, |s| s.wcs.index().unwrap_or(0))
     }
 
     /// The routine name a job op uses for `t`, when a job can run it:
@@ -1528,7 +1528,7 @@ fn distance_mode(s: Option<&Status>) -> Option<&'static str> {
 pub fn apply_status(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, s: &Status) {
     let mut p = probe.borrow_mut();
     // Everything `check` reads, so the readiness hint never goes stale.
-    let key = |o: &Status| (o.tool_in_spindle, o.power_on(), o.busy(), o.g5x_index, o.all_homed(), o.active_gcodes.contains(&400), o.g92_offset.iter().any(|v| *v != 0.0));
+    let key = |o: &Status| (o.tool_in_spindle, o.power_on(), o.busy(), o.wcs, o.all_homed(), o.active_gcodes.contains(&400), o.g92_offset.iter().any(|v| *v != 0.0));
     let was = p.status.as_ref().map(key);
     p.status = Some(s.clone());
     if p.job_armed && s.busy() {
@@ -1577,7 +1577,7 @@ mod tests {
     #[test]
     fn distance_mode_reads_g90_g91_not_g91_1() {
         let mut s = Status::default();
-        s.active_gcodes = [-1; 17];
+        s.active_gcodes = Default::default();
         s.active_gcodes[6] = 910;
         s.active_gcodes[12] = 911;
         assert_eq!(distance_mode(Some(&s)), Some("G91"));
@@ -1640,7 +1640,7 @@ mod tests {
             restore_pending: false,
             job_armed: false,
             probe_tool: 99,
-            machine: linuxcnc::spawn(Box::new(linuxcnc::Sim::new()), Duration::from_secs(3600), |_| {}),
+            machine: machine::spawn(Box::new(machine::Sim::new()), Duration::from_secs(3600), |_| {}),
             io: None,
             ui: slint::Weak::default(),
             rotation: Box::new(|_| 0.0),

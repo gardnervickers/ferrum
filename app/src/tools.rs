@@ -17,7 +17,7 @@ use crate::history::{self, Target};
 use crate::manual::KeypadTarget;
 use crate::toolchange::{Io, SCRATCH};
 use crate::{Actions, CheckRow, Live, MainWindow, ToolRow};
-use linuxcnc::{Command, Handle, Status};
+use machine::{Command, Handle, Status};
 use slint::{ComponentHandle, Model};
 use std::cell::RefCell;
 use std::path::PathBuf;

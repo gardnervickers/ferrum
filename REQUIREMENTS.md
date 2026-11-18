@@ -127,7 +127,7 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       without Z, YOU JOG between the two faces, the rotary turning in its end view. Runs only on
       the PROBE screen and stops while a probe runs. Times are for reading, not the real feeds.
 - [ ] Warm-up holds the spindle override at 100 % and stops if it changes; util.py disables the
-      override instead (needs a spindle-override-enable command in crates/linuxcnc).
+      override instead (`lcnc::Command::SpindleOverrideEnable` exists now).
 - [ ] Check the macro EVAL result names and the probe_auto_stock_apply context check on the Pi.
 
 ## M6 Job and conversational

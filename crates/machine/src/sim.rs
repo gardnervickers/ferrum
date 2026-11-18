@@ -3,12 +3,15 @@
 //! toolpath of the small G-code reader, at the programmed feed (times the
 //! override) and the rapid rate.
 
-use crate::status::*;
+use crate::Machine;
+use lcnc::*;
 use std::collections::VecDeque;
 use std::time::Instant;
 
 pub struct Sim {
     s: Status,
+    /// The tool an M6 is waiting for.
+    tool_change: Option<i32>,
     serial: i32,
     last: Instant,
     jog: [f64; AXES],
@@ -35,21 +38,21 @@ impl Sim {
     pub fn new() -> Self {
         let mut s = Status::default();
         s.joints = 4;
-        s.traj_mode = 1;
-        s.axis_mask = 0b1111;
-        s.g5x_index = 1;
+        s.traj_mode = TrajMode::Free;
+        s.axis_mask = AxisMask(0b1111);
+        s.wcs = Wcs::G54;
         s.feed_scale = 1.0;
         s.rapid_scale = 1.0;
         s.spindle_scale = 1.0;
-        s.actual = [180.0, -80.0, -182.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        s.actual = Pose([180.0, -80.0, -182.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
         s.commanded = s.actual;
         s.g5x_offset[0] = 120.0;
         s.g5x_offset[1] = -95.0;
         s.g5x_offset[2] = -212.4;
         s.tool_in_spindle = 23;
-        s.active_gcodes = [0, 10, 170, 210, 400, 490, 540, 640, 800, 900, 911, 940, 970, 980, -1, -1, -1];
-        s.active_mcodes = [0, 5, 9, 48, -1, -1, -1, -1, -1, -1];
-        Self { s, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, program_lines: 0, messages: VecDeque::new(), selected_tool: 0, wcs: [[120.0, -95.0, -212.4, 0.0, 0.0], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5]], call_until: None, path: Vec::new(), at: (0, 0.0) }
+        s.active_gcodes = ActiveGCodes([0, 10, 170, 210, 400, 490, 540, 640, 800, 900, 911, 940, 970, 980, -1, -1, -1]);
+        s.active_mcodes = ActiveMCodes([0, 5, 9, 48, -1, -1, -1, -1, -1, -1]);
+        Self { s, tool_change: None, serial: 0, last: Instant::now(), jog: [0.0; AXES], run_until: None, program_lines: 0, messages: VecDeque::new(), selected_tool: 0, wcs: [[120.0, -95.0, -212.4, 0.0, 0.0], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5], [0.0; 5]], call_until: None, path: Vec::new(), at: (0, 0.0) }
     }
 
     fn msg(&mut self, kind: MessageKind, text: impl Into<String>) {
@@ -95,8 +98,8 @@ impl Sim {
         }
         if has('M', 6.0) {
             // Wait for the GUI, as iocontrol's manual tool change does.
-            self.s.sim_tool_change = Some(self.selected_tool);
-            self.s.interp = Interp::Reading;
+            self.tool_change = Some(self.selected_tool);
+            self.s.interp = InterpState::Reading;
         }
         if has('M', 7.0) {
             self.s.mist = true;
@@ -109,7 +112,7 @@ impl Sim {
             self.s.flood = false;
         }
         let codes = [54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 59.1, 59.2, 59.3];
-        let active = (self.s.g5x_index - 1).clamp(0, 8) as usize;
+        let active = self.s.wcs.index().unwrap_or(0);
         if has('G', 10.0) && (has('L', 20.0) || has('L', 2.0)) {
             let p = val('P').unwrap_or(0.0) as usize;
             let n = if p == 0 { active } else { (p - 1).min(8) };
@@ -122,9 +125,9 @@ impl Sim {
                 self.wcs[n][4] = r;
             }
         } else if has('G', 92.1) {
-            self.s.g92_offset = [0.0; AXES];
+            self.s.g92_offset = Pose::default();
         } else if let Some(n) = codes.iter().position(|c| has('G', *c)) {
-            self.s.g5x_index = n as i32 + 1;
+            self.s.wcs = Wcs::from_index(n).unwrap_or(Wcs::G54);
             let code = (codes[n] * 10.0).round() as i32;
             for g in self.s.active_gcodes.iter_mut().filter(|g| (540..=593).contains(*g)) {
                 *g = code;
@@ -137,7 +140,7 @@ impl Sim {
                 }
             }
         }
-        let a = (self.s.g5x_index - 1).clamp(0, 8) as usize;
+        let a = self.s.wcs.index().unwrap_or(0);
         for i in 0..4 {
             self.s.g5x_offset[i] = self.wcs[a][i];
         }
@@ -194,7 +197,7 @@ impl Sim {
             "probe_z_minus_wco" => {
                 // The top face 12.5 mm below where the probe started; Z0 there.
                 let z = self.s.actual[2] - 12.5;
-                let n = (self.s.g5x_index - 1).clamp(0, 8) as usize;
+                let n = self.s.wcs.index().unwrap_or(0);
                 self.wcs[n][2] = z - self.s.tool_offset[2];
                 out.push(set("z_minus_probed_position", z - self.s.g5x_offset[2] - self.s.tool_offset[2]));
                 self.s.g5x_offset[2] = self.wcs[n][2];
@@ -208,7 +211,7 @@ impl Sim {
             _ => {}
         }
         self.msg(MessageKind::Display, format!("(sim) {line}"));
-        self.s.interp = Interp::Reading;
+        self.s.interp = InterpState::Reading;
         self.call_until = Some((Instant::now() + std::time::Duration::from_millis(1200), out));
     }
 }
@@ -259,7 +262,7 @@ impl Sim {
         self.s.motion_line = self.s.current_line;
         if self.at.0 >= self.path.len() {
             self.s.current_line = self.program_lines;
-            self.s.interp = Interp::Idle;
+            self.s.interp = InterpState::Idle;
             self.run_until = None;
             return false;
         }
@@ -269,7 +272,7 @@ impl Sim {
 }
 
 impl Machine for Sim {
-    fn poll(&mut self) -> Result<Status, String> {
+    fn poll(&mut self) -> Result<&Status> {
         let now = Instant::now();
         let dt = now.duration_since(self.last).as_secs_f64();
         self.last = now;
@@ -287,43 +290,44 @@ impl Machine for Sim {
                 for m in out {
                     self.msg(MessageKind::Display, m);
                 }
-                self.s.interp = Interp::Idle;
+                self.s.interp = InterpState::Idle;
             }
         }
         if self.run_until.is_some() && !self.path.is_empty() {
-            if self.s.interp == Interp::Reading {
+            if self.s.interp == InterpState::Reading {
                 self.advance(dt);
             }
         } else if let Some(end) = self.run_until {
-            if self.s.interp == Interp::Reading {
+            if self.s.interp == InterpState::Reading {
                 self.s.current_line += 1;
                 self.s.motion_line = self.s.current_line;
                 if self.s.current_line >= end {
-                    self.s.interp = Interp::Idle;
+                    self.s.interp = InterpState::Idle;
                     self.run_until = None;
                 }
             }
         }
         self.s.commanded = self.s.actual;
-        self.s.echo_serial = self.serial;
-        self.s.command_status = 1;
-        Ok(self.s.clone())
+        self.s.echo_serial = Serial(self.serial);
+        self.s.command_status = RcsStatus::Done;
+        Ok(&self.s)
     }
 
-    fn send(&mut self, cmd: &Command) -> Result<i32, String> {
+    fn send(&mut self, cmd: &Command) -> Result<Serial> {
         self.serial += 1;
         match cmd {
             Command::SetState(st) => {
                 let ok = match st {
                     TaskState::Estop | TaskState::EstopReset => true,
                     TaskState::On | TaskState::Off => self.s.task_state != TaskState::Estop,
+                    TaskState::Unknown(_) => false,
                 };
                 if ok {
                     self.s.task_state = *st;
                     self.s.enabled = *st == TaskState::On;
                     if !self.s.enabled {
                         self.jog = [0.0; AXES];
-                        self.s.interp = Interp::Idle;
+                        self.s.interp = InterpState::Idle;
                     }
                 } else {
                     self.msg(MessageKind::Error, "Can't turn machine on while in E-stop");
@@ -337,8 +341,8 @@ impl Machine for Sim {
                 }
             }
             Command::Abort => {
-                self.s.sim_tool_change = None;
-                self.s.interp = Interp::Idle;
+                self.tool_change = None;
+                self.s.interp = InterpState::Idle;
                 self.run_until = None;
                 self.call_until = None;
                 self.jog = [0.0; AXES];
@@ -349,30 +353,30 @@ impl Machine for Sim {
                 }
             }
             Command::ProgramOpen(path) => {
-                self.s.file = path.clone();
+                self.s.file = path.to_string_lossy().into_owned();
                 let text = std::fs::read_to_string(path).unwrap_or_default();
                 self.program_lines = text.lines().count() as i32;
                 self.path = preview::mini::parse(&text, RAPID_MM_S).segs;
             }
             Command::ProgramRun(line) => {
                 if self.require_on("run") {
-                    self.s.mode = Mode::Auto;
-                    self.s.interp = Interp::Reading;
-                    self.s.current_line = (*line).max(1);
+                    self.s.mode = TaskMode::Auto;
+                    self.s.interp = InterpState::Reading;
+                    self.s.current_line = (*line).clamp(1, i32::MAX as u32) as i32;
                     let from = self.s.current_line as u32;
                     self.at = (self.path.iter().position(|g| g.line >= from).unwrap_or(self.path.len()), 0.0);
                     self.run_until = Some(if self.program_lines > 0 { self.program_lines } else { self.s.current_line + 200 });
                 }
             }
             Command::Pause => {
-                if self.s.interp == Interp::Reading {
-                    self.s.interp = Interp::Paused;
+                if self.s.interp == InterpState::Reading {
+                    self.s.interp = InterpState::Paused;
                     self.s.paused = true;
                 }
             }
             Command::Resume => {
-                if self.s.interp == Interp::Paused {
-                    self.s.interp = Interp::Reading;
+                if self.s.interp == InterpState::Paused {
+                    self.s.interp = InterpState::Reading;
                     self.s.paused = false;
                 }
             }
@@ -382,7 +386,7 @@ impl Machine for Sim {
             Command::Home(j) => {
                 if self.require_on("home") {
                     for i in 0..self.s.joints {
-                        if *j < 0 || *j as usize == i {
+                        if j.includes(i) {
                             self.s.homed[i] = true;
                         }
                     }
@@ -390,61 +394,79 @@ impl Machine for Sim {
             }
             Command::Unhome(j) => {
                 for i in 0..self.s.joints {
-                    if *j < 0 || *j as usize == i {
+                    if j.includes(i) {
                         self.s.homed[i] = false;
                     }
                 }
             }
-            Command::Teleop(on) => self.s.traj_mode = if *on { 3 } else { 1 },
-            Command::JogCont { axis: index, vel } => {
+            Command::Teleop(on) => self.s.traj_mode = if *on { TrajMode::Teleop } else { TrajMode::Free },
+            Command::JogCont { target, vel } => {
                 if self.require_on("jog") {
-                    if let Some(v) = self.jog.get_mut(*index as usize) {
+                    if let Some(v) = self.jog.get_mut(jog_index(*target)) {
                         *v = *vel * 60.0;
                     }
                 }
             }
-            Command::JogIncr { axis: index, incr, .. } => {
+            Command::JogIncr { target, incr, .. } => {
                 if self.require_on("jog") {
-                    if let Some(p) = self.s.actual.get_mut(*index as usize) {
+                    if let Some(p) = self.s.actual.get_mut(jog_index(*target)) {
                         *p += *incr;
                     }
                 }
             }
-            Command::JogStop { axis: index } => {
-                if let Some(v) = self.jog.get_mut(*index as usize) {
+            Command::JogStop { target } => {
+                if let Some(v) = self.jog.get_mut(jog_index(*target)) {
                     *v = 0.0;
                 }
             }
             Command::FeedScale(s) => self.s.feed_scale = *s,
             Command::RapidScale(s) => self.s.rapid_scale = *s,
             Command::SpindleScale(s) => self.s.spindle_scale = *s,
-            Command::SpindleOn(rpm) => {
+            Command::SpindleOn { rpm, rotation } => {
                 if self.require_on("spindle") {
                     self.s.spindle_speed = rpm.abs();
-                    self.s.spindle_direction = rpm.signum() as i32;
+                    self.s.spindle_direction = if *rotation == Rotation::Reverse { SpindleDirection::Reverse } else { SpindleDirection::Forward };
                     self.s.spindle_enabled = true;
                 }
             }
             Command::SpindleOff => {
                 self.s.spindle_speed = 0.0;
-                self.s.spindle_direction = 0;
+                self.s.spindle_direction = SpindleDirection::Stopped;
                 self.s.spindle_enabled = false;
             }
             Command::Mist(on) => self.s.mist = *on,
             Command::Flood(on) => self.s.flood = *on,
+            Command::SpindleBrake(on) => self.s.spindle_brake = *on,
+            Command::MaxVelocity(v) => self.s.max_velocity = *v,
+            Command::FeedOverrideEnable(on) => self.s.feed_override_enabled = *on,
+            Command::SpindleOverrideEnable(on) => self.s.spindle_override_enabled = *on,
+            Command::FeedHoldEnable(on) => self.s.feed_hold_enabled = *on,
             Command::LoadToolTable | Command::PlanSynch => {}
-            Command::SimToolChanged => {
-                if let Some(t) = self.s.sim_tool_change.take() {
-                    self.s.tool_in_spindle = t;
-                    self.s.interp = Interp::Idle;
-                    self.msg(MessageKind::Display, format!("(sim) T{t} loaded"));
-                }
-            }
         }
-        Ok(self.serial)
+        Ok(Serial(self.serial))
     }
 
     fn next_message(&mut self) -> Option<Message> {
         self.messages.pop_front()
+    }
+
+    fn sim_tool_change(&self) -> Option<i32> {
+        self.tool_change
+    }
+
+    fn sim_tool_changed(&mut self) {
+        if let Some(t) = self.tool_change.take() {
+            self.s.tool_in_spindle = t;
+            self.s.interp = InterpState::Idle;
+            self.msg(MessageKind::Display, format!("(sim) T{t} loaded"));
+        }
+    }
+}
+
+/// Axes and joints are the same on the simulated trivkins mill.
+fn jog_index(t: JogTarget) -> usize {
+    match t {
+        JogTarget::Axis(a) => a.index(),
+        JogTarget::Joint(j) => j as usize,
     }
 }

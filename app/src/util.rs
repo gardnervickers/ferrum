@@ -12,7 +12,7 @@ use crate::modules::SetterHal;
 use crate::settings::Settings;
 use crate::toolchange::Io;
 use crate::{Actions, Live, MainWindow, StatusRow, WarmStage};
-use linuxcnc::{Command, Handle, Message, Status, TaskState};
+use machine::{Command, Handle, Message, Rotation, SpindleDirection, Status, TaskState};
 use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -103,7 +103,7 @@ impl Util {
             return;
         }
         self.machine.send(Command::SpindleScale(1.0));
-        self.machine.send(Command::SpindleOn(self.stages[0].0));
+        self.machine.send(Command::SpindleOn { rpm: self.stages[0].0, rotation: Rotation::Forward });
         let now = Instant::now();
         self.warm = Some(Warmup { stage: 0, stage_start: now, started: now });
         self.note(format!("Warm-up stage 1: {} rpm", self.stages[0].0), false);
@@ -136,7 +136,7 @@ impl Util {
             Some("Probe in spindle")
         } else if !grace && !s.spindle_enabled {
             Some("Spindle stopped during warm-up")
-        } else if !grace && (s.spindle_direction != 1 || (s.spindle_speed - rpm).abs() > 0.5) {
+        } else if !grace && (s.spindle_direction != SpindleDirection::Forward || (s.spindle_speed - rpm).abs() > 0.5) {
             Some("Spindle RPM or direction changed")
         } else if !grace && (s.spindle_scale - 1.0).abs() > 1e-6 {
             Some("Spindle override changed")
@@ -153,7 +153,7 @@ impl Util {
                 self.stop("Warm-up complete", false);
             } else {
                 let rpm = self.stages[next].0;
-                self.machine.send(Command::SpindleOn(rpm));
+                self.machine.send(Command::SpindleOn { rpm, rotation: Rotation::Forward });
                 self.warm = Some(Warmup { stage: next, stage_start: Instant::now(), started: w.started });
                 self.note(format!("Warm-up stage {}: {rpm} rpm", next + 1), false);
             }
@@ -213,9 +213,9 @@ impl Util {
                 row("Interpreter", format!("{:?}", s.interp).to_uppercase(), "");
                 row("Homed", if s.all_homed() { "ALL".into() } else { "NO".into() }, if s.all_homed() { "good" } else { "warn" });
                 row("Tool", if s.tool_in_spindle == 0 { "EMPTY".into() } else { format!("T{}", s.tool_in_spindle) }, "");
-                row("Spindle", match (s.spindle_enabled, s.spindle_direction) { (false, _) => "STOPPED".into(), (_, 1) => "FORWARD".into(), (_, -1) => "REVERSE".into(), _ => "ON".into() }, "");
+                row("Spindle", match (s.spindle_enabled, s.spindle_direction) { (false, _) => "STOPPED".into(), (_, SpindleDirection::Forward) => "FORWARD".into(), (_, SpindleDirection::Reverse) => "REVERSE".into(), _ => "ON".into() }, "");
                 row("Speed cmd", format!("{:.0} RPM", if s.spindle_enabled { s.spindle_speed * s.spindle_scale } else { 0.0 }), "");
-                row("WCS", s.wcs_name().into(), "");
+                row("WCS", s.wcs.name().into(), "");
             }
         }
         if let Some(io) = &self.io {

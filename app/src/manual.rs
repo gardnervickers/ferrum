@@ -7,7 +7,7 @@ use crate::config::Config;
 use crate::powerfeed::{self, Mode, PowerFeed};
 use crate::settings::Settings;
 use crate::{Actions, GotoRow, Live, MainWindow, MsgRow};
-use linuxcnc::{Command, Handle, Interp, Message, MessageKind, Status};
+use machine::{Command, Handle, Interp, JogTarget, JointSel, Message, MessageKind, Rotation, Status};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -419,13 +419,18 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
             return;
         }
         let speed = if axis == A_AXIS { m.speed_a } else { m.speed };
+        let Some(target) = jog_target(axis) else { return };
         match m.step.parse::<f64>() {
-            Ok(incr) => mc.send(Command::JogIncr { axis, vel: speed, incr: incr * dir as f64 }),
-            Err(_) => mc.send(Command::JogCont { axis, vel: speed * dir as f64 }),
+            Ok(incr) => mc.send(Command::JogIncr { target, vel: speed, incr: incr * dir as f64 }),
+            Err(_) => mc.send(Command::JogCont { target, vel: speed * dir as f64 }),
         }
     });
     let mc = machine.clone();
-    actions.on_jog_stop(move |axis| mc.send(Command::JogStop { axis }));
+    actions.on_jog_stop(move |axis| {
+        if let Some(target) = jog_target(axis) {
+            mc.send(Command::JogStop { target });
+        }
+    });
 
     let (mm, weak) = (manual.clone(), ui.as_weak());
     actions.on_jog_step_set(move |step| {
@@ -439,7 +444,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     // A has no home switch; homing joint 3 with no search velocity latches
     // the current position as its home.
     let mc = machine.clone();
-    actions.on_set_a_reference(move || mc.send(Command::Home(A_AXIS)));
+    actions.on_set_a_reference(move || mc.send(Command::Home(JointSel::Joint(A_AXIS as u8))));
 
     let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
     actions.on_spindle(move |dir| {
@@ -453,7 +458,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
             }
         }
         let rpm = mm.borrow().rpm;
-        mc.send(if dir == 0 { Command::SpindleOff } else { Command::SpindleOn(rpm * dir as f64) });
+        mc.send(if dir == 0 { Command::SpindleOff } else { Command::SpindleOn { rpm, rotation: if dir < 0 { Rotation::Reverse } else { Rotation::Forward } } });
     });
 
     // NML coolant commands, not M7/M8/M9: they work mid-program, and
@@ -736,4 +741,9 @@ mod tests {
         assert!(m.apply("jog-speed", 25.0).is_ok());
         assert_eq!(m.speed, 25.0);
     }
+}
+
+/// The screen's axis number (0 = X) as a jog target.
+fn jog_target(axis: i32) -> Option<JogTarget> {
+    usize::try_from(axis).ok().and_then(machine::Axis::from_index).map(JogTarget::Axis)
 }

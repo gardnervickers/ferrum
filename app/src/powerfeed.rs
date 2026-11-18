@@ -7,7 +7,7 @@
 
 use crate::config::Config;
 use crate::settings::Settings;
-use linuxcnc::{Interp, Status};
+use machine::{Interp, Status};
 
 pub const WCS: [&str; 9] = ["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"];
 /// End of travel stops this far inside the soft limit.

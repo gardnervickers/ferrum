@@ -21,7 +21,7 @@
 //! compensation or incremental moves on, or for a JOB program (jobs start at
 //! an op on the JOB screen instead).
 
-use linuxcnc::{Command, Handle, Interp, Status};
+use machine::{Command, Handle, Interp, Status};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -512,7 +512,7 @@ impl Restart {
     /// Advance on each status (or clock tick). Returns false once finished.
     pub fn pump(&mut self, s: &Status, m: &Handle) -> bool {
         let Some(at) = self.started else {
-            m.send(Command::ProgramOpen(self.copy.clone()));
+            m.send(Command::ProgramOpen(self.copy.clone().into()));
             m.send(Command::ProgramRun(0));
             self.started = Some(Instant::now());
             return true;
@@ -524,7 +524,7 @@ impl Restart {
         if !self.seen_running && at.elapsed() < Duration::from_secs(3) {
             return true;
         }
-        m.send(Command::ProgramOpen(self.original.clone()));
+        m.send(Command::ProgramOpen(self.original.clone().into()));
         false
     }
 }

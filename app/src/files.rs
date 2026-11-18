@@ -4,7 +4,7 @@
 
 use crate::config::Config;
 use crate::{Actions, FileOp, FileRow, Live, MainWindow};
-use linuxcnc::{Command, Handle};
+use machine::{Command, Handle};
 use preview::Toolpath;
 use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer, SharedString};
 use std::cell::RefCell;
@@ -398,7 +398,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
     let (f, mc, weak) = (files.clone(), machine.clone(), ui.as_weak());
     actions.on_files_load(move || {
         let Some(path) = f.borrow().selected_path() else { return };
-        mc.send(Command::ProgramOpen(path.to_string_lossy().into_owned()));
+        mc.send(Command::ProgramOpen(path));
         if let Some(ui) = weak.upgrade() {
             let live = ui.global::<Live>();
             live.set_run_tab("program".into());

@@ -36,7 +36,7 @@ mkdir -p ~/lcnc/sysroot/usr/include
 ln -s ~/lcnc/src/include ~/lcnc/sysroot/usr/include/linuxcnc
 ln -s ~/lcnc/src/lib ~/lcnc/sysroot/usr/lib
 cd millgui
-MILLGUI_SYSROOT=~/lcnc/sysroot CARGO_TARGET_DIR=target-nml cargo build -p millgui
+LCNC_SYSROOT=~/lcnc/sysroot CARGO_TARGET_DIR=target-nml cargo build -p millgui
 ```
 
 Build the probe manager comp once (`halcompile --install` on
