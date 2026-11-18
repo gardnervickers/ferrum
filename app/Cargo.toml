@@ -33,3 +33,7 @@ slint = { version = "1.19", default-features = false, features = ["backend-winit
 # Loads libEGL at runtime to ask the GL driver for its name.
 [target.'cfg(target_os = "linux")'.dependencies]
 libloading = "0.8"
+
+# millgui --boot: a terminal for LinuxCNC's start script (boot.rs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

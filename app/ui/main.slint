@@ -3,6 +3,7 @@ import { Live, Actions, PillData, DroRow, DroPos, NavItem, MsgRow, MdiCard, Goto
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
 import { Placeholder, RunScreen, Blocked } from "screens.slint";
 import { Arrive } from "widgets.slint";
+import { Brand, Boot, BootStep, Splash } from "brand.slint";
 
 import { ManualScreen } from "jog.slint";
 import { FilesScreen } from "files.slint";
@@ -16,11 +17,12 @@ import { ConvScreen } from "conv.slint";
 import { SetupScreen } from "setup.slint";
 
 export { Live, Actions, PillData, DroRow, DroPos, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow, JobOp, ConvField, HistoryRow, SetupRow, SetupStep }
+export { Brand, Boot, BootStep }
 
 // Drawn at the mill's 1920x1080. Each screen is only instantiated while it
 // is shown, so a disabled module's screen never exists.
 export component MainWindow inherits Window {
-    title: "millgui";
+    title: Brand.title;
     // Fixed on the touchscreen; desktop and browser windows scale or stretch it.
     preferred-width: 1920px;
     preferred-height: 1080px;
@@ -154,4 +156,6 @@ export component MainWindow inherits Window {
         }
         TouchArea { clicked => { Live.toast = ""; Actions.toast-dismiss(); } }
     }
+    // The start-up splash, over everything until millgui is connected.
+    if Boot.phase != "": Splash { x: 0; y: 0; width: parent.width; height: parent.height; }
 }

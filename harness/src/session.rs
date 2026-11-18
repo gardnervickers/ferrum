@@ -48,7 +48,14 @@ impl Session {
         // restore-pending marker there, LinuxCNC its tool mmap.
         let home = cfg_dir.parent().unwrap_or(cfg_dir).join("home");
         std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
-        let mut cmd = rip_cmd(&env.lcnc, "exec linuxcnc millgui.ini");
+        // HARNESS_BOOT=1: start through `millgui --boot` (the splash
+        // launcher, which runs LinuxCNC itself) instead of `linuxcnc`.
+        let start = if std::env::var("HARNESS_BOOT").is_ok_and(|v| v == "1") {
+            format!("exec '{}' --boot millgui.ini", env.millgui_bin.display())
+        } else {
+            "exec linuxcnc millgui.ini".to_string()
+        };
+        let mut cmd = rip_cmd(&env.lcnc, &start);
         cmd.current_dir(cfg_dir)
             .env("HOME", &home)
             .env("DISPLAY", &env.display)
@@ -315,6 +322,8 @@ pub fn cleanup(lcnc: &Path) {
         .args(["-9", "-f", "sim_card.py|sim_pendant.py|lcnc_helper.py"])
         .status();
     let _ = rip_cmd(lcnc, "halrun -U >/dev/null 2>&1").status();
+    // A killed session leaves its lock; `millgui --boot` would ask about it.
+    let _ = std::fs::remove_file("/tmp/linuxcnc.lock");
 }
 
 impl Drop for Session {

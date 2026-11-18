@@ -45,8 +45,22 @@ backend; they always use the simulated machine (`--sim` forces it on the Pi).
 ## Run on the Pi
 
 ```bash
-linuxcnc ~/linuxcnc/configs/mymill/millgui.ini
+~/linuxcnc/configs/mymill/millgui/boot            # splash while LinuxCNC starts
+linuxcnc ~/linuxcnc/configs/mymill/millgui.ini    # as before
 ```
+
+`millgui/boot` (`millgui --boot millgui.ini`) opens the screen at once with
+the splash and starts LinuxCNC underneath, showing the steps it reports
+(realtime, each HAL file, motion, screen). If LinuxCNC fails to start, the
+splash says why, with the lines LinuxCNC printed, TRY AGAIN and EXIT; the full
+output is in `~/.cache/millgui/linuxcnc-start.log`. A stale
+`/tmp/linuxcnc.lock` gets a RESTART LINUXCNC (hold) button instead of
+LinuxCNC's own question. EXIT stops LinuxCNC in order behind a STOPPING
+splash. Started the old way, LinuxCNC opens the display last, so the splash
+only covers millgui connecting.
+
+The product name (on the splash, window title and UTIL) lives in one place:
+`Brand` in `app/ui/brand.slint`.
 
 `millgui.ini` sets its own `[DISPLAY]` and `[MILLGUI]` sections, then
 `#INCLUDE`s `mymill.ini`, so the machine config stays single-sourced and Probe

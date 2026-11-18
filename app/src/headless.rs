@@ -24,6 +24,22 @@ pub fn install(width: u32, height: u32) -> Rc<MinimalSoftwareWindow> {
     window
 }
 
+/// Draw for `ms`, so entrances (which start when first drawn) play out.
+pub fn settle(window: &MinimalSoftwareWindow, ms: u64) {
+    let size = window.size();
+    let (w, h) = (size.width as usize, size.height as usize);
+    let mut buf = vec![Rgb8Pixel { r: 0, g: 0, b: 0 }; w * h];
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_millis(ms) {
+        slint::platform::update_timers_and_animations();
+        window.request_redraw();
+        window.draw_if_needed(|r| {
+            r.render(&mut buf, w);
+        });
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+}
+
 pub fn save(window: &MinimalSoftwareWindow, path: &Path) -> Result<(), String> {
     let size = window.size();
     let (w, h) = (size.width as usize, size.height as usize);

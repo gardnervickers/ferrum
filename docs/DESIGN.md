@@ -54,6 +54,12 @@ widgets in `app/ui/widgets.slint`.
   redraws the screen, at every change it reads. A one-off entrance sets
   constants in `init` (`opacity: 0; init => { self.opacity = 1; }`): a
   binding that flips in `init` starts at its end value and never plays.
+  The start-up splash (`app/ui/brand.slint`) has one entrance of its
+  own, under a second: the Fe tile rises in, the name's letters follow,
+  a rust stroke draws under them. While LinuxCNC starts, the step under
+  way blinks hard on/off; it stops as soon as the screen is ready. Rust
+  (`Brand.rust`) belongs to the mark and the splash only, so it is never
+  read as a status or a control.
   The exception is the probe preview: a small tip plays the selected
   routine twice on the PROBE picture (green, so it is never read as a
   control or an arrow), and it stops while a probe runs.

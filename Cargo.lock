@@ -2528,6 +2528,7 @@ dependencies = [
  "ctrlc",
  "jobcore",
  "lcnc",
+ "libc",
  "libloading",
  "machine",
  "png 0.17.16",

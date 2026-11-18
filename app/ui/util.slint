@@ -1,6 +1,7 @@
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, WarmStage, StatusRow } from "state.slint";
 import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
+import { Brand, Lockup } from "brand.slint";
 
 component Cell inherits Rectangle {
     in property <string> key;
@@ -127,8 +128,22 @@ export component UtilScreen inherits Rectangle {
                     spacing: 10px;
                     for r[i] in Live.ut-status: Cell { col: mod(i, 3); row: floor(i / 3); key: r.key; value: r.value; kind: r.kind; }
                 }
-                Rectangle { vertical-stretch: 1; }
                 Note { text: "From LinuxCNC status and the machine's HAL signals."; }
+                Rectangle { vertical-stretch: 1; }
+                // The product's mark and version, quietly at the foot.
+                HorizontalLayout {
+                    spacing: 20px;
+                    Lockup { size: 64px; }
+                    Text {
+                        horizontal-stretch: 1;
+                        horizontal-alignment: right;
+                        vertical-alignment: bottom;
+                        text: "v" + Brand.version;
+                        font-family: Theme.body;
+                        font-size: 20px;
+                        color: Theme.dim;
+                    }
+                }
             }
         }
     }

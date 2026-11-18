@@ -3,6 +3,7 @@
 //! LinuxCNC starts it as `millgui -ini <file>`. `--sim` runs against the
 //! simulated machine instead (the default on builds without NML, e.g. the Mac).
 
+mod boot;
 mod calc;
 mod config;
 mod conv;
@@ -64,10 +65,12 @@ struct Args {
     check: bool,
     /// `--check --write-ini`: also add the INI lines it asks for.
     write_ini: bool,
+    /// `--boot [INI]`: start LinuxCNC under the splash (boot.rs).
+    boot: bool,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new(), open: None, size: None, check: false, write_ini: false };
+    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new(), open: None, size: None, check: false, write_ini: false, boot: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -87,13 +90,17 @@ fn parse_args() -> Args {
                 a.check = true;
                 a.write_ini = true;
             }
-            other if a.check && !other.starts_with('-') => a.ini = Some(PathBuf::from(other)),
+            "--boot" => a.boot = true,
+            other if (a.check || a.boot) && !other.starts_with('-') => a.ini = Some(PathBuf::from(other)),
             _ => {}
         }
     }
     if !cfg!(target_os = "linux") && !a.check {
         a.sim = true;
     }
+    // Absolute, so the INI's folder is known whatever the working folder
+    // (`millgui --boot millgui.ini` names it relative).
+    a.ini = a.ini.map(|p| std::fs::canonicalize(&p).unwrap_or(p));
     a
 }
 
@@ -108,28 +115,25 @@ struct UiState {
     cycle_elapsed: Duration,
 }
 
-fn connect_machine(args: &Args, cfg: &Config) -> Box<dyn machine::Machine> {
-    if args.sim {
+/// The simulator, or LinuxCNC over NML. Runs on a thread while the splash shows.
+fn connect_machine(sim: bool, open: Option<PathBuf>, nml: Option<String>) -> Result<Box<dyn machine::Machine>, String> {
+    if sim {
         let mut sim = machine::Sim::new();
         // `--open <file>` (simulator only): start powered, homed, with a program loaded.
-        if let Some(f) = &args.open {
+        if let Some(f) = &open {
             use machine::Machine;
             for c in [Command::SetState(TaskState::EstopReset), Command::SetState(TaskState::On), Command::Home(JointSel::All), Command::ProgramOpen(f.clone())] {
                 let _ = sim.send(&c);
             }
         }
-        return Box::new(sim);
+        return Ok(Box::new(sim));
     }
-    let nml = cfg.get("EMC", "NML_FILE").map(|f| cfg.dir().join(f).to_string_lossy().into_owned());
     // LinuxCNC starts the display after task is up, but give it a moment.
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         match machine::connect(nml.as_deref()) {
-            Ok(m) => return m,
-            Err(e) if Instant::now() > deadline => {
-                eprintln!("millgui: {e}");
-                std::process::exit(1);
-            }
+            Ok(m) => return Ok(m),
+            Err(e) if Instant::now() > deadline => return Err(e),
             Err(_) => std::thread::sleep(Duration::from_millis(250)),
         }
     }
@@ -699,6 +703,9 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
 }
 
 fn main() -> Result<(), slint::PlatformError> {
+    // Under `millgui --boot` LinuxCNC starts this copy only to hold its
+    // session open; the launcher is the display.
+    boot::attach_if_launched();
     let args = parse_args();
     let mut notes = Vec::new();
     let cfg = match &args.ini {
@@ -733,10 +740,23 @@ fn main() -> Result<(), slint::PlatformError> {
         return screenshot(&args, &cfg, &modules, out);
     }
 
-    let machine = connect_machine(&args, &cfg);
-    // Keep the HAL component alive until exit.
-    let _hal = if args.sim { None } else { setup_hal(&cfg, &mut modules, &mut notes) };
+    // LinuxCNC stops the display with SIGTERM; leave the loop so hal_exit
+    // runs (and, under --boot, so LinuxCNC is stopped in order).
+    let _ = ctrlc::set_handler(|| {
+        // While --boot stops LinuxCNC, its `halcmd unload all` sends this
+        // process SIGTERM for its HAL components: already on the way out.
+        if boot::STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        if boot::LAUNCHED.load(std::sync::atomic::Ordering::SeqCst) {
+            boot::SIGNALLED.store(true, std::sync::atomic::Ordering::SeqCst);
+            return;
+        }
+        let _ = slint::invoke_from_event_loop(boot::request_quit);
+    });
 
+    // The window and its splash come first: everything below happens
+    // while the splash shows.
     let (choice, why) = renderer::choose(&cfg);
     let renderer = renderer::install(choice);
     eprintln!("millgui: drawing with {why}");
@@ -748,6 +768,47 @@ fn main() -> Result<(), slint::PlatformError> {
     if args.windowed || args.sim {
         fit_desktop_window(&ui);
     }
+    boot::init_brand(&ui);
+    #[cfg(unix)]
+    let launcher: Rc<RefCell<Option<boot::Launcher>>> = Rc::new(RefCell::new(None));
+    if args.boot && !args.sim {
+        #[cfg(unix)]
+        {
+            let Some(ini) = args.ini.clone() else {
+                eprintln!("millgui: --boot needs the INI file: millgui --boot millgui.ini");
+                std::process::exit(2);
+            };
+            boot::show(&ui, 0, boot::footer(None, Some(&ini)));
+            match boot::launch(&ui, &ini, &cfg) {
+                Some(l) => {
+                    *launcher.borrow_mut() = Some(l);
+                    boot::LAUNCHED.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                None => return Ok(()),
+            }
+        }
+    } else if args.sim {
+        boot::show(&ui, 3, "Simulated machine".into());
+    } else {
+        boot::show(&ui, 3, boot::footer(None, cfg.path.as_deref()));
+    }
+    let nml = cfg.get("EMC", "NML_FILE").map(|f| cfg.dir().join(f).to_string_lossy().into_owned());
+    let (sim, open) = (args.sim, args.open.clone());
+    // The simulator is there at once: no wait, and only one event loop
+    // (the Mac window never has to run one twice).
+    let machine = if sim { connect_machine(sim, open, nml).ok() } else { boot::connect(&ui, move || connect_machine(sim, open, nml)) };
+    let Some(machine) = machine else {
+        #[cfg(unix)]
+        {
+            let left = launcher.borrow_mut().take();
+            if let Some(l) = left {
+                l.shutdown(&ui);
+            }
+        }
+        std::process::exit(1);
+    };
+    // Keep the HAL component alive until exit.
+    let _hal = if args.sim { None } else { setup_hal(&cfg, &mut modules, &mut notes) };
     set_nav(&ui, &modules, args.screen.as_deref());
     let live = ui.global::<Live>();
     if !notes.is_empty() {
@@ -797,6 +858,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         st.connected = true;
                         live.set_connected(true);
                         apply_status(ui, &mut st, &s, &axes);
+                        boot::ready(ui);
                         // A program that pauses right after a (MSG, ...) is
                         // asking for something: the top bar cuts the text
                         // off, so show it in full until the program goes on.
@@ -1123,14 +1185,49 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
-    // LinuxCNC stops the display with SIGTERM; leave the loop so hal_exit runs.
-    let _ = ctrlc::set_handler(|| {
-        let _ = slint::invoke_from_event_loop(|| {
-            let _ = slint::quit_event_loop();
+    // Under --boot, LinuxCNC stopping by itself (a crash, a HAL error)
+    // brings the splash back saying so.
+    #[cfg(unix)]
+    let _lcnc_watch = {
+        let t = slint::Timer::default();
+        let (weak, launcher) = (ui.as_weak(), launcher.clone());
+        let mut signalled: Option<Instant> = None;
+        t.start(slint::TimerMode::Repeated, Duration::from_millis(250), move || {
+            let gone = launcher.borrow_mut().as_mut().is_some_and(|l| l.exited());
+            let Some(ui) = weak.upgrade() else { return };
+            if gone {
+                signalled = None;
+                if ui.global::<Boot>().get_phase() != "failed" {
+                    boot::stopped(&ui);
+                }
+                return;
+            }
+            // A signal under --boot: LinuxCNC's own shutdown sends one
+            // (`halcmd unload all`) just before it ends, which the screen
+            // reports as above. Anything else (Ctrl-C, a logout) stops.
+            if boot::SIGNALLED.swap(false, std::sync::atomic::Ordering::SeqCst) && signalled.is_none() {
+                signalled = Some(Instant::now());
+            }
+            if signalled.is_some_and(|t| t.elapsed() > Duration::from_secs(4)) {
+                signalled = None;
+                boot::request_quit();
+            }
         });
-    });
+        t
+    };
 
-    ui.run()
+    ui.global::<Boot>().on_quit(boot::request_quit);
+    ui.show()?;
+    let r = slint::run_event_loop();
+    drop(_hal);
+    #[cfg(unix)]
+    let left = launcher.borrow_mut().take();
+    #[cfg(unix)]
+    if let Some(l) = left {
+        l.shutdown(&ui);
+    }
+    let _ = ui.hide();
+    r
 }
 
 /// `--write-ini`: the check's INI lines into the INI, only while LinuxCNC
@@ -1228,6 +1325,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     let (w, h) = args.size.unwrap_or((1920, 1080));
     let window = headless::install(w, h);
     let ui = MainWindow::new()?;
+    boot::init_brand(&ui);
     if args.size.is_some() {
         let s = layout_scale(w, h);
         ui.window().dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged { scale_factor: s });
@@ -1291,6 +1389,11 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     let actions = ui.global::<Actions>();
     for what in &args.show {
         match what.as_str() {
+            // The splash: let its entrance play out first.
+            w if w.starts_with("boot") => {
+                boot::demo(&ui, w);
+                headless::settle(&window, 1500);
+            }
             "keypad" => {
                 actions.invoke_edit("jog-speed".into());
                 actions.invoke_keypad_key("CLR".into());
