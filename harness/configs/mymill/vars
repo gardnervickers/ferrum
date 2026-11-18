@@ -24,3 +24,6 @@ block_top = -250
 block_above = -240
 block_below = -260
 probe_tol = 0.05
+# probe_basic.var's probe values.
+seed_slow = 80
+seed_xy_clear = 4

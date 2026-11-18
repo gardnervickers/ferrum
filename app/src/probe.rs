@@ -9,10 +9,15 @@
 //!   before the macro and the saved default written back afterwards, after a
 //!   success, a failure or STOP alike. A state file marks a run in progress
 //!   so a crash mid-run is repaired at the next start (`restore_pending`).
-//! - Defaults are the parameter file's values at startup, unless that marker
-//!   says an earlier run never restored them; then the saved copy wins.
-//!   Calibration macros change #3010/#3032 themselves; their reported value
-//!   becomes the new default so the restore keeps it.
+//! - Defaults: millgui.toml's `[probe.defaults]` and `[toolsetter]` values
+//!   (probe_defaults.rs), else the parameter file's, else starting values;
+//!   #3014 is `[probe]tool`. When these differ from what LinuxCNC holds,
+//!   the whole set is written once LinuxCNC is quiet (as a restore). If
+//!   the marker says an earlier run never restored them, the saved copy
+//!   stands in for the parameter file. A default changed on DEFAULTS or in
+//!   SETUP is saved to millgui.toml. Calibration macros change #3010/#3032
+//!   themselves; their reported value becomes the new default (and is
+//!   saved) so the restore keeps it.
 //! - Results arrive as the macros' `(DEBUG, EVAL[vcp.getWidget{..}...])`
 //!   lines; they are shown, never trusted to have written anything.
 //! - FIND writes to the chosen WCS by making it active for the run and
@@ -232,6 +237,9 @@ struct Run {
 
 const RESULT_GRACE: Duration = Duration::from_millis(400);
 
+/// How long LinuxCNC must sit still before millgui writes the defaults.
+const QUIET_FOR: Duration = Duration::from_secs(3);
+
 pub struct Probe {
     mode: &'static str,
     shape: &'static str,
@@ -255,9 +263,16 @@ pub struct Probe {
     restore_pending: bool,
     /// No restore attempt before this (after one failed).
     restore_after: Option<Instant>,
+    /// Since when LinuxCNC has been on, homed and still (`maybe_restore`).
+    quiet_since: Option<Instant>,
     /// A job with probing ops was started; see `job_started`.
     job_armed: bool,
     probe_tool: i32,
+    /// Where each owned default came from (probe_defaults::DEFS).
+    sources: BTreeMap<u16, crate::probe_defaults::Source>,
+    /// The millgui.toml defaults are saved to, and the file a new one
+    /// starts from; None in the simulator.
+    toml: Option<(std::path::PathBuf, Option<std::path::PathBuf>)>,
     machine: Handle,
     io: Option<Rc<dyn Io>>,
     ui: slint::Weak<MainWindow>,
@@ -652,6 +667,13 @@ impl Probe {
             run.insert(3030, 0.0);
         }
         run.retain(|n, v| self.defaults.get(n) != Some(v));
+        // Defaults LinuxCNC does not hold yet (the quiet-time write has not
+        // happened): the whole set first.
+        if self.restore_pending {
+            steps.extend(Self::assign_lines(self.defaults.iter().map(|(n, v)| (*n, *v))));
+            self.restore_pending = false;
+            self.state.set("probe.restore-pending", 0);
+        }
         if !run.is_empty() {
             steps.extend(Self::assign_lines(run.iter().map(|(n, v)| (*n, *v))));
             restore.extend(Self::assign_lines(run.keys().map(|n| (*n, self.defaults.get(n).copied().unwrap_or(0.0)))));
@@ -843,6 +865,9 @@ impl Probe {
                     self.defaults.insert(n, *v);
                     self.runv.remove(&n);
                     self.save_defaults();
+                    if let Err(e) = self.save_toml(n, *v) {
+                        self.note(format!("Not saved to millgui.toml: {e}"), true);
+                    }
                 }
             }
         }
@@ -993,7 +1018,8 @@ impl Probe {
         let more: Vec<ProbeParam> = self.used_params(sel.kind).into_iter().filter(|n| !key.contains(n)).map(row).collect();
         crate::models::sync(live.get_pr_more(), more, |m| live.set_pr_more(m));
         live.set_pr_changed(!self.runv.is_empty() || !self.locv.is_empty());
-        crate::models::sync(live.get_pr_defaults(), PARAMS.iter().map(|p| {
+        // #3014 is [probe]tool (SETUP), not a default to edit here.
+        crate::models::sync(live.get_pr_defaults(), PARAMS.iter().filter(|p| p.n != crate::probe_defaults::PROBE_TOOL).map(|p| {
             let mut r = row(p.n);
             r.value = fmt_value(p.n, self.defaults.get(&p.n).copied().unwrap_or(0.0)).into();
             r.changed = false;
@@ -1170,11 +1196,63 @@ impl Probe {
         if !s.power_on() || s.busy() || self.run.is_some() {
             return Err("Defaults change through MDI: machine on and nothing running".into());
         }
+        let saved = self.save_toml(n, v);
         self.machine.send(Command::Mdi(format!("#{n}={v:.6}")));
         self.defaults.insert(n, v);
         self.runv.remove(&n);
         self.save_defaults();
-        Ok(())
+        saved
+    }
+
+    /// Save an owned default to millgui.toml (not in the simulator).
+    fn save_toml(&mut self, n: u16, v: f64) -> Result<(), String> {
+        let Some(d) = crate::probe_defaults::def(n) else { return Ok(()) };
+        self.sources.insert(n, crate::probe_defaults::Source::Toml);
+        let Some((path, seed)) = &self.toml else { return Ok(()) };
+        crate::machine_cfg::write_key(path, seed.as_deref(), d.key, Some(toml_edit::value((v * 1e6).round() / 1e6)))
+    }
+
+    /// SETUP changed a default (already saved): use it from the next run on,
+    /// and write it to LinuxCNC once it is quiet.
+    pub fn adopt(&mut self, n: u16, v: f64) {
+        self.defaults.insert(n, v);
+        self.sources.insert(n, crate::probe_defaults::Source::Toml);
+        self.runv.remove(&n);
+        self.save_defaults();
+        self.mark_dirty(true);
+        self.restore_after = None;
+        // The operator is on SETUP, not jogging: no need to wait.
+        self.maybe_restore(true);
+        self.pump();
+    }
+
+    /// Defaults LinuxCNC may not hold (a crash mid-run, values new to it):
+    /// write them once LinuxCNC takes MDI (on and homed) and nothing has
+    /// moved for QUIET_FOR. Homing and jogs leave the interpreter idle, and
+    /// an MDI then would abort them (or be refused mid-jog); the wait keeps
+    /// it out of a burst of jogs.
+    fn maybe_restore(&mut self, now: bool) {
+        let Some(s) = &self.status else { return };
+        let quiet = s.power_on() && s.all_homed() && !s.busy() && s.inpos && !s.homing.iter().any(|h| *h);
+        if !quiet {
+            self.quiet_since = None;
+            return;
+        }
+        let since = *self.quiet_since.get_or_insert_with(Instant::now);
+        let settled = now || since.elapsed() >= QUIET_FOR;
+        let due = self.restore_after.is_none_or(|t| Instant::now() >= t);
+        if self.restore_pending && self.run.is_none() && settled && due {
+            let lines = Self::assign_lines(self.defaults.iter().map(|(n, v)| (*n, *v)));
+            self.run = Some(Run { steps: Vec::new(), restore: lines, sent: None, failed: None, restoring: false, restore_failed: false, what: "Restore probe defaults".into(), kind: "", flow_step: None, done_at: None });
+            self.restore_pending = false;
+            self.restore_after = None;
+        }
+    }
+
+    /// An owned default as millgui uses it now, and where it came from.
+    pub fn default_of(&self, n: u16) -> (Option<f64>, crate::probe_defaults::Source) {
+        let src = self.sources.get(&n).copied().unwrap_or(crate::probe_defaults::Source::Missing);
+        (if src == crate::probe_defaults::Source::Missing { None } else { self.defaults.get(&n).copied() }, src)
     }
 }
 
@@ -1388,33 +1466,40 @@ impl KeypadTarget for Keys {
 }
 
 pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn Io>>, sim: bool, rotation: Box<dyn Fn(usize) -> f64>) -> Rc<RefCell<Probe>> {
-    let probe_tool = crate::machine_cfg::get().probe_tool(cfg);
-    // Defaults: the parameter file, unless a run never restored them.
+    use crate::probe_defaults as pd;
+    let mc = crate::machine_cfg::get();
+    let probe_tool = mc.probe_tool(cfg);
+    // What LinuxCNC holds: the parameter file, with the saved copy on top
+    // when a run never restored the defaults.
     let state = if sim { Settings::memory() } else { Settings::at("probe") };
-    let restore_pending = state.get("probe.restore-pending") == Some("1");
-    let mut defaults: BTreeMap<u16, f64> = BTreeMap::new();
+    let mut restore_pending = state.get("probe.restore-pending") == Some("1");
+    let file = pd::param_file(cfg);
+    let mut base = file.clone();
     if restore_pending {
         for v in state.list("probe.default.") {
             if let Some((n, v)) = v.split_once('=') {
                 if let (Ok(n), Ok(v)) = (n.parse(), v.parse()) {
-                    defaults.insert(n, v);
+                    base.insert(n, v);
                 }
             }
         }
     }
-    if defaults.is_empty() {
-        let path = cfg.dir().join(cfg.get("RS274NGC", "PARAMETER_FILE").unwrap_or("linuxcnc.var"));
-        if let Ok(text) = std::fs::read_to_string(path) {
-            for line in text.lines() {
-                let mut w = line.split_whitespace();
-                if let (Some(Ok(n)), Some(Ok(v))) = (w.next().map(str::parse::<u16>), w.next().map(str::parse::<f64>)) {
-                    if (3004..=3037).contains(&n) {
-                        defaults.insert(n, v);
-                    }
-                }
-            }
+    // millgui's own values on top: millgui.toml, else those, else seeds.
+    let mut defaults = base.clone();
+    let mut sources = BTreeMap::new();
+    for (n, (v, src)) in pd::resolve(mc, &base, crate::machine_info::get().units.inch()) {
+        if let Some(v) = v {
+            defaults.insert(n, v);
         }
+        sources.insert(n, src);
     }
+    defaults.insert(pd::PROBE_TOOL, probe_tool as f64);
+    // Anything LinuxCNC does not already hold goes to it once it is quiet.
+    let used = mc.probe.enabled != Some(false) || mc.toolsetter.enabled == Some(true);
+    if used && defaults.iter().any(|(n, v)| (sources.contains_key(n) || *n == pd::PROBE_TOOL) && file.get(n) != Some(v)) {
+        restore_pending = true;
+    }
+    let toml = (!sim).then(|| mc.target(cfg));
     let probe = Rc::new(RefCell::new(Probe {
         mode: "find",
         shape: "block",
@@ -1437,8 +1522,11 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         state,
         restore_pending,
         restore_after: None,
+        quiet_since: None,
         job_armed: false,
         probe_tool,
+        sources,
+        toml,
         machine: machine.clone(),
         io,
         ui: ui.as_weak(),
@@ -1567,17 +1655,7 @@ pub fn apply_status(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, s: &Status) {
         p.job_armed = false;
         p.mark_dirty(true);
     }
-    // A run that never restored its defaults (crash): restore them once
-    // LinuxCNC takes MDI (on and homed) and nothing moves. Homing and jogs
-    // leave the interpreter idle, and an MDI then would abort them.
-    let quiet = s.power_on() && s.all_homed() && !s.busy() && s.inpos && !s.homing.iter().any(|h| *h);
-    let due = p.restore_after.is_none_or(|t| Instant::now() >= t);
-    if p.restore_pending && p.run.is_none() && quiet && due {
-        let lines = Probe::assign_lines(p.defaults.iter().map(|(n, v)| (*n, *v)));
-        p.run = Some(Run { steps: Vec::new(), restore: lines, sent: None, failed: None, restoring: false, restore_failed: false, what: "Restore probe defaults".into(), kind: "", flow_step: None, done_at: None });
-        p.restore_pending = false;
-        p.restore_after = None;
-    }
+    p.maybe_restore(false);
     p.pump();
     if was != Some(key(s)) || p.run.is_some() {
         p.show(ui);
@@ -1590,6 +1668,9 @@ pub fn start_timer(probe: &Rc<RefCell<Probe>>) -> slint::Timer {
     let p = probe.clone();
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(100), move || {
         let mut p = p.borrow_mut();
+        if p.restore_pending && p.run.is_none() {
+            p.maybe_restore(false);
+        }
         if p.run.is_some() {
             p.pump();
             p.refresh();
@@ -1676,8 +1757,11 @@ mod tests {
             state: Settings::memory(),
             restore_pending: false,
             restore_after: None,
+            quiet_since: None,
             job_armed: false,
             probe_tool: 99,
+            sources: BTreeMap::new(),
+            toml: None,
             machine: machine::spawn(Box::new(machine::Sim::new()), Duration::from_secs(3600), |_| {}),
             io: None,
             ui: slint::Weak::default(),

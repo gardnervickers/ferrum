@@ -14,7 +14,7 @@ expect ui-errors.len == 0
 do home-all
 wait prop.homed == true within 120
 idle 30
-sleep 2                                   # the restore runs now
+sleep 4                                   # the restore runs now (3 s after things go still)
 idle 30
 mdi (DEBUG,P3004=#3004)
 wait prop.messages contains "P3004=111.5" within 5

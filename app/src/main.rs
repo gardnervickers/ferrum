@@ -30,6 +30,7 @@ mod textentry;
 mod toolchange;
 mod offsets;
 mod probe;
+mod probe_defaults;
 mod probe_anim;
 mod tools;
 mod util;
@@ -983,7 +984,7 @@ fn main() -> Result<(), slint::PlatformError> {
     OFFSETS.with(|o| *o.borrow_mut() = Some(offsets));
     let probe = probe::wire(&ui, &handle, &cfg, tc_io.clone(), args.sim, Box::new(move |w| offsets::rotation(&rot, w)));
     let _probe_timer = probe::start_timer(&probe);
-    PROBE.with(|p| *p.borrow_mut() = Some(probe));
+    PROBE.with(|p| *p.borrow_mut() = Some(probe.clone()));
     let setter = modules.iter().find_map(|m| m.setter());
     let util_state = if args.sim { settings::Settings::memory() } else { settings::Settings::at("util") };
     let (util, _util_timer) = util::wire(&ui, &handle, &cfg, tc_io.clone(), setter.clone(), util_state);
@@ -995,7 +996,7 @@ fn main() -> Result<(), slint::PlatformError> {
         asked.toolchange.style = None;
         let detected = checks::toolchange_style(&asked, &ids, hal.as_ref()).0;
         let first = !args.sim && args.screen.is_none() && machine_cfg::get().path.is_none();
-        let s = setup::wire(&ui, &cfg, check_rows, ids.clone(), detected, setter, first);
+        let s = setup::wire(&ui, &cfg, check_rows, ids.clone(), detected, setter, Some(probe), first);
         SETUP.with(|t| *t.borrow_mut() = Some(s));
     }
     let _tc_timer = tc_io.map(|io| toolchange::wire(&ui, &handle, &cfg, io));

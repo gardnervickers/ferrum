@@ -181,12 +181,42 @@ pub struct ProbeSec {
     pub enabled: Option<bool>,
     /// Unset: `[PROBE]TOOL_NUMBER`, else 99.
     pub tool: Option<u32>,
+    /// #3015 to #3035 (probe_defaults.rs). Unset: the parameter file's
+    /// value, else a starting value.
+    pub defaults: ProbeDefaults,
+}
+
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ProbeDefaults {
+    pub slow_feed: Option<f64>,
+    pub fast_feed: Option<f64>,
+    pub traverse_feed: Option<f64>,
+    pub max_xy: Option<f64>,
+    pub xy_clearance: Option<f64>,
+    pub max_z: Option<f64>,
+    pub z_clearance: Option<f64>,
+    pub extra_depth: Option<f64>,
+    pub step_off: Option<f64>,
+    pub edge_width: Option<f64>,
+    pub calibration_offset: Option<f64>,
+    pub ring_gauge: Option<f64>,
+    pub cal_block_x: Option<f64>,
+    pub cal_block_y: Option<f64>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ToolSetterSec {
     pub enabled: Option<bool>,
+    /// #3004 to #3010 and #3037 (probe_defaults.rs).
+    pub fast_feed: Option<f64>,
+    pub slow_feed: Option<f64>,
+    pub traverse_feed: Option<f64>,
+    pub max_z: Option<f64>,
+    pub retract: Option<f64>,
+    pub reference_height: Option<f64>,
+    pub breakage_tolerance: Option<f64>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default, PartialEq)]
@@ -388,6 +418,72 @@ impl MachineCfg {
     }
 }
 
+/// `text` with `key` (`table.key`, or `table.sub.key`) set to `value`, or
+/// removed for None. Comments and layout are kept. Refused when the result
+/// would not read cleanly.
+pub fn edited(text: &str, key: &str, value: Option<toml_edit::Item>) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| format!("millgui.toml does not read: {}", e.message()))?;
+    let (tables, k) = key.rsplit_once('.').ok_or("bad key")?;
+    let top = tables.split('.').next().unwrap_or(tables);
+    match value {
+        Some(v) => {
+            let mut t: &mut dyn toml_edit::TableLike = doc.as_table_mut();
+            for (i, name) in tables.split('.').enumerate() {
+                let nested = i + 1 < tables.split('.').count();
+                let e = t.entry(name).or_insert_with(|| {
+                    let mut n = toml_edit::Table::new();
+                    // [probe.defaults] alone, not an empty [probe] above it.
+                    n.set_implicit(nested);
+                    toml_edit::Item::Table(n)
+                });
+                t = e.as_table_like_mut().ok_or_else(|| format!("[{tables}] in millgui.toml is not a table"))?;
+            }
+            t.insert(k, v);
+        }
+        None => {
+            let mut t: Option<&mut dyn toml_edit::TableLike> = Some(doc.as_table_mut());
+            for name in tables.split('.') {
+                t = t.and_then(|t| t.get_mut(name)).and_then(|i| i.as_table_like_mut());
+            }
+            if let Some(t) = t {
+                t.remove(k);
+            }
+        }
+    }
+    let out = doc.to_string();
+    let (_, problems) = MachineCfg::parse(&out);
+    if let Some(p) = problems.iter().find(|p| p.starts_with(&format!("[{top}]"))) {
+        return Err(p.clone());
+    }
+    Ok(out)
+}
+
+pub const HEADER: &str = "# millgui's settings for this machine (millgui/docs/millgui-toml.md).\n# SETUP writes what it changes here; every key is optional.\n";
+
+/// A new millgui.toml: the older machine.toml's settings, under a header.
+pub fn new_file_text(seed: Option<&Path>) -> String {
+    let old = seed.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    if old.is_empty() { HEADER.to_string() } else { format!("{HEADER}\n{old}") }
+}
+
+/// Write one key to the millgui.toml at `path` (started from `seed`, the
+/// older machine.toml, when there is none yet).
+pub fn write_key(path: &Path, seed: Option<&Path>, key: &str, value: Option<toml_edit::Item>) -> Result<(), String> {
+    let (text, new) = match std::fs::read_to_string(path) {
+        Ok(t) => (t, false),
+        Err(_) => (seed.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default(), true),
+    };
+    let out = edited(&text, key, value)?;
+    let out = if new { format!("{HEADER}\n{out}") } else { out };
+    write_file(path, &out)
+}
+
+/// Write through a temporary file, so a crash never leaves half a file.
+pub fn write_file(path: &Path, text: &str) -> Result<(), String> {
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, path)).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 static CFG: OnceLock<MachineCfg> = OnceLock::new();
 
 /// Load millgui.toml; the first call wins.
@@ -487,5 +583,17 @@ mod tests {
         assert_eq!((c.probe_tool(&ini), c.max_rpm(&ini), c.reverse(&ini)), (12, Some(2000.0), true));
         assert!(!c.is_scratch_tool(200));
         assert!(parse("[toolchange]\nscratch_tools = [200, 249]\n").is_scratch_tool(249));
+    }
+
+    #[test]
+    fn nested_keys_are_written_under_their_own_header() {
+        let out = edited("", "probe.defaults.slow_feed", Some(toml_edit::value(40.0))).unwrap();
+        assert_eq!(out, "[probe.defaults]\nslow_feed = 40.0\n");
+        let out = edited("[probe]\ntool = 7\n", "probe.defaults.max_z", Some(toml_edit::value(12.5))).unwrap();
+        assert_eq!(MachineCfg::parse(&out).0.probe.defaults.max_z, Some(12.5));
+        assert_eq!(MachineCfg::parse(&out).0.probe.tool, Some(7));
+        let out = edited(&out, "probe.defaults.max_z", None).unwrap();
+        assert_eq!(MachineCfg::parse(&out).0.probe.defaults.max_z, None);
+        assert!(edited(&out, "probe.defaults.max_zz", Some(toml_edit::value(1.0))).is_err());
     }
 }

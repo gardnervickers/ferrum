@@ -17,7 +17,7 @@ use machine::Status;
 use slint::{ComponentHandle, Model, SharedString};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,6 +106,23 @@ fn settings(cfg: &Config) -> Vec<Setting> {
         Setting { key: "toolsetter.enabled", step: Step::ToolSetter, title: "This machine has a tool setter", detail: "", kind: Kind::Bool },
         Setting { key: "remote.port", step: Step::Extras, title: "Browser screen port", detail: "0 turns it off. Anyone who can reach the port can run the machine.", kind: Kind::Number { min: 0.0, max: 65_535.0, whole: true } },
     ]
+    .into_iter()
+    .chain(crate::probe_defaults::DEFS.iter().map(|d| {
+        let inch = machine_info::get().units.inch();
+        Setting {
+            key: d.key,
+            step: if d.setter() { Step::ToolSetter } else { Step::Probe },
+            title: d.title,
+            detail: match (d.unit, inch) {
+                (crate::probe_defaults::Unit::Feed, false) => "mm/min",
+                (crate::probe_defaults::Unit::Feed, true) => "in/min",
+                (_, false) => "mm",
+                (_, true) => "in",
+            },
+            kind: Kind::Number { min: 0.0, max: 100_000.0, whole: false },
+        }
+    }))
+    .collect()
 }
 
 fn yes(b: bool) -> String {
@@ -120,32 +137,8 @@ fn style_label(s: ToolChangeStyle) -> &'static str {
     }
 }
 
-/// `text` with `[table]key` set to `value`, or removed for None. Comments
-/// and layout are kept. Refused when the result would not read cleanly.
-pub fn edited(text: &str, key: &str, value: Option<toml_edit::Item>) -> Result<String, String> {
-    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| format!("millgui.toml does not read: {}", e.message()))?;
-    let (table, k) = key.split_once('.').ok_or("bad key")?;
-    match value {
-        Some(v) => {
-            let t = doc.as_table_mut().entry(table).or_insert(toml_edit::table());
-            let t = t.as_table_like_mut().ok_or_else(|| format!("[{table}] in millgui.toml is not a table"))?;
-            t.insert(k, v);
-        }
-        None => {
-            if let Some(t) = doc.get_mut(table).and_then(|t| t.as_table_like_mut()) {
-                t.remove(k);
-            }
-        }
-    }
-    let out = doc.to_string();
-    let (_, problems) = MachineCfg::parse(&out);
-    if let Some(p) = problems.iter().find(|p| p.starts_with(&format!("[{table}]"))) {
-        return Err(p.clone());
-    }
-    Ok(out)
-}
-
-const HEADER: &str = "# millgui's settings for this machine (millgui/docs/millgui-toml.md).\n# SETUP writes what it changes here; every key is optional.\n";
+#[cfg(test)]
+use machine_cfg::edited;
 
 pub struct Setup {
     ui: slint::Weak<MainWindow>,
@@ -166,6 +159,8 @@ pub struct Setup {
     detected: ToolChangeStyle,
     /// Live test inputs last shown: probe, setter, G30 text.
     live: (Option<bool>, Option<bool>, String),
+    /// The probe module, which holds the probe's and setter's values.
+    probe: Option<Rc<RefCell<crate::probe::Probe>>>,
 }
 
 impl Setup {
@@ -212,7 +207,11 @@ impl Setup {
                 Some(Ok(p)) => p.to_string(),
                 _ => "0".into(),
             },
-            _ => String::new(),
+            k => match self.stored(k) {
+                Some((Some(v), _)) => fmt_num(v),
+                Some((None, _)) => "NOT SET".into(),
+                None => String::new(),
+            },
         }
     }
 
@@ -226,14 +225,7 @@ impl Setup {
 
     /// Write one key; the shown value waits for the next start.
     fn save(&mut self, key: &'static str, value: Option<toml_edit::Item>, shown: String) -> Result<(), String> {
-        // A new file: the older machine.toml's settings, under a header.
-        let (text, new) = match std::fs::read_to_string(&self.path) {
-            Ok(t) => (t, false),
-            Err(_) => (self.seed.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default(), true),
-        };
-        let out = edited(&text, key, value)?;
-        let out = if new { format!("{HEADER}\n{out}") } else { out };
-        write_file(&self.path, &out)?;
+        machine_cfg::write_key(&self.path, self.seed.as_deref(), key, value)?;
         if shown == self.running(key) {
             self.pending.remove(key);
         } else {
@@ -242,10 +234,13 @@ impl Setup {
         Ok(())
     }
 
-    /// A new millgui.toml: the older machine.toml's settings, under a header.
-    fn new_file_text(&self) -> String {
-        let old = self.seed.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
-        if old.is_empty() { HEADER.to_string() } else { format!("{HEADER}\n{old}") }
+    /// A probe or setter value as the probe module uses it now.
+    fn stored(&self, key: &str) -> Option<(Option<f64>, crate::probe_defaults::Source)> {
+        let d = crate::probe_defaults::by_key(key)?;
+        Some(match &self.probe {
+            Some(p) => p.borrow().default_of(d.n),
+            None => crate::probe_defaults::resolve(self.mc(), &crate::probe_defaults::param_file(&self.cfg), self.mi().units.inch())[&d.n],
+        })
     }
 
     fn set_number(&mut self, key: &'static str, v: f64) -> Result<(), String> {
@@ -255,6 +250,14 @@ impl Setup {
             let unit = if key == "machine.z_top" { format!(" {}", self.mi().units.name()) } else { String::new() };
             let range = if min > f64::MIN && max < f64::MAX { format!(": {} to {}{unit}", fmt_num(min), fmt_num(max)) } else { String::new() };
             return Err(format!("Out of range{range}{}", if whole { ", whole numbers" } else { "" }));
+        }
+        // A probe or setter value applies from the next run on.
+        if let Some(d) = crate::probe_defaults::by_key(key) {
+            machine_cfg::write_key(&self.path, self.seed.as_deref(), key, Some(toml_edit::value(v)))?;
+            if let Some(p) = &self.probe {
+                p.borrow_mut().adopt(d.n, v);
+            }
+            return Ok(());
         }
         let (item, shown) = match key {
             "machine.z_top" => (toml_edit::value(v), self.mi().units.fmt(v)),
@@ -278,7 +281,7 @@ impl Setup {
     /// FINISH: make sure millgui.toml exists, so SETUP stops opening first.
     fn finish(&mut self) -> Result<(), String> {
         if !self.path.exists() {
-            write_file(&self.path, &self.new_file_text())?;
+            machine_cfg::write_file(&self.path, &machine_cfg::new_file_text(self.seed.as_deref()))?;
         }
         Ok(())
     }
@@ -302,6 +305,10 @@ impl Setup {
         for s in self.settings.iter().filter(|s| s.step == step) {
             // The probe tool only matters with a probe.
             if s.key == "probe.tool" && !self.has("probe") {
+                continue;
+            }
+            // The stored values go last (below).
+            if crate::probe_defaults::by_key(s.key).is_some() {
                 continue;
             }
             let check = about(s.key);
@@ -437,6 +444,35 @@ impl Setup {
                 note: "".into(),
             });
         }
+        // The probe's or setter's stored values, after its checks.
+        let shown = match step {
+            Step::Probe => self.has("probe"),
+            Step::ToolSetter => self.setter_on(),
+            _ => false,
+        };
+        for s in self.settings.iter().filter(|s| shown && s.step == step) {
+            let Some((v, src)) = self.stored(s.key) else { continue };
+            use crate::probe_defaults::Source;
+            rows.push(SetupRow {
+                kind: "number".into(),
+                key: s.key.into(),
+                level: match src {
+                    Source::Seed => "warn",
+                    Source::Missing if !s.key.contains("cal_block") => "warn",
+                    _ => "",
+                }
+                .into(),
+                title: s.title.into(),
+                detail: s.detail.into(),
+                value: v.map_or("NOT SET".into(), fmt_num).into(),
+                code: "".into(),
+                note: match src {
+                    Source::Seed => "Starting value: check it.",
+                    _ => "",
+                }
+                .into(),
+            });
+        }
         rows
     }
 
@@ -534,7 +570,7 @@ fn key_static(key: &str) -> &'static str {
         "toolsetter.enabled",
         "remote.port",
     ];
-    KEYS.iter().copied().find(|k| *k == key).unwrap_or("")
+    KEYS.iter().copied().find(|k| *k == key).or_else(|| crate::probe_defaults::by_key(key).map(|d| d.key)).unwrap_or("")
 }
 
 /// UTIL's G30 text names a position other than machine zero.
@@ -551,12 +587,6 @@ fn fmt_num(v: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// Write through a temporary file, so a crash never leaves half a file.
-fn write_file(path: &Path, text: &str) -> Result<(), String> {
-    let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, path)).map_err(|e| format!("{}: {e}", path.display()))
-}
-
 struct Keys(Rc<RefCell<Setup>>);
 
 impl crate::manual::KeypadTarget for Keys {
@@ -564,7 +594,13 @@ impl crate::manual::KeypadTarget for Keys {
         let key = what.strip_prefix("setup-")?;
         let s = self.0.borrow();
         let set = s.setting(key)?;
-        let unit = if key == "machine.z_top" { format!(" ({})", s.mi().units.upper()) } else { String::new() };
+        let unit = if key == "machine.z_top" {
+            format!(" ({})", s.mi().units.upper())
+        } else if crate::probe_defaults::by_key(key).is_some() {
+            format!(" ({})", set.detail.to_uppercase())
+        } else {
+            String::new()
+        };
         Some(format!("{}{unit}", set.title.to_uppercase()))
     }
     fn current(&self, what: &str) -> Option<f64> {
@@ -587,7 +623,17 @@ impl crate::manual::KeypadTarget for Keys {
 
 /// The checker's rows from startup, the modules built and the tool setter's
 /// pins. Opens SETUP first when `first` (no millgui.toml).
-pub fn wire(ui: &MainWindow, cfg: &Config, checks: Vec<Check>, modules: Vec<String>, detected: ToolChangeStyle, setter: Option<Rc<SetterHal>>, first: bool) -> Rc<RefCell<Setup>> {
+#[allow(clippy::too_many_arguments)]
+pub fn wire(
+    ui: &MainWindow,
+    cfg: &Config,
+    checks: Vec<Check>,
+    modules: Vec<String>,
+    detected: ToolChangeStyle,
+    setter: Option<Rc<SetterHal>>,
+    probe: Option<Rc<RefCell<crate::probe::Probe>>>,
+    first: bool,
+) -> Rc<RefCell<Setup>> {
     let mc = machine_cfg::get();
     let (path, seed) = mc.target(cfg);
     let setup = Rc::new(RefCell::new(Setup {
@@ -604,6 +650,7 @@ pub fn wire(ui: &MainWindow, cfg: &Config, checks: Vec<Check>, modules: Vec<Stri
         setter,
         detected,
         live: (None, None, live_g30(ui)),
+        probe,
     }));
     let live = ui.global::<Live>();
     live.set_setup_first(first);

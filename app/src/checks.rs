@@ -367,6 +367,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
 
     // Probe
     let probe_on = i.modules.iter().any(|m| m == "probe");
+    let pdefs = crate::probe_defaults::resolve(mc, &crate::probe_defaults::param_file(cfg), mi.units.inch());
     if probe_on {
         let tool = mc.probe_tool(cfg);
         let src = if mc.probe.tool.is_some() {
@@ -377,6 +378,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
             "millgui's default"
         };
         v.push(Check::new("probe.tool", G::Probe, L::Info, format!("The probe is T{tool}")).detail(format!("From {src}.")).fix(Fix::Setting("probe.tool")));
+        v.extend(defaults_row(&pdefs, false));
         let missing = missing_subs(cfg, crate::probe::MACROS);
         if missing.len() == crate::probe::MACROS.len() {
             v.push(
@@ -404,6 +406,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
 
     // Tool setter: touch-off goes to G30 and probes down.
     if mc.toolsetter.enabled.unwrap_or(i.modules.iter().any(|m| m == "util")) {
+        v.extend(defaults_row(&pdefs, true));
         let g30 = std::fs::read_to_string(&var).ok().map(|t| {
             t.lines()
                 .filter_map(|l| {
@@ -458,6 +461,37 @@ pub fn run(i: &Inputs) -> Vec<Check> {
         v.push(Check::new("hal.up", G::Hal, L::Info, "LinuxCNC is not running: HAL wiring was not checked"));
     }
     v
+}
+
+/// The probe's (or the tool setter's) stored values: missing ones stop the
+/// macros; starting values want checking.
+fn defaults_row(r: &std::collections::BTreeMap<u16, (Option<f64>, crate::probe_defaults::Source)>, setter: bool) -> Option<Check> {
+    use crate::probe_defaults::{titles, Source};
+    let (group, id, what, step) =
+        if setter { (Group::ToolSetter, "toolsetter.values", "Tool setter", "Tool setter") } else { (Group::Probe, "probe.values", "Probe", "Probe") };
+    // The calibration block widths matter only to that calibration.
+    let missing: Vec<&str> = titles(r, setter, Source::Missing).into_iter().filter(|t| setter || !t.starts_with("Calibration block")).collect();
+    let seeded = titles(r, setter, Source::Seed);
+    let list = |v: &[&str]| v.join(", ");
+    if !missing.is_empty() {
+        return Some(
+            Check::new(id, group, Level::Attention, format!("{what} values not set: {}", list(&missing)))
+                .detail(format!("Routines that need them stop at their first line. Set them in SETUP › {step}, where they are listed after the checks.")),
+        );
+    }
+    if !seeded.is_empty() {
+        let cal = r.get(&3032).is_some_and(|(_, s)| *s == Source::Seed);
+        return Some(
+            Check::new(id, group, Level::Attention, format!("{what} feeds and distances are starting values"))
+                .detail(format!(
+                    "{} for a 2 mm tip probe, not checked on this machine. Check them in SETUP › {step}, where they are listed after the checks; each one changed is saved to millgui.toml.{}",
+                    if seeded.len() > 3 { format!("{} values are millgui's starting values", seeded.len()) } else { format!("Starting values: {}", list(&seeded)) },
+                    if cal { " The probe is not calibrated: run CAL › ring gauge." } else { "" }
+                )),
+        );
+    }
+    let from_file = titles(r, setter, Source::ParamFile).len();
+    Some(Check::new(id, group, Level::Ok, if from_file > 0 { format!("{what} values set ({from_file} from the parameter file)") } else { format!("{what} values set") }))
 }
 
 /// `text` (an INI) with `lines` ("KEY = VALUE") in `[section]`: a key
@@ -632,6 +666,24 @@ mod tests {
         assert!(r.title.contains("banana") && !r.title.contains("1/16"), "{}", r.title);
         assert!(c.iter().any(|c| c.id == "probe.input" && c.blocks(Feature::Probe)));
         assert!(report(&c).contains("OFF  PROBE is off on inch machines"));
+        // No parameter file and no millgui.toml values: starting values.
+        let r = c.iter().find(|c| c.id == "probe.values").unwrap();
+        assert!(r.level == Level::Attention && r.title.contains("starting values"), "{r:?}");
+    }
+
+    #[test]
+    fn setter_values_without_a_default_must_be_set() {
+        let mut cfg = Config::default();
+        cfg.path = Some("/nonexistent/stock.ini".into());
+        let mi = MachineInfo::from_ini(&cfg);
+        let modules: Vec<String> = vec!["util".into()];
+        let (mc, _) = MachineCfg::parse("[toolsetter]\nmax_z = 100\n");
+        let c = run(&Inputs { cfg: &cfg, mc: &mc, mi: &mi, notes: &[], modules: &modules, hal: &NoHal });
+        let r = c.iter().find(|c| c.id == "toolsetter.values").unwrap();
+        assert_eq!(r.title, "Tool setter values not set: Reference height (spindle zero)");
+        let (mc, _) = MachineCfg::parse("[toolsetter]\nmax_z = 100\nreference_height = 250\nfast_feed = 1\nslow_feed = 1\ntraverse_feed = 1\nretract = 1\nbreakage_tolerance = 1\n");
+        let c = run(&Inputs { cfg: &cfg, mc: &mc, mi: &mi, notes: &[], modules: &modules, hal: &NoHal });
+        assert_eq!(c.iter().find(|c| c.id == "toolsetter.values").unwrap().level, Level::Ok);
     }
 
     #[test]

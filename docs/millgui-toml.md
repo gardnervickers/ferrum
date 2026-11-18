@@ -60,10 +60,33 @@ scratch_tools = [200, 249]  # TOOLS > NEW SCRATCH numbers; a change to one warns
 
 [probe]
 enabled = true            # false: no probe, PROBE leaves the nav bar
-tool = 99                 # default [PROBE]TOOL_NUMBER, else 99
+tool = 99                 # default [PROBE]TOOL_NUMBER, else 99; the macros read it as #3014
+
+[probe.defaults]          # the probe macros' values (machine units); see "Probe values"
+slow_feed = 25            # #3015, per minute
+fast_feed = 300           # #3016
+traverse_feed = 1500      # #3017
+max_xy = 15               # #3018 search distance
+xy_clearance = 5          # #3019
+max_z = 15                # #3020 search distance
+z_clearance = 5           # #3021
+extra_depth = 0           # #3022
+step_off = 10             # #3023
+edge_width = 20           # #3024
+calibration_offset = 0    # #3032, written by CAL
+ring_gauge = 25           # #3033
+cal_block_x = 25.4        # #3034
+cal_block_y = 25.4        # #3035
 
 [toolsetter]
 enabled = true            # default: on when UTIL is
+fast_feed = 300           # #3004, per minute
+slow_feed = 25            # #3005
+traverse_feed = 1500      # #3006
+max_z = 120               # #3007 travel down from G30; no default
+retract = 2               # #3009
+reference_height = 286.9  # #3010 spindle zero height; no default (CAL › nose writes it on mymill)
+breakage_tolerance = 0.5  # #3037
 
 [hal]                     # logical name = a HAL signal or pin of your machine
 probe_tripped = "motion.probe-input"
@@ -90,6 +113,23 @@ table_center = [215, -90] # machine X Y with the spindle over the middle of the 
 slots = 3
 nose_above_table = 380    # spindle nose above the table at machine Z 0; 0 = no table
 ```
+
+## Probe values
+
+The probe and tool setter macros read their feeds and distances from
+LinuxCNC parameters #3004 to #3037. millgui owns them: each comes from
+`millgui.toml`, else from the parameter file (a machine set up with Probe
+Basic has them there), else a starting value for a 2 mm tip touch probe
+(the values above, in mm; an inch machine gets them converted). SETUP lists
+them under PROBE and TOOL SETTER, marks the starting values, and `--check`
+says which are starting values or missing. The setter's max Z travel and
+reference height have no starting value: touch-off stops until they are
+set.
+
+millgui writes the whole set to LinuxCNC once it is on, homed and idle
+(when LinuxCNC does not already hold them), and before a probe run that
+comes first. A value changed in SETUP or on PROBE › DEFAULTS, and a
+calibration result, is saved here at once and used from the next run on.
 
 ## Tool change
 
