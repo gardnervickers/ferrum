@@ -6,6 +6,10 @@
 //! ```
 //! Positions are in the active work coordinate system, without the tool
 //! length offset, matching the DRO's work position.
+//!
+//! The interpreter writes lengths in the program's units of the moment
+//! (`USE_LENGTH_UNITS`, from G20/G21); they are converted to the machine's
+//! units, which the DRO and the soft limits use.
 
 use crate::{Builder, Kind, Toolpath, P4};
 
@@ -20,9 +24,24 @@ fn args(s: &str) -> Vec<f64> {
     s.split(|c| c == ',' || c == ' ').filter(|w| !w.is_empty()).filter_map(|w| w.parse().ok()).collect()
 }
 
-/// `rapid_mm_s` is used for time estimates only.
-pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
-    let mut b = Builder::new([0.0; 4], rapid_mm_s);
+/// `rapid_per_s` (machine units per second) is used for time estimates only.
+/// `machine_inch`: the machine's linear units are inches.
+pub fn parse(text: &str, rapid_per_s: f64, machine_inch: bool) -> Toolpath {
+    let mut b = Builder::new([0.0; 4], rapid_per_s);
+    // Program length unit -> machine unit: multiply by 25.4, divide by
+    // 25.4 (exact for inch values written in mm), or keep. The stand-alone
+    // interpreter starts in millimetres.
+    let to_machine = |prog_inch: bool| match (prog_inch, machine_inch) {
+        (true, false) => 1i8,
+        (false, true) => -1,
+        _ => 0,
+    };
+    let mut way = to_machine(false);
+    let k = |w: i8, v: f64| match w {
+        1 => v * 25.4,
+        -1 => v / 25.4,
+        _ => v,
+    };
     let mut plane = Plane::Xy;
     let mut started = false;
     let mut selected: Option<i32> = None;
@@ -41,6 +60,7 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
         let Some((name, rest)) = call.split_once('(') else { continue };
         let inner = rest.strip_suffix(')').unwrap_or(rest);
         match name {
+            "USE_LENGTH_UNITS" => way = to_machine(inner.contains("INCHES")),
             "COMMENT" | "MESSAGE" => {
                 if name == "COMMENT" {
                     b.comment(inner.trim_matches('"'));
@@ -61,7 +81,7 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
                 if a.len() >= 4 {
                     let mut o = b.offsets();
                     o.wcs = a[0].clamp(0.0, 9.0) as u8;
-                    o.g5x = [a[1], a[2], a[3]];
+                    o.g5x = [k(way, a[1]), k(way, a[2]), k(way, a[3])];
                     b.set_offsets(o);
                 }
             }
@@ -69,7 +89,7 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
                 let a = args(inner);
                 if a.len() >= 3 {
                     let mut o = b.offsets();
-                    o.g92 = [a[0], a[1], a[2]];
+                    o.g92 = [k(way, a[0]), k(way, a[1]), k(way, a[2])];
                     b.set_offsets(o);
                 }
             }
@@ -77,7 +97,7 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
                 let a = args(inner);
                 if a.len() >= 3 {
                     let mut o = b.offsets();
-                    o.tool = [a[0], a[1], a[2]];
+                    o.tool = [k(way, a[0]), k(way, a[1]), k(way, a[2])];
                     b.set_offsets(o);
                 }
             }
@@ -90,7 +110,7 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
             }
             "SET_FEED_RATE" => {
                 if let Some(f) = args(inner).first() {
-                    b.feed_rate(*f);
+                    b.feed_rate(k(way, *f));
                 }
             }
             "SELECT_PLANE" => {
@@ -107,7 +127,7 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
                 if a.len() < 3 {
                     continue;
                 }
-                let p: P4 = [a[0], a[1], a[2], a.get(3).copied().unwrap_or(0.0)];
+                let p: P4 = [k(way, a[0]), k(way, a[1]), k(way, a[2]), a.get(3).copied().unwrap_or(0.0)];
                 // The interpreter starts at an arbitrary point; begin at the first move.
                 if !started {
                     started = true;
@@ -126,7 +146,7 @@ pub fn parse(text: &str, rapid_mm_s: f64) -> Toolpath {
                 if a.len() < 6 || !started {
                     continue;
                 }
-                let (fe, se, fc, sc, rot, ae) = (a[0], a[1], a[2], a[3], a[4] as i32, a[5]);
+                let (fe, se, fc, sc, rot, ae) = (k(way, a[0]), k(way, a[1]), k(way, a[2]), k(way, a[3]), a[4] as i32, k(way, a[5]));
                 let aa = a.get(6).copied().unwrap_or(b.position()[3]);
                 arc(&mut b, plane, fe, se, fc, sc, rot, ae, aa);
             }
@@ -185,9 +205,31 @@ mod tests {
    10 N123456STRAIGHT_FEED(5.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000)
    11 N..... STRAIGHT_FEED(5.0000, 3.0000, 0.0000, 0.0000, 0.0000, 0.0000)
 ";
-        let tp = parse(out, 100.0);
+        let tp = parse(out, 100.0, false);
         // A subroutine's own lines carry no number: they stay on the call.
         assert_eq!(tp.segs.iter().map(|s| s.line).collect::<Vec<_>>(), [123456, 123456]);
+    }
+
+    #[test]
+    fn lengths_come_out_in_machine_units() {
+        // rs274 on an inch INI: the parameter file's G54 (inches) is
+        // reported in mm at the start, then the program's G20 switches.
+        let out = "    1 N..... USE_LENGTH_UNITS(CANON_UNITS_MM)
+    2 N..... SET_G5X_OFFSET(1, 25.4000, 50.8000, 12.7000, 0.0000, 0.0000, 0.0000)
+    7 N..... USE_LENGTH_UNITS(CANON_UNITS_INCHES)
+    8 N..... STRAIGHT_TRAVERSE(1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 0.0000)
+    9 N..... SET_FEED_RATE(10.0000)
+   10 N..... STRAIGHT_FEED(1.0000, 2.0000, -0.1000, 90.0000, 0.0000, 0.0000)
+";
+        let tp = parse(out, 4.0, true);
+        assert_eq!(tp.offsets[0].1.g5x, [1.0, 2.0, 0.5]);
+        // A turns are cut into chords: the last one ends at the target.
+        assert_eq!(tp.segs.last().unwrap().to, [1.0, 2.0, -0.1, 90.0]);
+        // The same G20 program on a metric machine is scaled up.
+        let tp = parse(out, 4.0, false);
+        assert_eq!(tp.offsets[0].1.g5x, [25.4, 50.8, 12.7]);
+        let end = tp.segs.last().unwrap().to;
+        assert!((end[1] - 50.8).abs() < 1e-9 && end[3] == 90.0);
     }
 
     #[test]
@@ -200,7 +242,7 @@ mod tests {
     6 N..... USE_TOOL_LENGTH_OFFSET(0.0000 0.0000 98.7941, 0.0000 0.0000 0.0000, 0.0000 0.0000 0.0000)
     7 N..... STRAIGHT_FEED(10.0000, 5.0000, 10.0000, 0.0000, 0.0000, 0.0000)
 ";
-        let tp = parse(out, 100.0);
+        let tp = parse(out, 100.0, false);
         assert_eq!(tp.offsets.len(), 2);
         assert_eq!(tp.offsets[0].0, 0);
         assert_eq!(tp.offsets[0].1.wcs, 1);
@@ -211,7 +253,7 @@ mod tests {
 
     #[test]
     fn parses_moves_arcs_and_ops() {
-        let tp = parse(OUT, 100.0);
+        let tp = parse(OUT, 100.0, false);
         assert_eq!(tp.ops.len(), 1);
         assert_eq!((tp.ops[0].name.as_str(), tp.ops[0].tool), ("FACE1", 14));
         assert_eq!(tp.segs[0].kind, Kind::Rapid);
@@ -228,6 +270,6 @@ mod tests {
     fn the_tool_is_the_selected_t_number_not_its_table_index() {
         // T23 sits 22nd in a table that has no T15: rs274 prints both.
         let out = "    1 N..... SELECT_TOOL(23)\n    2 N..... CHANGE_TOOL(22)\n    3 N..... STRAIGHT_TRAVERSE(0.0000, 0.0000, 5.0000, 0.0000, 0.0000, 0.0000)\n    4 N..... SET_FEED_RATE(600.0000)\n    5 N..... STRAIGHT_FEED(10.0000, 0.0000, 5.0000, 0.0000, 0.0000, 0.0000)\n";
-        assert_eq!(parse(out, 100.0).ops[0].tool, 23);
+        assert_eq!(parse(out, 100.0, false).ops[0].tool, 23);
     }
 }

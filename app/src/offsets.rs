@@ -147,7 +147,8 @@ impl Offsets {
     fn show(&self, ui: &MainWindow) {
         let live = ui.global::<Live>();
         let active = self.active();
-        let fmt = |v: f64| format!("{v:.3}");
+        let u = crate::machine_info::get().units;
+        let fmt = |v: f64| u.fmt(v);
         let rows: Vec<OffsetRow> = (0..9)
             .map(|i| {
                 let r = self.table[i];
@@ -168,7 +169,7 @@ impl Offsets {
         live.set_offsets_sel_label(CODES[self.selected].into());
         let g92 = self.status.as_ref().map(|s| s.g92_offset).unwrap_or_default();
         let on = g92.iter().any(|v| *v != 0.0);
-        live.set_offsets_g92(if on { format!("G92/G52 X{:.3} Y{:.3} Z{:.3} A{:.3}", g92[0], g92[1], g92[2], g92[3]) } else { String::new() }.into());
+        live.set_offsets_g92(if on { format!("G92/G52 X{} Y{} Z{} A{:.3}", u.fmt(g92[0]), u.fmt(g92[1]), u.fmt(g92[2]), g92[3]) } else { String::new() }.into());
     }
 
     fn refresh(&self) {

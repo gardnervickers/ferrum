@@ -443,6 +443,9 @@ impl Probe {
     /// The checks the GUI can make before offering a run. The macros make
     /// their own checks too; these only avoid a pointless start.
     fn check(&self, t: &Target) -> Result<(), String> {
+        if let Some(why) = crate::machine_info::get().units_block("probe") {
+            return Err(why);
+        }
         let s = self.status.as_ref().ok_or("Not connected to LinuxCNC")?;
         if !s.power_on() {
             return Err("Turn the machine on first".into());
@@ -529,8 +532,9 @@ impl Probe {
         if s.tool_in_spindle != self.probe_tool {
             return Err(format!("Load the probe (T{}) and jog it to where the routine starts", self.probe_tool));
         }
-        // The op goes up to machine Z 0 and comes back down to here.
-        if s.actual[2] > -5.0 {
+        // The op goes up to the top of Z travel and comes back down to here.
+        let mi = crate::machine_info::get();
+        if s.actual[2] > mi.z_top - mi.mm(5.0) {
             return Err("Jog the probe down to where the routine starts first: a job step starts from there".into());
         }
         let target = self.target_wcs();

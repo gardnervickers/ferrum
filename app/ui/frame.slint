@@ -58,7 +58,7 @@ export component StatusBar inherits Rectangle {
                 clicked => { Actions.power(); }
             }
         }
-        if Live.connected && Live.power && !Live.homed: VerticalLayout {
+        if Live.connected && Live.power && !Live.homed && Live.home-all-ok: VerticalLayout {
             alignment: center;
             Btn {
                 height: 56px;
@@ -206,7 +206,7 @@ component DroLine inherits Rectangle {
     }
     // Not homed: the same spot homes just this axis (hold, it moves).
     // A has no switch, so "homing" it sets its reference where it stands.
-    if !data.homed && Live.power: Btn {
+    if !data.homed && Live.power && Live.per-axis-home: Btn {
         x: 50px;
         y: 12px;
         // Wider than ZERO so the HOLD tag clears the word.
@@ -338,7 +338,7 @@ export component LeftColumn inherits Rectangle {
                 Kv { label: "TOOL DIA"; value: Live.tool-dia; }
             }
             Row {
-                Kv { label: "FEED MM/MIN"; value: Live.feed; }
+                Kv { label: "FEED " + Live.unit-up + "/MIN"; value: Live.feed; }
                 Kv { label: "SPINDLE RPM"; value: Live.rpm; }
                 Kv { label: "CYCLE TIME"; value: Live.cycle-time; }
             }

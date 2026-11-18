@@ -429,7 +429,7 @@ impl Plan {
         if !self.changes_tool {
             modal.extend(self.tlo.clone());
         }
-        let mut v = vec![modal.join(" "), "G53 G0 Z0 (millgui restart: Z to the top)".to_string()];
+        let mut v = vec![modal.join(" "), format!("{} (millgui restart: Z to the top)", jobcore::mill_ops::machine_top())];
         let mut setup = Vec::new();
         if let Some(f) = self.feed {
             setup.push(format!("F{}", fmt(f)));

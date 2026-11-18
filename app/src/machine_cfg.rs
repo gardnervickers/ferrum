@@ -1,5 +1,8 @@
 //! machine.toml: per-machine settings that are not LinuxCNC's (the INI
-//! stays Probe Basic's). Missing keys take the built-in defaults.
+//! stays Probe Basic's). Missing keys take the built-in defaults, which
+//! describe no machine in particular: no table model and no table check
+//! until `nose_above_table` is set. `millgui/machine.toml` in this repo is
+//! the PM-728VT's.
 
 use crate::config::Config;
 use crate::{Live, MainWindow};
@@ -38,17 +41,16 @@ pub struct Model {
 impl Default for Model {
     fn default() -> Self {
         let m = Machine::pm728vt();
-        Model {
-            show: true,
-            table: m.table,
-            table_center: m.table_center,
-            slots: m.slots,
-            nose_above_table: m.nose_above_table,
-        }
+        Model { show: false, table: m.table, table_center: m.table_center, slots: m.slots, nose_above_table: 0.0 }
     }
 }
 
 impl Model {
+    /// The table is described: the spindle nose height above it is set.
+    pub fn known(&self) -> bool {
+        self.nose_above_table > 0.0
+    }
+
     pub fn machine(&self) -> Machine {
         Machine {
             table: self.table,
@@ -101,8 +103,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shipped_file_is_the_defaults() {
-        assert_eq!(MachineCfg::parse(BUILTIN).unwrap(), MachineCfg::default());
+    fn shipped_file_is_the_pm728vt() {
+        let c = MachineCfg::parse(BUILTIN).unwrap();
+        let m = Machine::pm728vt();
+        assert!(c.model.show && c.model.known());
+        assert_eq!((c.model.table, c.model.table_center, c.model.slots, c.model.nose_above_table), (m.table, m.table_center, m.slots, m.nose_above_table));
+        assert_eq!(c.buttons, Buttons::default());
+    }
+
+    #[test]
+    fn no_file_draws_no_table() {
+        let c = MachineCfg::default();
+        assert!(!c.model.show && !c.model.known());
     }
 
     #[test]

@@ -18,7 +18,12 @@ pub struct Setup {
     pub config_dir: PathBuf,
     pub var_file: Option<PathBuf>,
     pub tool_table: Option<PathBuf>,
+    /// [TRAJ]MAX_LINEAR_VELOCITY in machine units per second.
     pub rapid_mm_s: f64,
+    /// The machine's linear units are inches. LinuxCNC then starts a
+    /// program in G20, the stand-alone interpreter in G21; the preview
+    /// copy starts with a G20 so a program without one reads the same.
+    pub inch: bool,
 }
 
 /// Whether `rs274` is on PATH (checked without running it).
@@ -63,7 +68,7 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
     let machine_lines = source.as_ref().map(|t| crate::machine_lines(t)).unwrap_or_default();
     let find_lines = source.as_ref().map(|t| crate::find_lines(t)).unwrap_or_default();
     let program = match &source {
-        Ok(text) if std::fs::write(&numbered, number_lines(text)).is_ok() => numbered.as_path(),
+        Ok(text) if std::fs::write(&numbered, start_units(&number_lines(text), setup.inch)).is_ok() => numbered.as_path(),
         _ => program,
     };
     cmd.arg("-g").arg(program);
@@ -71,7 +76,7 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
     let _ = std::fs::remove_dir_all(&dir);
     match out {
         Ok(o) => {
-            let mut tp = crate::canon::parse(&String::from_utf8_lossy(&o.stdout), setup.rapid_mm_s);
+            let mut tp = crate::canon::parse(&String::from_utf8_lossy(&o.stdout), setup.rapid_mm_s, setup.inch);
             let err = String::from_utf8_lossy(&o.stderr);
             // rs274 prints "executing" and, on failure, the error and the line.
             let msg: Vec<&str> = err.lines().map(str::trim).filter(|l| !l.is_empty() && *l != "executing").collect();
@@ -89,6 +94,18 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
 /// Put `N<line number>` at the start of every block, replacing an N word
 /// already there. A block-delete slash stays first; blank lines, `%` and
 /// lines past N's range are left alone.
+/// A G20 ahead of the program's first line (after a leading `%`), with no
+/// line number of its own.
+fn start_units(numbered: &str, inch: bool) -> String {
+    if !inch {
+        return numbered.to_string();
+    }
+    match numbered.split_once('\n') {
+        Some((first, rest)) if first.trim() == "%" => format!("{first}\nG20\n{rest}"),
+        _ => format!("G20\n{numbered}"),
+    }
+}
+
 pub fn number_lines(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + text.len() / 4);
     for (i, line) in text.split_inclusive('\n').enumerate() {
@@ -115,7 +132,14 @@ pub fn number_lines(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::number_lines;
+    use super::{number_lines, start_units};
+
+    #[test]
+    fn inch_machines_start_in_g20() {
+        assert_eq!(start_units("%\nN2 G0 X1\n%\n", true), "%\nG20\nN2 G0 X1\n%\n");
+        assert_eq!(start_units("N1 G0 X1\n", true), "G20\nN1 G0 X1\n");
+        assert_eq!(start_units("N1 G0 X1\n", false), "N1 G0 X1\n");
+    }
 
     #[test]
     fn g53_lines_are_found_outside_comments() {

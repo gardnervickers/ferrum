@@ -143,9 +143,11 @@ thread_local! {
     static PICTURE: RefCell<Picture> = RefCell::new(Picture::default());
 }
 
+/// One decimal in mm, three in inches, trailing zeros dropped.
 fn num(v: f64) -> String {
-    let s = format!("{v:.1}");
-    let s = s.strip_suffix(".0").unwrap_or(&s);
+    let places = if crate::machine_info::get().units.inch() { 3 } else { 1 };
+    let s = format!("{v:.*}", places);
+    let s = if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.') } else { &s };
     if s == "-0" { "0".into() } else { s.to_string() }
 }
 

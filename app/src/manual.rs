@@ -4,6 +4,7 @@
 
 use crate::calc;
 use crate::config::Config;
+use crate::machine_info::{self, Step};
 use crate::powerfeed::{self, Mode, PowerFeed};
 use crate::settings::Settings;
 use crate::{Actions, GotoRow, Live, MainWindow, MsgRow};
@@ -12,7 +13,6 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const A_AXIS: i32 = 3;
 const LOG: usize = 300;
 
 struct Range {
@@ -21,8 +21,10 @@ struct Range {
 }
 
 pub struct Manual {
-    /// "CONT" or an increment in machine units.
+    /// The selected step's label ("CONT" for continuous).
     step: String,
+    /// [DISPLAY]INCREMENTS, read once.
+    steps: Vec<Step>,
     speed: f64,
     speed_a: f64,
     rpm: f64,
@@ -84,16 +86,24 @@ fn fmt(v: f64) -> String {
 
 impl Manual {
     fn from_config(cfg: &Config, settings: Settings) -> Self {
+        let mi = machine_info::get();
         let f = |k: &str, d: f64| cfg.get_f64("DISPLAY", k).unwrap_or(d);
+        // Jog speeds are machine units per second. Without [DISPLAY] values:
+        // the trajectory's top speed, else the slowest linear axis.
+        let axis_max = ["X", "Y", "Z"].iter().filter_map(|a| cfg.get_f64(&format!("AXIS_{a}"), "MAX_VELOCITY")).reduce(f64::min);
+        let top = cfg.get_f64("TRAJ", "MAX_LINEAR_VELOCITY").or(axis_max).unwrap_or(mi.mm(100.0));
+        let linear = Range { min: f("MIN_LINEAR_VELOCITY", mi.mm(0.01)), max: f("MAX_LINEAR_VELOCITY", top) };
+        let (steps, _) = machine_info::jog_steps(cfg.get("DISPLAY", "INCREMENTS"), mi.units);
         Self {
             step: "CONT".into(),
-            speed: settings.f64("jog.speed", f("DEFAULT_LINEAR_VELOCITY", 50.0)),
+            steps,
+            speed: settings.f64("jog.speed", f("DEFAULT_LINEAR_VELOCITY", (linear.max / 2.0).min(mi.units.pick(50.0, 2.0)))),
             speed_a: settings.f64("jog.speed-a", f("DEFAULT_ANGULAR_VELOCITY", 180.0)),
             rpm: settings.f64("powerfeed.spindle-rpm", 300.0),
             pf: PowerFeed::new(cfg, &settings),
             settings,
             pf_note: None,
-            linear: Range { min: f("MIN_LINEAR_VELOCITY", 0.01), max: f("MAX_LINEAR_VELOCITY", 100.0) },
+            linear,
             angular: Range { min: f("MIN_ANGULAR_VELOCITY", 0.01), max: f("MAX_ANGULAR_VELOCITY", 180.0) },
             keypad: None,
             status: None,
@@ -156,7 +166,7 @@ impl Manual {
         live.set_keypad_fresh(self.keypad.as_ref().is_some_and(|k| k.fresh));
         if let Some(pad) = &self.keypad {
             let what = &pad.what;
-            let l = KEYPAD.with(|t| t.borrow().iter().find_map(|t| t.label(what))).unwrap_or_else(|| label(what).to_string());
+            let l = KEYPAD.with(|t| t.borrow().iter().find_map(|t| t.label(what))).unwrap_or_else(|| label(what));
             live.set_keypad_label(l.into());
             live.set_keypad_value(pad.buf.clone().into());
             let (result, error) = preview(pad);
@@ -175,7 +185,7 @@ impl Manual {
             }
         };
         match what {
-            "jog-speed" => self.speed = check(v, &self.linear, "mm/s")?,
+            "jog-speed" => self.speed = check(v, &self.linear, &format!("{}/s", machine_info::get().units.name()))?,
             "jog-speed-a" => self.speed_a = check(v, &self.angular, "°/s")?,
             "spindle-rpm" => {
                 if v <= 0.0 {
@@ -240,16 +250,18 @@ pub fn add_keypad_target(t: Rc<dyn KeypadTarget>) {
     KEYPAD.with(|k| k.borrow_mut().push(t));
 }
 
-fn label(what: &str) -> &'static str {
+fn label(what: &str) -> String {
+    let mi = machine_info::get();
+    let u = mi.units.upper();
     match what {
-        "jog-speed" => "JOG SPEED MM/S",
-        "jog-speed-a" => "A SPEED °/S",
-        "spindle-rpm" => "SPINDLE RPM",
-        "pf-feed" | "gt-feed" => "FEED MM/MIN",
-        "pf-dist" => "DISTANCE MM",
-        "gt-x" => "TARGET X (WORK)",
-        "gt-y" => "TARGET Y (WORK)",
-        _ => "VALUE",
+        "jog-speed" => format!("JOG SPEED {u}/S"),
+        "jog-speed-a" => format!("{} SPEED °/S", mi.rotary().map_or('A', |a| a.letter)),
+        "spindle-rpm" => "SPINDLE RPM".into(),
+        "pf-feed" | "gt-feed" => format!("FEED {u}/MIN"),
+        "pf-dist" => format!("DISTANCE {u}"),
+        "gt-x" => "TARGET X (WORK)".into(),
+        "gt-y" => "TARGET Y (WORK)".into(),
+        _ => "VALUE".into(),
     }
 }
 
@@ -399,17 +411,25 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         live.set_messages(ModelRc::from(m.log.clone()));
         m.show(&live);
     }
+    let mi = machine_info::get();
     live.set_has_a(has_a);
-    let steps: Vec<SharedString> = cfg
-        .get("DISPLAY", "INCREMENTS")
-        .map(|v| {
-            v.split(',')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .map(|s| if s.eq_ignore_ascii_case("JOG") { "CONT".into() } else { s.into() })
-                .collect()
-        })
-        .unwrap_or_else(|| ["CONT", "0.01", "0.1", "1", "10"].map(SharedString::from).to_vec());
+    live.set_unit(mi.units.name().into());
+    live.set_unit_up(mi.units.upper().into());
+    live.set_per_axis_home(mi.per_axis_home());
+    live.set_probe_blocked(mi.units_block("probe").unwrap_or_default().into());
+    live.set_job_blocked(mi.units_block("job").unwrap_or_default().into());
+    live.set_conv_blocked(mi.units_block("conv").unwrap_or_default().into());
+    live.set_home_all_ok(mi.home_all || !mi.per_axis_home());
+    match mi.rotary() {
+        Some(r) => {
+            live.set_has_rot(true);
+            live.set_rot_letter(r.letter.to_string().into());
+            live.set_rot_axis(r.index as i32);
+            live.set_rot_switch(r.home_switch);
+        }
+        None => live.set_has_rot(false),
+    }
+    let steps: Vec<SharedString> = manual.borrow().steps.iter().map(|s| SharedString::from(s.label.as_str())).collect();
     crate::models::sync(live.get_jog_steps(), steps, |m| live.set_jog_steps(m));
 
     let (mc, mm) = (machine.clone(), manual.clone());
@@ -418,11 +438,16 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         if m.status.as_ref().is_some_and(locked) {
             return;
         }
-        let speed = if axis == A_AXIS { m.speed_a } else { m.speed };
+        let mi = machine_info::get();
+        let rotary = mi.axis(axis as usize).is_some_and(|a| a.rotary);
+        let speed = if rotary { m.speed_a } else { m.speed };
         let Some(target) = jog_target(axis) else { return };
-        match m.step.parse::<f64>() {
-            Ok(incr) => mc.send(Command::JogIncr { target, vel: speed, incr: incr * dir as f64 }),
-            Err(_) => mc.send(Command::JogCont { target, vel: speed * dir as f64 }),
+        // A label that is not in the list never jogs (and never continuously).
+        let Some(step) = m.steps.iter().find(|s| s.label == m.step) else { return };
+        match step.size {
+            // Steps are lengths; a rotary steps the same number in degrees.
+            Some(incr) => mc.send(Command::JogIncr { target, vel: speed, incr: incr * dir as f64 }),
+            None => mc.send(Command::JogCont { target, vel: speed * dir as f64 }),
         }
     });
     let mc = machine.clone();
@@ -435,16 +460,23 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     let (mm, weak) = (manual.clone(), ui.as_weak());
     actions.on_jog_step_set(move |step| {
         let mut m = mm.borrow_mut();
+        if !m.steps.iter().any(|s| s.label == step.as_str()) {
+            return;
+        }
         m.step = step.into();
         if let Some(ui) = weak.upgrade() {
             m.show(&ui.global::<Live>());
         }
     });
 
-    // A has no home switch; homing joint 3 with no search velocity latches
-    // the current position as its home.
+    // A rotary without a home switch: homing its joint with no search
+    // velocity latches the current position as its home.
     let mc = machine.clone();
-    actions.on_set_a_reference(move || mc.send(Command::Home(JointSel::Joint(A_AXIS as u8))));
+    actions.on_set_a_reference(move || {
+        for j in machine_info::get().rotary().map(|r| r.joints.clone()).unwrap_or_default() {
+            mc.send(Command::Home(JointSel::Joint(j as u8)));
+        }
+    });
 
     let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
     actions.on_spindle(move |dir| {
@@ -475,8 +507,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
 
     let mc = machine.clone();
     actions.on_zero_xyz(move || mc.send(Command::Mdi("G10 L20 P0 X0 Y0 Z0".into())));
-    // Both run in the active WCS through o<mymill_powerfeed>, which restores
-    // modal state afterwards.
+    // Both run in the active WCS; the worker puts the modes back afterwards.
     let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
     actions.on_z_to_work_zero(move || {
         let Some(ui) = weak.upgrade() else { return };
@@ -490,19 +521,25 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     actions.on_retract_xy_to_zero(move || {
         let Some(ui) = weak.upgrade() else { return };
         let m = mm.borrow();
-        let cmd = m.ready(&ui.global::<Live>()).and_then(|_| m.pf.retract_cmd(m.status.as_ref().unwrap(), 10.0));
+        let cmd = m.ready(&ui.global::<Live>()).and_then(|_| m.pf.retract_cmd(m.status.as_ref().unwrap(), machine_info::get().units.pick(10.0, 0.4)));
         match cmd {
-            Ok(c) => mc.send(Command::Mdi(c)),
+            Ok(lines) => lines.into_iter().for_each(|c| mc.send(Command::Mdi(c))),
             Err(e) => note(&ui, e, true),
         }
     });
 
-    // Park: the same macro Probe Basic's GO TO HOME button ran.
+    // Park: Z to the top, then X and Y (and a rotary) to machine zero, the
+    // moves Probe Basic's GO TO HOME macro made. Plain MDI, so it works
+    // without that macro; the worker puts the modes back.
     let (mc, mm, weak) = (machine.clone(), manual.clone(), ui.as_weak());
     actions.on_park(move || {
         let Some(ui) = weak.upgrade() else { return };
         match mm.borrow().ready(&ui.global::<Live>()) {
-            Ok(()) => mc.send(Command::Mdi("o<go_to_home> call".into())),
+            Ok(()) => {
+                for line in park_lines(machine_info::get()) {
+                    mc.send(Command::Mdi(line));
+                }
+            }
             Err(e) => note(&ui, e, true),
         }
     });
@@ -557,6 +594,20 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
     });
 
     manual
+}
+
+/// The MDI lines of PARK.
+pub fn park_lines(mi: &machine_info::MachineInfo) -> Vec<String> {
+    let mut v = vec![machine::keep_modes(&mi.z_top_line())];
+    let xy: String = ['X', 'Y'].iter().filter(|l| mi.has_axis(**l)).map(|l| format!(" {l}0")).collect();
+    if !xy.is_empty() {
+        v.push(machine::keep_modes(&format!("G90 G53 G0{xy}")));
+    }
+    let rot: String = mi.axes.iter().filter(|a| a.rotary).map(|a| format!(" {}0", a.letter)).collect();
+    if !rot.is_empty() {
+        v.push(machine::keep_modes(&format!("G90 G53 G0{rot}")));
+    }
+    v
 }
 
 fn wire_powerfeed(ui: &MainWindow, machine: &Handle, manual: &Rc<RefCell<Manual>>) {

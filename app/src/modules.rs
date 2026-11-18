@@ -101,8 +101,10 @@ pub struct SetterHal {
     pub triggered: In<bool>,
 }
 
-/// Modules enabled when millgui.ini does not list any.
-pub const DEFAULT_MODULES: &str = "run job manual probe tools offsets conv files util drives drawbar interlock";
+/// Modules enabled when millgui.ini does not list any. The mill-specific
+/// ones (drives, drawbar, interlock, pendant, load) need HAL signals a stock
+/// machine does not have, so they are only built when listed.
+pub const DEFAULT_MODULES: &str = "run job manual probe tools offsets conv files util";
 
 const ICON_RUN: &str = "M7 4l12 8-12 8z";
 const ICON_JOB: &str = "M4 6h16M4 12h16M4 18h10";

@@ -1,7 +1,7 @@
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, PillData, DroRow, DroPos, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow, JobOp, ConvField, HistoryRow } from "state.slint";
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
-import { Placeholder, RunScreen } from "screens.slint";
+import { Placeholder, RunScreen, Blocked } from "screens.slint";
 import { Arrive } from "widgets.slint";
 
 import { ManualScreen } from "jog.slint";
@@ -38,12 +38,15 @@ export component MainWindow inherits Window {
         // A screen fades in and rises 12px as it opens: a one-off, so the
         // eye follows the change without the screen moving at idle.
         if Live.screen == "run": Arrive { RunScreen {} }
-        if Live.screen == "job": Arrive { JobScreen {} }
+        if Live.screen == "job" && Live.job-blocked == "": Arrive { JobScreen {} }
         if Live.screen == "manual": Arrive { ManualScreen {} }
-        if Live.screen == "probe": Arrive { ProbeScreen {} }
+        if Live.screen == "probe" && Live.probe-blocked == "": Arrive { ProbeScreen {} }
         if Live.screen == "tools": Arrive { ToolsScreen {} }
         if Live.screen == "offsets": Arrive { OffsetsScreen {} }
-        if Live.screen == "conv": Arrive { ConvScreen {} }
+        if Live.screen == "conv" && Live.conv-blocked == "": Arrive { ConvScreen {} }
+        if Live.screen == "probe" && Live.probe-blocked != "": Arrive { Blocked { title: "PROBE"; text: Live.probe-blocked; } }
+        if Live.screen == "job" && Live.job-blocked != "": Arrive { Blocked { title: "JOB"; text: Live.job-blocked; } }
+        if Live.screen == "conv" && Live.conv-blocked != "": Arrive { Blocked { title: "CONV"; text: Live.conv-blocked; } }
         if Live.screen == "files": Arrive { FilesScreen {} }
         if Live.screen == "util": Arrive { UtilScreen {} }
         if Live.drawer-open: MessageDrawer {}

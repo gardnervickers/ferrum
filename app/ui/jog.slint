@@ -46,7 +46,7 @@ export component JogPanel inherits VerticalLayout {
                 JogBtn { height: ch; text: "◀ X−"; axis: 0; dir: -1; font-size: 26px; }
                 Btn {
                     height: ch; text: "STOP"; kind: "stop"; font-size: 24px;
-                    clicked => { Actions.jog-stop(0); Actions.jog-stop(1); Actions.jog-stop(2); Actions.jog-stop(3); }
+                    clicked => { Actions.jog-stop(0); Actions.jog-stop(1); Actions.jog-stop(2); if Live.has-rot { Actions.jog-stop(Live.rot-axis); } }
                 }
                 JogBtn { height: ch; text: "X+ ▶"; axis: 0; dir: 1; font-size: 26px; }
             }
@@ -63,34 +63,34 @@ export component JogPanel inherits VerticalLayout {
             Rectangle { height: ch; }
             JogBtn { height: ch; text: "▼ Z−"; axis: 2; dir: -1; font-size: 26px; }
         }
-        if Live.has-a: VerticalLayout {
+        if Live.has-rot: VerticalLayout {
             spacing: 14px;
             width: colw;
-            JogBtn { height: ch; text: "A+ ↻"; axis: 3; dir: 1; font-size: 26px; }
+            JogBtn { height: ch; text: Live.rot-letter + "+ ↻"; axis: Live.rot-axis; dir: 1; font-size: 26px; }
             Rectangle { height: ch; }
-            JogBtn { height: ch; text: "A− ↺"; axis: 3; dir: -1; font-size: 26px; }
+            JogBtn { height: ch; text: Live.rot-letter + "− ↺"; axis: Live.rot-axis; dir: -1; font-size: 26px; }
         }
     }
     HorizontalLayout {
         spacing: 10px;
         Label { width: 130px; vertical-alignment: center; text: "JOG SPEED"; }
-        NumField { width: 190px; value: Live.jog-speed; unit: "mm/s"; edit => { Actions.edit("jog-speed"); } }
+        NumField { width: 190px; value: Live.jog-speed; unit: Live.unit + "/s"; edit => { Actions.edit("jog-speed"); } }
         Rectangle { horizontal-stretch: 1; }
     }
-    if Live.has-a: HorizontalLayout {
+    if Live.has-rot: HorizontalLayout {
         spacing: 10px;
-        Label { width: 130px; vertical-alignment: center; text: "A SPEED"; }
+        Label { width: 130px; vertical-alignment: center; text: Live.rot-letter + " SPEED"; }
         NumField { width: 190px; value: Live.jog-speed-a; unit: "°/s"; edit => { Actions.edit("jog-speed-a"); } }
         Rectangle { horizontal-stretch: 1; }
     }
     Rectangle { vertical-stretch: 1; }
-    if Live.has-a: HorizontalLayout {
+    if Live.has-rot && !Live.rot-switch: HorizontalLayout {
         spacing: 12px;
-        Note { horizontal-stretch: 1; vertical-alignment: center; text: "A has no home switch. Set A0 (machine) at the current position."; }
+        Note { horizontal-stretch: 1; vertical-alignment: center; text: Live.rot-letter + " has no home switch. Set " + Live.rot-letter + "0 (machine) at the current position."; }
         Btn {
             width: 200px;
             height: 64px;
-            text: "SET A REF HERE";
+            text: "SET " + Live.rot-letter + " REF HERE";
             hold: true;
             enabled: Live.power && !Live.manual-locked;
             clicked => { Actions.set-a-reference(); }
@@ -151,10 +151,10 @@ component PowerFeedPanel inherits VerticalLayout {
     }
     HorizontalLayout {
         spacing: 10px;
-        Label { width: Layout.compact ? 130px : 150px; vertical-alignment: center; text: "FEED MM/MIN"; }
+        Label { width: Layout.compact ? 130px : 150px; vertical-alignment: center; text: "FEED " + Live.unit-up + "/MIN"; }
         NumField { width: Layout.compact ? 140px : 170px; value: Live.pf-feed; edit => { Actions.edit("pf-feed"); } }
         Rectangle { width: Layout.compact ? 12px : 30px; }
-        Label { width: Layout.compact ? 130px : 150px; vertical-alignment: center; text: "DISTANCE MM"; }
+        Label { width: Layout.compact ? 130px : 150px; vertical-alignment: center; text: "DISTANCE " + Live.unit-up; }
         NumField { width: Layout.compact ? 140px : 170px; value: Live.pf-dist; enabled: Live.pf-mode == "dist"; edit => { Actions.edit("pf-dist"); } }
         Rectangle { horizontal-stretch: 1; }
     }
@@ -194,7 +194,7 @@ component PowerFeedPanel inherits VerticalLayout {
     }
     Note {
         text: Live.pf-mode == "eot"
-            ? "Hold to feed X or Y to 1 mm short of the soft limit. Z moves by distance only."
+            ? "Hold to feed X or Y to " + (Live.unit == "in" ? "0.04 in" : "1 mm") + " short of the soft limit. Z moves by distance only."
             : "Feeds the axis by the distance at the set rate, in the selected WCS. The active WCS is unchanged afterwards.";
     }
     Rectangle { vertical-stretch: 1; }
@@ -221,7 +221,7 @@ component GotoPanel inherits VerticalLayout {
             }
             HorizontalLayout {
                 spacing: 10px;
-                Label { width: 190px; vertical-alignment: center; text: "FEED MM/MIN"; }
+                Label { width: 190px; vertical-alignment: center; text: "FEED " + Live.unit-up + "/MIN"; }
                 NumField { value: Live.gt-feed; edit => { Actions.edit("gt-feed"); } }
             }
             Label { text: "SAVED LOCATIONS"; }
@@ -345,7 +345,7 @@ component SpindleCard inherits Card {
                 clicked => { Actions.z-to-work-zero(); }
             }
             Btn {
-                text: "RETRACT 10, XY TO WORK 0"; hold: true; font-size: Layout.compact ? 17px : 21px;
+                text: "RETRACT " + (Live.unit == "in" ? "0.4" : "10") + ", XY TO WORK 0"; hold: true; font-size: Layout.compact ? 17px : 21px;
                 enabled: Live.power && Live.homed && !Live.manual-locked;
                 clicked => { Actions.retract-xy-to-zero(); }
             }

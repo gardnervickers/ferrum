@@ -200,7 +200,7 @@ impl Util {
         live.set_ut_setter(match &self.setter { Some(h) if h.triggered.get() => "TRIPPED", Some(_) => "READY", None => "NOT FITTED" }.into());
         live.set_ut_has_blast(self.setter.is_some());
         live.set_ut_blast(self.setter.as_ref().is_some_and(|h| h.blast_active.get()));
-        let g30 = |v: Option<f64>| v.map_or("-".to_string(), |v| format!("{v:.3}"));
+        let g30 = |v: Option<f64>| v.map_or("-".to_string(), |v| crate::machine_info::get().units.fmt(v));
         live.set_ut_g30(format!("X {}  Y {}  Z {}", g30(self.g30[0]), g30(self.g30[1]), g30(self.g30[2])).into());
         // Machine status
         let mut rows: Vec<StatusRow> = Vec::new();
@@ -236,9 +236,9 @@ impl Util {
         }
     }
 
-    fn mdi(&mut self, line: &str) {
+    fn mdi(&mut self, lines: &[String]) {
         match &self.status {
-            Some(s) if s.power_on() && !s.busy() && s.all_homed() => self.machine.send(Command::Mdi(line.into())),
+            Some(s) if s.power_on() && !s.busy() && s.all_homed() => lines.iter().for_each(|l| self.machine.send(Command::Mdi(l.clone()))),
             _ => self.note("Machine on, homed and idle first", true),
         }
     }
@@ -334,9 +334,9 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         }
     });
     let u = util.clone();
-    actions.on_ut_go_g30(move || u.borrow_mut().mdi("o<go_to_g30> call"));
+    actions.on_ut_go_g30(move || u.borrow_mut().mdi(&go_g30_lines()));
     let u = util.clone();
-    actions.on_ut_set_g30(move || u.borrow_mut().mdi("o<set_g30_position> call"));
+    actions.on_ut_set_g30(move || u.borrow_mut().mdi(&set_g30_lines()));
     let u = util.clone();
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(250), move || {
@@ -352,8 +352,33 @@ pub fn apply_status(util: &Rc<RefCell<Util>>, s: &Status) {
     util.borrow_mut().status = Some(s.clone());
 }
 
-/// set_g30_position.ngc reports the new position as DEBUG EVAL lines.
+/// GO TO G30: Z to the top of travel first, then G30 (which moves through
+/// the current position, so Z must be clear).
+pub fn go_g30_lines() -> Vec<String> {
+    vec![machine::keep_modes(&crate::machine_info::get().z_top_line()), "G30".into()]
+}
+
+/// SET G30 HERE: G30.1 stores the position, and a DEBUG line reports it
+/// back (`message`).
+pub fn set_g30_lines() -> Vec<String> {
+    vec!["G30.1".into(), format!("(DEBUG,{G30_REPORT} #5181 #5182 #5183)")]
+}
+
+const G30_REPORT: &str = "millgui G30";
+
+/// The G30 position as reported after SET G30 (or by set_g30_position.ngc,
+/// as DEBUG EVAL lines).
 pub fn message(util: &Rc<RefCell<Util>>, m: &Message) -> bool {
+    if let Some(rest) = m.text.trim().strip_prefix(G30_REPORT) {
+        let v: Vec<f64> = rest.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+        if v.len() != 3 {
+            return false;
+        }
+        let mut u = util.borrow_mut();
+        u.g30 = [Some(v[0]), Some(v[1]), Some(v[2])];
+        u.note("G30 tool setter position saved", false);
+        return true;
+    }
     let Some((name, v)) = crate::probe::parse_eval(&m.text) else { return false };
     let i = match name.as_str() {
         "x_tool_change_position" => 0,

@@ -7,6 +7,7 @@
 use crate::{Interp, Machine, Mode, Status};
 use lcnc::{Command, JogTarget, JointSel, Message, MessageKind, Serial, TrajMode, Wcs, JOINTS};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::RwLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -86,7 +87,7 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Request>, period: Duration, on_event: 
                         start_modes(m, &last, on_event);
                     }
                     let call = match &cmd {
-                        Command::Mdi(line) if is_macro_call(line) => true,
+                        Command::Mdi(line) if restores_modes(line) => true,
                         _ => false,
                     };
                     let snap = if call && modes.is_none() { m.poll().ok().filter(|s| !s.busy() && s.queued_mdi == 0).cloned() } else { None };
@@ -275,6 +276,22 @@ impl Modes {
     }
 }
 
+/// Marks an MDI line whose mode changes millgui puts back once it ends, as
+/// it does for a macro call: a power feed move written as `G91 G1 X10`, a
+/// park move with `G90 G53`.
+pub const KEEP_MODES: &str = "(millgui: modes back after)";
+
+/// `line` with the KEEP_MODES mark.
+pub fn keep_modes(line: &str) -> String {
+    format!("{line} {KEEP_MODES}")
+}
+
+/// Lines whose mode changes are put back afterwards: macro calls and
+/// lines marked with KEEP_MODES.
+fn restores_modes(line: &str) -> bool {
+    is_macro_call(line) || line.contains(KEEP_MODES)
+}
+
 fn is_macro_call(line: &str) -> bool {
     let l = line.trim().to_ascii_lowercase();
     l.starts_with("o<") && l.split_once('>').is_some_and(|(_, rest)| rest.trim_start().starts_with("call"))
@@ -318,7 +335,7 @@ fn flush_modes(m: &mut dyn Machine, last: &Option<lcnc::Status>, modes: &mut Opt
     *modes = None;
     let sent = execute(m, last, Command::Mdi(line.clone()), on_event)?;
     wait_for(m, Duration::from_secs(2), |s| s.finished(sent.1) && s.interp == Interp::Idle);
-    on_event(Event::Message(Message { kind: MessageKind::Text, text: format!("Modes put back after the macro: {line}") }));
+    on_event(Event::Message(Message { kind: MessageKind::Text, text: format!("Modes put back: {line}") }));
     Some(sent)
 }
 
@@ -462,7 +479,14 @@ fn execute(m: &mut dyn Machine, last: &Option<lcnc::Status>, cmd: Command, on_ev
         }
     }
     let teleop = fresh(m, last).is_some_and(|s| s.traj_mode == TrajMode::Teleop);
-    let cmd = jog_in_mode(cmd, teleop);
+    let stop = matches!(cmd, Command::JogStop { .. });
+    let Some(cmd) = jog_in_mode(cmd, teleop) else {
+        if !stop {
+            let text = "Home the machine first: this axis does not jog before homing".to_string();
+            on_event(Event::Message(Message { kind: MessageKind::Error, text }));
+        }
+        return None;
+    };
     // Homing: motion must be in free (joint) mode, as LinuxCNC's own GUIs
     // make sure before they home; homed machines sit in teleop.
     if let (Command::Home(_), Some(_)) = (&cmd, last) {
@@ -536,20 +560,37 @@ fn fresh(m: &mut dyn Machine, last: &Option<lcnc::Status>) -> Option<lcnc::Statu
     m.poll().ok().cloned().or_else(|| last.clone())
 }
 
-/// Screens jog axes. LinuxCNC 2.9 takes axis jogs only in teleop and joint
-/// jogs only in free mode (before homing); on this trivkins mill axis N is
-/// joint N.
-fn jog_in_mode(cmd: Command, teleop: bool) -> Command {
-    let joint = |t: JogTarget| match t {
-        JogTarget::Axis(a) if !teleop => JogTarget::Joint(a.index() as u8),
-        t => t,
-    };
-    match cmd {
-        Command::JogCont { target, vel } => Command::JogCont { target: joint(target), vel },
-        Command::JogIncr { target, vel, incr } => Command::JogIncr { target: joint(target), vel, incr },
-        Command::JogStop { target } => Command::JogStop { target: joint(target) },
-        other => other,
+/// Which joint jogs each axis (by index, X=0 .. W=8) before homing; `None`
+/// for an axis that has no single joint (a gantry's two Y joints, non-trivial
+/// kinematics). Identity until [`set_axis_joints`].
+static AXIS_JOINTS: RwLock<Option<[Option<u8>; 9]>> = RwLock::new(None);
+
+/// Set the axis to joint map from the machine's kinematics.
+pub fn set_axis_joints(map: [Option<u8>; 9]) {
+    *AXIS_JOINTS.write().unwrap_or_else(|e| e.into_inner()) = Some(map);
+}
+
+fn axis_joint(axis: usize) -> Option<u8> {
+    match *AXIS_JOINTS.read().unwrap_or_else(|e| e.into_inner()) {
+        Some(map) => map.get(axis).copied().flatten(),
+        None => Some(axis as u8),
     }
+}
+
+/// Screens jog axes. LinuxCNC 2.9 takes axis jogs only in teleop and joint
+/// jogs only in free mode (before homing). `None` for a jog of an axis with
+/// no single joint before homing.
+fn jog_in_mode(cmd: Command, teleop: bool) -> Option<Command> {
+    let joint = |t: JogTarget| match t {
+        JogTarget::Axis(a) if !teleop => axis_joint(a.index()).map(JogTarget::Joint),
+        t => Some(t),
+    };
+    Some(match cmd {
+        Command::JogCont { target, vel } => Command::JogCont { target: joint(target)?, vel },
+        Command::JogIncr { target, vel, incr } => Command::JogIncr { target: joint(target)?, vel, incr },
+        Command::JogStop { target } => Command::JogStop { target: joint(target)? },
+        other => other,
+    })
 }
 
 #[cfg(test)]

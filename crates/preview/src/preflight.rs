@@ -181,13 +181,15 @@ fn differs(a: [f64; 3], b: [f64; 3]) -> bool {
 }
 
 /// One line for an operator: "X goes 12.300 mm past its + limit at line 230".
-pub fn describe(p: &Problem) -> String {
+/// `inch`: the machine's units are inches (4 places).
+pub fn describe(p: &Problem, inch: bool) -> String {
+    let by = if inch { format!("{:.4} in", p.by) } else { format!("{:.3} mm", p.by) };
     match p.what {
         What::Travel { axis, high } => {
             let name = ["X", "Y", "Z"][axis];
-            format!("{name} goes {:.3} mm past its {} limit{}", p.by, if high { "+" } else { "−" }, at(p.line))
+            format!("{name} goes {by} past its {} limit{}", if high { "+" } else { "−" }, at(p.line))
         }
-        What::Table => format!("The tool tip goes {:.3} mm below the table top{}", p.by, at(p.line)),
+        What::Table => format!("The tool tip goes {by} below the table top{}", at(p.line)),
     }
 }
 
@@ -246,7 +248,8 @@ mod tests {
         assert_eq!(p.what, What::Travel { axis: 0, high: true });
         assert_eq!(p.line, 10);
         assert!((p.by - 15.0).abs() < 1e-9);
-        assert_eq!(describe(p), "X goes 15.000 mm past its + limit at line 10");
+        assert_eq!(describe(p, false), "X goes 15.000 mm past its + limit at line 10");
+        assert_eq!(describe(p, true), "X goes 15.0000 in past its + limit at line 10");
     }
 
     #[test]

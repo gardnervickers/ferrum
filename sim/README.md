@@ -64,3 +64,22 @@ nets of `xhc-whb04b-6.hal` that millgui cares about. Press START/PAUSE with
 `halcmd setp whb.sim.press-start 1` then `0`; turn the wheel (the driver
 asks for MANUAL) with `whb.sim.wheel 1` then `0`; unplug it with
 `whb.sim.connected 0`.
+
+## Stock machines (not the PM-728VT)
+
+`make-stock-config` builds a simulator from one of LinuxCNC's own sample
+configs, as a stranger would have it: no mymill HAL, no Probe Basic, no
+`millgui.toml`. Use it to check that millgui works on machines that are not
+Gardner's:
+
+```sh
+L=~/lcnc/src/configs/sim/axis
+millgui/sim/make-stock-config ~/sims/inch   $L/axis.ini --remote 8088      # inch, XYZ
+millgui/sim/make-stock-config ~/sims/mm     $L/axis_mm.ini --remote 8088   # mm, XYZ
+millgui/sim/make-stock-config ~/sims/gantry $L/gantry/gantry.ini --remote 8088              # inch, XYZY gantry
+millgui/sim/make-stock-config ~/sims/xyza   $L/wrapped_rotary/wrapped_rotary.ini --remote 8088  # mm, XYZA, no home switches
+cd ~/sims/inch && MILLGUI_BIN=... linuxcnc axis.ini
+```
+
+The sample configs answer M6 with `hal_manualtoolchange` and have no probe
+input.

@@ -3,7 +3,7 @@
 //! (`mymill_job/conversational.py`).
 
 use crate::gcode::{self, comment_text, fmt, oword, strip_comment, words};
-use crate::mill_ops::{GenError, Generator, Kind, MACHINE_TOP};
+use crate::mill_ops::{machine_top, GenError, Generator, Kind};
 use crate::model::{Job, Op, Setup, MAX_OPS};
 use crate::py::{self, Error, Result};
 use serde_json::{Map, Value};
@@ -228,7 +228,7 @@ pub fn compile_job(job: &Job, machine: &Machine) -> Result<CompiledJob> {
         });
     }
     lines.push("(MYMILL-JOB END)".into());
-    lines.push(MACHINE_TOP.into());
+    lines.push(machine_top());
     lines.push("M5".into());
     lines.push("M9".into());
     lines.push("M30".into());
@@ -391,7 +391,7 @@ fn wrap(position: usize, total: usize, op: &Op, setup: Option<&Setup>, body: &[S
         out.push(format!("o<job_{}_stop> endif", tag));
     }
     out.push(format!("o<job_{}> if [#<_job_run>]", tag));
-    out.push(format!("  {}", MACHINE_TOP));
+    out.push(format!("  {}", machine_top()));
     match setup {
         None if op.kind == "probe" => {
             // Checked in resolve().
@@ -432,7 +432,7 @@ fn wrap(position: usize, total: usize, op: &Op, setup: Option<&Setup>, body: &[S
             out.extend(body.iter().map(|l| format!("  {}", l)));
             out.push("  G80".into());
             out.push("  G40".into());
-            out.push(format!("  {}", MACHINE_TOP));
+            out.push(format!("  {}", machine_top()));
         }
     }
     out.push(format!("o<job_{}> endif", tag));
@@ -687,7 +687,7 @@ fn strip_wrapper(op: &Op, gen: &Generator, lines: &[String]) -> Result<Vec<Strin
     if lines.len() < head.len() || lines[..head.len()] != head[..] {
         return Err(Error::job(format!("Op \"{}\": the generator header does not match the job contract.", op.name)));
     }
-    if !head.iter().take(2).any(|l| l == MACHINE_TOP) {
+    if !head.iter().take(2).any(|l| *l == machine_top()) {
         return Err(Error::job(format!("Op \"{}\": the generator no longer lifts to the machine top first.", op.name)));
     }
     let tail = gen.end_op();

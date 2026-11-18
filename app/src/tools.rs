@@ -243,8 +243,8 @@ impl Tools {
                 wear_len: wear_text(history::wear(t.t, [t.z, t.d])[0]).into(),
                 wear_dia: wear_text(history::wear(t.t, [t.z, t.d])[1]).into(),
                 t: format!("T{}", t.t).into(),
-                len: if t.z == 0.0 { "".into() } else { format!("{:.3}", t.z).into() },
-                dia: format!("{:.3}", t.d).into(),
+                len: if t.z == 0.0 { "".into() } else { crate::machine_info::get().units.fmt(t.z).into() },
+                dia: crate::machine_info::get().units.fmt(t.d).into(),
                 comment: t.comment.clone().into(),
                 needs_len: t.z == 0.0 && t.t != self.probe_tool,
                 current: t.t == cur,
@@ -536,7 +536,9 @@ pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<
                 // With the drawbar released the tool comes out: clear the
                 // logical tool too (as Probe Basic's drawbar button did).
                 if extend && st.status.as_ref().is_some_and(|s| s.tool_in_spindle > 0) {
-                    st.machine.send(Command::Mdi("o<unload_spindle> call".into()));
+                    for l in unload_lines() {
+                        st.machine.send(Command::Mdi(l));
+                    }
                 }
             }
         }
@@ -589,6 +591,12 @@ pub fn start_timer(ui: &MainWindow, tools: &Rc<RefCell<Tools>>) -> slint::Timer 
     timer
 }
 
+
+/// No tool in the spindle and no tool length applied: what Probe Basic's
+/// `o<unload_spindle>` did, as plain MDI.
+pub fn unload_lines() -> Vec<String> {
+    vec!["M61 Q0".into(), "G49".into()]
+}
 
 #[cfg(test)]
 mod tests {

@@ -9,7 +9,7 @@ pub use lcnc::*;
 /// Older names used throughout millgui.
 pub use lcnc::{InterpState as Interp, TaskMode as Mode};
 pub use sim::Sim;
-pub use worker::{spawn, Event, Handle};
+pub use worker::{keep_modes, set_axis_joints, spawn, Event, Handle, KEEP_MODES};
 
 pub const AXIS_LETTERS: [char; AXES] = Axis::LETTERS;
 

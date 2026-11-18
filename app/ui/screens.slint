@@ -5,6 +5,40 @@ import { ListView } from "std-widgets.slint";
 import { JogPanel } from "jog.slint";
 
 // Placeholder for screens that later milestones fill in.
+// A screen that is off on this machine, and why.
+export component Blocked inherits Rectangle {
+    in property <string> title;
+    in property <string> text;
+    Card {
+        x: 14px;
+        y: 14px;
+        width: parent.width - 28px;
+        height: parent.height - 28px;
+        VerticalLayout {
+            alignment: center;
+            padding-left: 120px;
+            padding-right: 120px;
+            spacing: 18px;
+            Text {
+                horizontal-alignment: center;
+                text: title + " IS OFF ON THIS MACHINE";
+                font-family: Theme.display;
+                font-size: 40px;
+                letter-spacing: 2px;
+                color: Theme.warn;
+            }
+            Text {
+                horizontal-alignment: center;
+                text: root.text;
+                wrap: word-wrap;
+                font-family: Theme.body;
+                font-size: 26px;
+                color: Theme.muted;
+            }
+        }
+    }
+}
+
 export component Placeholder inherits Rectangle {
     in property <string> title;
     in property <string> note;
@@ -468,6 +502,7 @@ component ProgramCard inherits Card {
                 x: parent.width - self.width - 12px; y: parent.height - self.height - 12px;
                 width: 130px; height: 48px; font-size: 20px;
                 text: "TABLE"; on: Live.plot-machine;
+                visible: Live.plot-has-machine;
                 clicked => { Actions.plot-machine(); }
             }
         }

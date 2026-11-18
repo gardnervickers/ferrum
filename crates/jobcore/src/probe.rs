@@ -30,7 +30,7 @@
 //!   "on_fail": "pause"|"continue"}`
 
 use crate::gcode::{comment_text, fmt};
-use crate::mill_ops::MACHINE_TOP;
+use crate::mill_ops::machine_top;
 use crate::model::{Op, WCS_CODES};
 use crate::py::{Error, Result};
 use serde_json::{json, Map, Value};
@@ -225,7 +225,7 @@ pub fn body(op: &Op, position: usize, tag: &str, probe_tool: i64) -> Result<Vec<
         Some([x, y, z]) => {
             // From the top of travel (the tool change may have left Z
             // anywhere), so the way down is the start's machine Z.
-            out.push(MACHINE_TOP.into());
+            out.push(machine_top());
             out.push(format!("G53 G0 X{} Y{}", fmt(x), fmt(y)));
             out.push("F[#3017]".into());
             out.push(format!("G91 G38.3 Z{}", fmt(z)));
@@ -253,7 +253,7 @@ pub fn body(op: &Op, position: usize, tag: &str, probe_tool: i64) -> Result<Vec<
     for (n, _) in &set {
         out.push(format!("#{n} = #<_job_p{n}>"));
     }
-    out.push(MACHINE_TOP.into());
+    out.push(machine_top());
     if let Some(m) = &p.measure {
         out.push(format!("#<_job_m> = {}", result_param(&m.value)));
         out.push(format!("(DEBUG, MYMILL-MEASURE ID={} VALUE=#<_job_m>)", op.id));
@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(b[call + 1], "o<job_op2_live> endif");
         let restore = b.iter().position(|l| l == "#3025 = #<_job_p3025>").unwrap();
         assert!(rapid < guard && guard < call && call < restore);
-        assert_eq!(b.last().unwrap(), MACHINE_TOP);
+        assert_eq!(b.last().unwrap(), &machine_top());
         assert!(!t.contains("MYMILL-MEASURE"));
         assert_eq!(provides(&op("find")), vec!["wcs:G54"]);
     }
@@ -411,7 +411,7 @@ mod tests {
         let b = body(&o, 1, "op1", 99).unwrap();
         let at = |l: &str| b.iter().position(|x| x == l).unwrap_or_else(|| panic!("no {l} in {b:?}"));
         // Top of travel, over the start, guarded down by the machine Z.
-        assert_eq!(b[at("G53 G0 X215 Y-150") - 1], MACHINE_TOP);
+        assert_eq!(b[at("G53 G0 X215 Y-150") - 1], machine_top());
         assert!(at("G43 H99") < at("G53 G0 X215 Y-150"));
         assert_eq!(at("G91 G38.3 Z-130"), at("G53 G0 X215 Y-150") + 2);
         assert_eq!(at("G90"), at("G91 G38.3 Z-130") + 1);

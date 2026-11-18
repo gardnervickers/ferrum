@@ -4,7 +4,25 @@
 use crate::py::{self, fixed, general, Error};
 use serde_json::Value;
 
-pub const MACHINE_TOP: &str = "G53 G0 Z0";
+/// The retract to the top of Z travel that every op and job starts and
+/// ends with. `G53 G0 Z0` (the PM-728VT homes Z at the top and calls it 0)
+/// until the screen sets the machine's own with `set_machine_top`.
+pub fn machine_top() -> String {
+    match MACHINE_TOP.read() {
+        Ok(t) if !t.is_empty() => t.clone(),
+        _ => DEFAULT_TOP.into(),
+    }
+}
+
+/// Machine Z of the top of travel, as a G-code number ("0", "99.5").
+pub fn set_machine_top(z: &str) {
+    if let Ok(mut t) = MACHINE_TOP.write() {
+        *t = format!("G53 G0 Z{z}");
+    }
+}
+
+const DEFAULT_TOP: &str = "G53 G0 Z0";
+static MACHINE_TOP: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
 pub const DRILL_TYPES: [&str; 7] = ["DRILL", "PECK", "BREAK", "DWELL", "TAP", "RIGID TAP", "MANUAL"];
 pub const THREAD_DEPTH_PER_PITCH: f64 = 0.5413;
 pub const MAX_RAMP_ANGLE: f64 = 10.0;
@@ -454,7 +472,7 @@ impl Generator {
         let tool = self.tool_d()?;
         let mut g = vec![
             if py::strip_upper(&self.units) == "IN" { "G20".to_string() } else { "G21".to_string() },
-            MACHINE_TOP.to_string(),
+            machine_top(),
             format!("T{} M6", tool),
             format!("G43 H{}", tool),
             self.wcs.clone(),
@@ -786,7 +804,7 @@ pub fn program_lines(ops: &[Vec<String>]) -> Vec<String> {
     for op in ops {
         lines.extend(op.iter().cloned());
     }
-    lines.push(MACHINE_TOP.into());
+    lines.push(machine_top());
     lines.push("M30".into());
     lines.iter().enumerate().map(|(i, l)| format!("N{} {}", (i + 1) * 10, l)).collect()
 }

@@ -10,6 +10,7 @@ mod files;
 mod headless;
 mod history;
 mod job;
+mod machine_info;
 mod machine_cfg;
 mod manual;
 mod mdi;
@@ -212,31 +213,22 @@ mod hal_tests {
     }
 }
 
+/// A DRO number: degrees to 2 places, lengths to the machine units' places.
 fn fmt_axis(v: f64, letter: char) -> String {
     if matches!(letter, 'A' | 'B' | 'C') {
         format!("{v:.2}°")
     } else {
-        format!("{v:.3}")
+        machine_info::get().units.fmt(v)
     }
 }
 
-fn axis_indices(cfg: &Config) -> Vec<usize> {
-    let mut out = Vec::new();
-    for c in cfg.coordinates().chars() {
-        if let Some(i) = AXIS_LETTERS.iter().position(|a| *a == c.to_ascii_uppercase()) {
-            if !out.contains(&i) {
-                out.push(i);
-            }
-        }
-    }
-    if out.is_empty() {
-        out = vec![0, 1, 2];
-    }
-    out
+/// AXIS_LETTERS indices of the machine's axes, in [TRAJ]COORDINATES order.
+fn axis_indices() -> Vec<usize> {
+    machine_info::get().axes.iter().map(|a| a.index).collect()
 }
 
-/// Mode and homing pills. A has no home switch: homing "references" it
-/// where it stands, so the pill says A REF rather than implying A is homed.
+/// Mode and homing pills. A rotary without a home switch is "referenced"
+/// where it stands, so its pill says REF rather than implying it is homed.
 fn core_pills_front(s: &Status, axes: &[usize], out: &mut Vec<Pill>) {
     out.push(if s.estop() {
         Pill::new("E-STOP", "bad")
@@ -251,16 +243,19 @@ fn core_pills_front(s: &Status, axes: &[usize], out: &mut Vec<Pill>) {
             machine::Mode::Unknown(_) => Pill::new("MODE?", "warn"),
         }
     });
-    let homed = |i: usize| s.homed.get(i).copied().unwrap_or(false);
-    let linear: Vec<usize> = axes.iter().copied().filter(|&i| i < 3).collect();
-    let rotary: Vec<usize> = axes.iter().copied().filter(|&i| (3..6).contains(&i)).collect();
-    if !linear.iter().all(|&i| homed(i)) {
-        out.push(Pill::new("NOT HOMED", "bad").hint("Hold HOME ALL, or HOME beside an axis."));
+    let mi = machine_info::get();
+    let homed = |i: usize| mi.axis_homed(s, i);
+    // Axes homed against a switch, and rotaries referenced where they stand.
+    let switched = |i: usize| mi.axis(i).is_none_or(|a| a.home_switch || !a.rotary);
+    let main: Vec<usize> = axes.iter().copied().filter(|&i| switched(i)).collect();
+    let referenced: Vec<usize> = axes.iter().copied().filter(|&i| !switched(i)).collect();
+    if !main.iter().all(|&i| homed(i)) {
+        out.push(Pill::new("NOT HOMED", "bad").hint(if mi.per_axis_home() { "Hold HOME ALL, or HOME beside an axis." } else { "Hold HOME ALL." }));
         return;
     }
-    let mut text = format!("HOMED {}", linear.iter().map(|&i| AXIS_LETTERS[i]).collect::<String>());
+    let mut text = format!("HOMED {}", main.iter().map(|&i| AXIS_LETTERS[i]).collect::<String>());
     let mut kind = "good";
-    for &i in &rotary {
+    for &i in &referenced {
         if homed(i) {
             text.push_str(&format!(" · {} REF", AXIS_LETTERS[i]));
         } else {
@@ -345,9 +340,8 @@ fn tool_tip(s: &Status) -> [f64; 4] {
 fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     let live = ui.global::<Live>();
     let work = s.work_position();
-    // Joint i maps to axis i on this trivkins machine.
-    let rows: Vec<DroRow> =
-        axes.iter().map(|&i| DroRow { axis: AXIS_LETTERS[i].to_string().into(), homed: s.homed.get(i).copied().unwrap_or(false) }).collect();
+    let mi = machine_info::get();
+    let rows: Vec<DroRow> = axes.iter().map(|&i| DroRow { axis: AXIS_LETTERS[i].to_string().into(), homed: mi.axis_homed(s, i) }).collect();
     let pos: Vec<DroPos> = axes
         .iter()
         .map(|&i| {
@@ -363,7 +357,7 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     crate::models::sync(live.get_dro_pos(), pos, |m| live.set_dro_pos(m));
     live.set_estop(s.estop());
     live.set_power(s.power_on());
-    live.set_homed(axes.iter().all(|&i| s.homed.get(i).copied().unwrap_or(false)));
+    live.set_homed(axes.iter().all(|&i| mi.axis_homed(s, i)));
     live.set_wcs(s.wcs.name().into());
     live.set_tool(format!("T{}", s.tool_in_spindle).into());
     live.set_tc_from(format!("T{}", s.tool_in_spindle).into());
@@ -433,10 +427,10 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     actions.on_estop_reset(move || m.send(Command::SetState(TaskState::EstopReset)));
     let m = machine.clone();
     actions.on_home_all(move || m.send(Command::Home(JointSel::All)));
-    // trivkins: joints are numbered in [TRAJ]COORDINATES order.
-    let (m, coords) = (machine.clone(), cfg.coordinates().to_ascii_uppercase());
+    // Every joint behind the axis (both sides of a gantry).
+    let m = machine.clone();
     actions.on_home_axis(move |axis| {
-        if let Some(j) = coords.find(axis.as_str()) {
+        for j in axis.chars().next().map(|l| machine_info::get().home_joints(l)).unwrap_or_default() {
             m.send(Command::Home(JointSel::Joint(j as u8)));
         }
     });
@@ -639,6 +633,12 @@ fn main() -> Result<(), slint::PlatformError> {
         }),
         None => Config::default(),
     };
+    let mi = machine_info::init(&cfg);
+    jobcore::mill_ops::set_machine_top(&mi.units.gcode(mi.z_top));
+    machine::set_axis_joints(std::array::from_fn(|i| mi.jog_joint(i).map(|j| j as u8)));
+    if let Some(u) = &mi.units_unknown {
+        notes.push(format!("[TRAJ]LINEAR_UNITS = {u} is not a unit millgui knows; showing millimetres"));
+    }
     let (mut modules, problems) = modules::build(&cfg);
     notes.extend(problems);
 
@@ -673,7 +673,7 @@ fn main() -> Result<(), slint::PlatformError> {
         live.set_message("Simulated machine".into());
     }
 
-    let axes = axis_indices(&cfg);
+    let axes = axis_indices();
     let state = Rc::new(RefCell::new(UiState::default()));
     let modules = Rc::new(modules);
 
@@ -1091,13 +1091,13 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     let mut st = UiState { connected: true, ..Default::default() };
     let live = ui.global::<Live>();
     live.set_connected(true);
-    apply_status(&ui, &mut st, &s, &axis_indices(cfg));
-    refresh_pills(&ui, &st, modules, &axis_indices(cfg));
+    apply_status(&ui, &mut st, &s, &axis_indices());
+    refresh_pills(&ui, &st, modules, &axis_indices());
     live.set_clock(chrono::Local::now().format("%H:%M").to_string().into());
     live.set_message("Simulated machine".into());
 
     let handle = machine::spawn(Box::new(machine::Sim::new()), Duration::from_secs(3600), |_| {});
-    let manual = manual::wire(&ui, &handle, cfg, settings::Settings::memory(), axis_indices(cfg).contains(&3));
+    let manual = manual::wire(&ui, &handle, cfg, settings::Settings::memory(), axis_indices().contains(&3));
     textentry::wire(&ui);
     mdi::wire(&ui, &handle, cfg, &mut Vec::new());
     files::wire(&ui, &handle, sample_dir());

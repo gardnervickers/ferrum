@@ -1,17 +1,19 @@
 //! Power feed and GO TO, with parity to Probe Basic's powerfeed tab
-//! (custom_ui/tabs/powerfeed/powerfeed.py). Moves run through
-//! `o<mymill_powerfeed>`, which checks its arguments, selects the power feed
-//! WCS only for the move and restores modal state (M73) when it returns.
+//! (custom_ui/tabs/powerfeed/powerfeed.py). Moves are plain MDI lines that
+//! select the power feed WCS and the distance mode they need; they carry
+//! the KEEP_MODES mark, so the worker puts the operator's modes back when
+//! they end (what `o<mymill_powerfeed>` did with M73). No macro is needed.
 //! The checks here are a preflight for clear messages; LinuxCNC and HAL
 //! still decide whether motion happens.
 
 use crate::config::Config;
+use crate::machine_info;
 use crate::settings::Settings;
 use machine::{Interp, Status};
 
 pub const WCS: [&str; 9] = ["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"];
-/// End of travel stops this far inside the soft limit.
-pub const CLEARANCE: f64 = 1.0;
+/// End of travel stops this far inside the soft limit, in mm.
+pub const CLEARANCE_MM: f64 = 1.0;
 const TOL: f64 = 0.0001;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -60,16 +62,24 @@ pub fn ready(s: &Status, motion_block: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn call(op: u8, wcs: usize, axis: usize, value: f64, feed: f64, y: f64) -> String {
-    format!("o<mymill_powerfeed> call [{op}] [{wcs}] [{axis}] [{value:.4}] [{feed:.3}] [{y:.4}]")
+/// One MDI move whose modes are put back afterwards.
+fn line(words: String) -> String {
+    machine::keep_modes(&words)
+}
+
+fn num(v: f64) -> String {
+    let s = format!("{v:.4}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s == "-0" { "0".into() } else { s.to_string() }
 }
 
 impl PowerFeed {
     pub fn new(cfg: &Config, st: &Settings) -> Self {
+        let mi = machine_info::get();
         let limit = |a: &str| {
             let lo = cfg.get_f64(&format!("AXIS_{a}"), "MIN_LIMIT")?;
             let hi = cfg.get_f64(&format!("AXIS_{a}"), "MAX_LIMIT")?;
-            (hi - lo > 2.0 * CLEARANCE).then_some((lo, hi))
+            (hi - lo > 2.0 * mi.mm(CLEARANCE_MM)).then_some((lo, hi))
         };
         let gotos = st
             .list("powerfeed.goto.")
@@ -83,12 +93,12 @@ impl PowerFeed {
         let wcs = st.f64("powerfeed.wcs-index", 1.0) as usize;
         Self {
             mode: if st.get("powerfeed.xy-mode") == Some("end-of-travel") { Mode::EndOfTravel } else { Mode::Distance },
-            feed: st.f64("powerfeed.feed", 250.0),
-            dist: st.f64("powerfeed.distance", 25.0),
+            feed: st.f64("powerfeed.feed", mi.units.pick(250.0, 10.0)),
+            dist: st.f64("powerfeed.distance", mi.units.pick(25.0, 1.0)),
             wcs: if (1..=WCS.len()).contains(&wcs) { wcs } else { 1 },
             gt_x: 0.0,
             gt_y: 0.0,
-            gt_feed: st.f64("powerfeed.feed", 250.0),
+            gt_feed: st.f64("powerfeed.feed", mi.units.pick(250.0, 10.0)),
             gotos,
             selected: None,
             limits: [limit("X"), limit("Y"), limit("Z")],
@@ -126,32 +136,40 @@ impl PowerFeed {
                 return Err("Z moves by distance only".into());
             }
             let (lo, hi) = self.limits[axis].ok_or(format!("{} travel limits unavailable", &name[..1]))?;
-            let target = if dir > 0 { hi - CLEARANCE } else { lo + CLEARANCE };
+            let clearance = machine_info::get().mm(CLEARANCE_MM);
+            let target = if dir > 0 { hi - clearance } else { lo + clearance };
             let pos = s.actual[axis];
             if (dir > 0 && pos >= target - TOL) || (dir < 0 && pos <= target + TOL) {
                 return Err(format!("{name} already at end of travel"));
             }
-            return Ok((call(2, 0, axis + 1, target, self.feed, 0.0), format!("Running {name} to end of travel")));
+            let l = ['X', 'Y', 'Z'][axis];
+            return Ok((line(format!("G90 G53 G1 {l}{} F{}", num(target), num(self.feed))), format!("Running {name} to end of travel")));
         }
         if self.dist <= 0.0 {
             return Err("Distance is required".into());
         }
         let d = self.dist * dir as f64;
-        Ok((call(1, self.wcs, axis + 1, d, self.feed, 0.0), format!("Running {name} {:.3} at {:.0} mm/min", self.dist, self.feed)))
+        let l = ['X', 'Y', 'Z'][axis];
+        let u = machine_info::get().units;
+        Ok((
+            line(format!("{} G91 G1 {l}{} F{}", self.wcs_code(), num(d), num(self.feed))),
+            format!("Running {name} {} at {:.0} {}/min", u.fmt(self.dist), self.feed, u.name()),
+        ))
     }
 
     pub fn goto_cmd(&self) -> Result<(String, String), String> {
         if self.gt_feed <= 0.0 {
             return Err("GO TO feed must be greater than zero".into());
         }
+        let u = machine_info::get().units;
         Ok((
-            call(3, self.wcs, 0, self.gt_x, self.gt_feed, self.gt_y),
-            format!("GO TO {} X{:.3} Y{:.3} at F{:.0}", self.wcs_code(), self.gt_x, self.gt_y, self.gt_feed),
+            line(format!("{} G90 G1 X{} Y{} F{}", self.wcs_code(), num(self.gt_x), num(self.gt_y), num(self.gt_feed))),
+            format!("GO TO {} X{} Y{} at F{:.0}", self.wcs_code(), u.fmt(self.gt_x), u.fmt(self.gt_y), self.gt_feed),
         ))
     }
 
-    /// Retract Z in the active WCS, then XY to its zero.
-    pub fn retract_cmd(&self, s: &Status, retract: f64) -> Result<String, String> {
+    /// Retract Z in the active WCS, then XY to its zero: two MDI lines.
+    pub fn retract_cmd(&self, s: &Status, retract: f64) -> Result<Vec<String>, String> {
         if retract <= 0.0 {
             return Err("Z retract must be greater than zero".into());
         }
@@ -160,11 +178,12 @@ impl PowerFeed {
                 return Err("Z retract would exceed machine limit".into());
             }
         }
-        Ok(call(4, 0, 0, retract, 0.0, 0.0))
+        Ok(vec![line(format!("G91 G0 Z{}", num(retract))), line("G90 G0 X0 Y0".into())])
     }
 
+    /// Z to zero in the active WCS.
     pub fn z_zero_cmd(&self) -> String {
-        call(5, 0, 0, 0.0, 0.0, 0.0)
+        line("G90 G0 Z0".into())
     }
 
     pub fn select(&mut self, i: usize) {
@@ -234,7 +253,7 @@ mod tests {
         let mut p = pf();
         p.wcs = 2;
         let (cmd, _) = p.move_cmd(&Status::default(), 1, -1).unwrap();
-        assert_eq!(cmd, "o<mymill_powerfeed> call [1] [2] [2] [-25.0000] [250.000] [0.0000]");
+        assert_eq!(cmd, "G55 G91 G1 Y-25 F250 (millgui: modes back after)");
     }
 
     #[test]
@@ -242,7 +261,7 @@ mod tests {
         let mut p = pf();
         p.mode = Mode::EndOfTravel;
         let (cmd, _) = p.move_cmd(&Status::default(), 0, 1).unwrap();
-        assert!(cmd.starts_with("o<mymill_powerfeed> call [2] [0] [1] [199.0000]"));
+        assert_eq!(cmd, "G90 G53 G1 X199 F250 (millgui: modes back after)");
         assert!(p.move_cmd(&Status::default(), 2, 1).is_err());
         assert!(!p.axis_enabled(2));
         let mut s = Status::default();

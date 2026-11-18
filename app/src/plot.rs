@@ -104,6 +104,7 @@ fn setup(cfg: &Config) -> Option<rs274::Setup> {
         var_file: cfg.get("RS274NGC", "PARAMETER_FILE").map(rel),
         tool_table: cfg.get("EMCIO", "TOOL_TABLE").map(rel),
         rapid_mm_s: rapid(cfg),
+        inch: crate::machine_info::get().units.inch(),
     })
 }
 
@@ -129,8 +130,9 @@ fn a_sign(cfg: &Config) -> f64 {
     }
 }
 
+/// Machine units per second.
 fn rapid(cfg: &Config) -> f64 {
-    cfg.get_f64("TRAJ", "MAX_LINEAR_VELOCITY").unwrap_or(100.0)
+    cfg.get_f64("TRAJ", "MAX_LINEAR_VELOCITY").unwrap_or(crate::machine_info::get().mm(100.0))
 }
 
 impl Plot {
@@ -262,8 +264,9 @@ impl Plot {
         if self.tp.segs.is_empty() {
             return None;
         }
-        let top = -self.machine.nose_above_table;
-        Some(preflight::check(&self.tp, limits, live, Some(top), from_line))
+        // No table check until the table is described.
+        let top = (self.machine.nose_above_table > 0.0).then(|| -self.machine.nose_above_table);
+        Some(preflight::check(&self.tp, limits, live, top, from_line))
     }
 
     fn run_check(&mut self, ui: &MainWindow) {
@@ -285,7 +288,7 @@ fn check_text(r: &Report, tp: &Toolpath, live: Option<&preflight::Live>) -> (Str
     let wcs = live.map_or(0, |l| l.active.clamp(1, 9) as usize - 1);
     let op_name = |op: usize| tp.ops.get(op).map(|o| o.name.clone()).filter(|n| !n.is_empty());
     if let Some(p) = r.problems.first() {
-        let mut text = preflight::describe(p);
+        let mut text = preflight::describe(p, crate::machine_info::get().units.inch());
         if let Some(n) = op_name(p.op) {
             text += &format!(" ({n})");
         }
@@ -313,7 +316,7 @@ pub fn start_problem(plot: &Rc<RefCell<Plot>>, from_line: u32) -> Option<String>
     let st = plot.borrow();
     let r = st.check_from(from_line)?;
     let p = r.travel().next()?;
-    let mut text = preflight::describe(p);
+    let mut text = preflight::describe(p, crate::machine_info::get().units.inch());
     if let Some(n) = st.tp.ops.get(p.op).map(|o| o.name.clone()).filter(|n| !n.is_empty()) {
         text += &format!(" ({n})");
     }
@@ -339,7 +342,7 @@ pub fn check_details(plot: &Rc<RefCell<Plot>>) -> Option<(String, u32)> {
         .iter()
         .map(|p| {
             let n = st.tp.ops.get(p.op).map(|o| format!(" ({})", o.name)).unwrap_or_default();
-            format!("{}{n}", preflight::describe(p))
+            format!("{}{n}", preflight::describe(p, crate::machine_info::get().units.inch()))
         })
         .collect();
     if let Some(l) = r.sets_offsets.first() {
@@ -380,7 +383,7 @@ pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpa
     }
     let (setup, rapid) = {
         let p = plot.borrow();
-        (p.setup.as_ref().map(|s| rs274::Setup { ini: s.ini.clone(), config_dir: s.config_dir.clone(), var_file: s.var_file.clone(), tool_table: s.tool_table.clone(), rapid_mm_s: s.rapid_mm_s }), p.rapid)
+        (p.setup.as_ref().map(|s| rs274::Setup { ini: s.ini.clone(), config_dir: s.config_dir.clone(), var_file: s.var_file.clone(), tool_table: s.tool_table.clone(), rapid_mm_s: s.rapid_mm_s, inch: s.inch }), p.rapid)
     };
     std::thread::spawn(move || {
         let tp = match &setup {
@@ -511,7 +514,8 @@ thread_local! {
 }
 
 pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) -> Rc<RefCell<Plot>> {
-    ui.global::<Live>().set_plot_machine(model.show);
+    ui.global::<Live>().set_plot_machine(model.show && model.known());
+    ui.global::<Live>().set_plot_has_machine(model.known());
     let plot = Rc::new(RefCell::new(Plot {
         tp: Arc::new(Toolpath::default()),
         id: 0,
@@ -525,7 +529,7 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         tool: None,
         machine: model.machine(),
         pose: None,
-        show_machine: model.show,
+        show_machine: model.show && model.known(),
         dirty: false,
         base: None,
         pending: None,
