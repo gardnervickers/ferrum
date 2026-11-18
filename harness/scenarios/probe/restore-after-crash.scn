@@ -1,8 +1,21 @@
-title A probe run cut off by a crash: defaults go back once the machine can take MDI
+title A probe run cut off by a crash: defaults go back once homed, and homing is not disturbed
 needs probe-basic
-xfail mymill: millgui restores at power-on before homing; the MDI is refused ("not homed"), the restore is dropped and HOME ALL then stalls
-# What probe.rs leaves behind when millgui dies mid-run (Settings "probe").
-seed .local/state/millgui/probe probe.restore-pending=1
-include ../common/ready.scn
+# What probe.rs leaves behind when millgui dies mid-run (Settings "probe"):
+# the marker and the saved defaults (#3004 = probe feed, distinctive here).
+seed .local/state/millgui/probe probe.restore-pending = 1
+seed .local/state/millgui/probe probe.default.000 = 3004=111.5
+wait prop.connected == true within 30
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10
+sleep 2                                   # on, not homed: nothing may be sent yet
+expect ui-errors.len == 0
+do home-all
+wait prop.homed == true within 120
 idle 30
+sleep 2                                   # the restore runs now
+idle 30
+mdi (DEBUG,P3004=#3004)
+wait prop.messages contains "P3004=111.5" within 5
 shot after-restore

@@ -44,6 +44,9 @@ pub const MACROS: &[&str] = &[
     "probe_y_minus_wco", "probe_y_plus_wco", "probe_z_minus_wco", "tool_touch_off",
 ];
 
+/// How long after a failed restore of the probe defaults to try again.
+const RESTORE_RETRY: Duration = Duration::from_secs(30);
+
 pub const WCS: [&str; 9] = ["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"];
 
 struct Param {
@@ -216,6 +219,8 @@ struct Run {
     sent: Option<(Instant, machine::Serial, bool)>,
     failed: Option<String>,
     restoring: bool,
+    /// A restore line was refused or failed: the defaults may not be back.
+    restore_failed: bool,
     what: String,
     kind: &'static str,
     flow_step: Option<&'static str>,
@@ -248,6 +253,8 @@ pub struct Probe {
     status: Option<Status>,
     state: Settings,
     restore_pending: bool,
+    /// No restore attempt before this (after one failed).
+    restore_after: Option<Instant>,
     /// A job with probing ops was started; see `job_started`.
     job_armed: bool,
     probe_tool: i32,
@@ -663,7 +670,7 @@ impl Probe {
         self.results.clear();
         let what = self.selected().label;
         self.result_text = format!("Running: {what}");
-        self.run = Some(Run { steps, restore, sent: None, failed: None, restoring: false, what, kind: t.kind, flow_step, done_at: None });
+        self.run = Some(Run { steps, restore, sent: None, failed: None, restoring: false, restore_failed: false, what, kind: t.kind, flow_step, done_at: None });
         self.pump();
         Ok(())
     }
@@ -696,6 +703,7 @@ impl Probe {
                 }
                 if !echoed {
                     run.failed.get_or_insert_with(|| "LinuxCNC did not take the command".into());
+                    run.restore_failed |= run.restoring;
                 }
             }
             run.sent = None;
@@ -731,7 +739,11 @@ impl Probe {
     }
 
     fn finish(&mut self, run: Run) {
-        self.mark_dirty(false);
+        // Keep the marker until the defaults are really back; try again later.
+        self.mark_dirty(run.restore_failed);
+        if run.restore_failed {
+            self.restore_after = Some(Instant::now() + RESTORE_RETRY);
+        }
         let results = std::mem::take(&mut self.results);
         if let Some(e) = &run.failed {
             self.result_text = format!("{} failed: {e}", run.what);
@@ -819,6 +831,7 @@ impl Probe {
             if m.kind == MessageKind::Error {
                 if let Some(r) = &mut self.run {
                     r.failed.get_or_insert_with(|| m.text.trim().to_string());
+                    r.restore_failed |= r.restoring;
                 }
             }
             return false;
@@ -1423,6 +1436,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         status: None,
         state,
         restore_pending,
+        restore_after: None,
         job_armed: false,
         probe_tool,
         machine: machine.clone(),
@@ -1553,11 +1567,16 @@ pub fn apply_status(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, s: &Status) {
         p.job_armed = false;
         p.mark_dirty(true);
     }
-    // A run that never restored its defaults (crash): restore them now.
-    if p.restore_pending && p.run.is_none() && s.power_on() && !s.busy() {
+    // A run that never restored its defaults (crash): restore them once
+    // LinuxCNC takes MDI (on and homed) and nothing moves. Homing and jogs
+    // leave the interpreter idle, and an MDI then would abort them.
+    let quiet = s.power_on() && s.all_homed() && !s.busy() && s.inpos && !s.homing.iter().any(|h| *h);
+    let due = p.restore_after.is_none_or(|t| Instant::now() >= t);
+    if p.restore_pending && p.run.is_none() && quiet && due {
         let lines = Probe::assign_lines(p.defaults.iter().map(|(n, v)| (*n, *v)));
-        p.run = Some(Run { steps: Vec::new(), restore: lines, sent: None, failed: None, restoring: false, what: "Restore probe defaults".into(), kind: "", flow_step: None, done_at: None });
+        p.run = Some(Run { steps: Vec::new(), restore: lines, sent: None, failed: None, restoring: false, restore_failed: false, what: "Restore probe defaults".into(), kind: "", flow_step: None, done_at: None });
         p.restore_pending = false;
+        p.restore_after = None;
     }
     p.pump();
     if was != Some(key(s)) || p.run.is_some() {
@@ -1656,6 +1675,7 @@ mod tests {
             status: None,
             state: Settings::memory(),
             restore_pending: false,
+            restore_after: None,
             job_armed: false,
             probe_tool: 99,
             machine: machine::spawn(Box::new(machine::Sim::new()), Duration::from_secs(3600), |_| {}),
