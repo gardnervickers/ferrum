@@ -1,0 +1,195 @@
+# Release builds for scripts/ferrum-update to install:
+#   - a tag vX.Y.Z (matching app/Cargo.toml's version) publishes release
+#     vX.Y.Z, which becomes "latest";
+#   - every main commit that passed CI refreshes the "edge" prerelease.
+# Both build on Debian 12 (the Pi's OS, and LinuxCNC 2.9's) against
+# LinuxCNC 2.9.10 for aarch64 and x86_64. Nothing here talks to a machine.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref || 'edge' }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+jobs:
+  version:
+    name: Version
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      channel: ${{ steps.v.outputs.channel }}
+      sha: ${{ steps.v.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - id: v
+        run: |
+          crate="$(sed -n 's/^version = "\(.*\)"/\1/p' app/Cargo.toml | head -1)"
+          sha="$(git rev-parse HEAD)"
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            v="${GITHUB_REF_NAME#v}"
+            [ "$v" = "$crate" ] || { echo "::error::tag $GITHUB_REF_NAME does not match app/Cargo.toml version $crate"; exit 1; }
+            echo channel=stable >> "$GITHUB_OUTPUT"
+          else
+            v="$crate-edge.$(git show -s --format=%cd --date=format:%Y%m%d%H%M HEAD).${sha::7}"
+            echo channel=edge >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Ferrum $v" >> "$GITHUB_STEP_SUMMARY"
+
+  web:
+    name: Browser screen
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: wasm-bindgen
+        run: |
+          v="$(sed -n 's/^wasm-bindgen = "=\(.*\)"/\1/p' web/Cargo.toml)"
+          cargo install wasm-bindgen-cli --version "$v" --locked
+      - run: scripts/build-web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: [version, web]
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: debian:bookworm
+    timeout-minutes: 60
+    env:
+      FERRUM_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Packages
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            git ca-certificates curl build-essential autoconf automake libtool pkg-config \
+            libudev-dev libmodbus-dev libusb-1.0-0-dev libtirpc-dev libedit-dev libreadline-dev \
+            libboost-python-dev libglu1-mesa-dev libgl1-mesa-dev libxmu-dev libxinerama-dev \
+            libepoxy-dev libxkbcommon-dev libfontconfig-dev libfreetype-dev \
+            tcl-dev tk-dev python3-dev python3-yapps yapps2 intltool gettext groff psmisc procps \
+            libglib2.0-dev libgpiod-dev libxaw7-dev libncurses-dev libgtk-3-dev libsystemd-dev \
+            asciidoc-base docbook-xml docbook-xsl xsltproc libxml2-utils >/dev/null
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - name: Cache LinuxCNC build
+        id: lcnc-cache
+        uses: actions/cache@v4
+        with:
+          path: /lcnc
+          key: lcnc-2.9.10-bookworm-${{ matrix.arch }}-v1
+      - name: Build LinuxCNC 2.9.10 libraries
+        if: steps.lcnc-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch v2.9.10 --depth 1 https://github.com/LinuxCNC/linuxcnc.git /lcnc/src
+          cd /lcnc/src/src
+          ./autogen.sh >/dev/null
+          ./configure --with-realtime=uspace --disable-gtk --disable-gtk2 --enable-non-distributable=yes \
+            --disable-check-runtime-deps --disable-build-documentation >/dev/null
+          make -j"$(nproc)" >/dev/null
+      - name: Sysroot
+        run: |
+          mkdir -p /sysroot/usr/include
+          ln -sfn /lcnc/src/include /sysroot/usr/include/linuxcnc
+          ln -sfn /lcnc/src/lib /sysroot/usr/lib
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
+      - name: Build
+        run: LCNC_SYSROOT=/sysroot cargo build --release --locked -p ferrum-lcnc
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Package
+        run: scripts/package target/release/ferrum "$FERRUM_VERSION" ${{ matrix.arch }} dist
+      - name: Installer tests
+        run: scripts/test-installer
+      - name: Install the package and check it loads
+        # LinuxCNC's libraries are not installed system-wide here.
+        run: |
+          cd dist && sha256sum ferrum-linux-${{ matrix.arch }}.tar.gz > SHA256SUMS && cd ..
+          export LD_LIBRARY_PATH=/lcnc/src/lib FERRUM_NO_BIN_LINK=1
+          scripts/ferrum-update --prefix /tmp/ferrum --from dist/ferrum-linux-${{ matrix.arch }}.tar.gz \
+            --ini /lcnc/src/configs/sim/axis/axis_mm.ini
+          test "$(/tmp/ferrum/bin/ferrum --version)" = "ferrum $FERRUM_VERSION"
+          /tmp/ferrum/bin/ferrum --check /lcnc/src/configs/sim/axis/axis_mm.ini || true
+          rm dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ferrum-${{ matrix.arch }}
+          path: dist/ferrum-linux-${{ matrix.arch }}.tar.gz
+
+  publish:
+    name: Publish ${{ needs.version.outputs.channel }}
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      V: ${{ needs.version.outputs.version }}
+      SHA: ${{ needs.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ferrum-*
+          merge-multiple: true
+          path: out
+      - name: Assemble
+        run: |
+          cp scripts/ferrum-update out/install.sh
+          echo "$V" > out/VERSION
+          cd out && sha256sum ferrum-linux-*.tar.gz install.sh VERSION > SHA256SUMS && cat SHA256SUMS
+      - name: Release
+        if: needs.version.outputs.channel == 'stable'
+        run: |
+          gh release create "v$V" out/* --title "Ferrum $V" --generate-notes --verify-tag
+      - name: Edge
+        if: needs.version.outputs.channel == 'edge'
+        run: |
+          notes="Built from every main commit that passes CI: $SHA. Install with \`ferrum-update --edge\`."
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/edge" -f sha="$SHA" -F force=true >/dev/null 2>&1 ||
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/edge -f sha="$SHA" >/dev/null
+          if gh release view edge >/dev/null 2>&1; then
+            # Tarballs first and SHA256SUMS last: an updater that catches the
+            # middle finds a checksum mismatch and changes nothing.
+            gh release upload edge out/ferrum-linux-*.tar.gz out/install.sh --clobber
+            gh release upload edge out/VERSION out/SHA256SUMS --clobber
+            gh release edit edge --title "Ferrum edge ($V)" --notes "$notes" --prerelease
+          else
+            gh release create edge out/* --title "Ferrum edge ($V)" --notes "$notes" --prerelease --target "$SHA"
+          fi

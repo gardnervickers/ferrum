@@ -29,7 +29,7 @@ const AT: [f32; 5] = [0.0, 0.14, 0.72, 0.84, 1.0];
 /// The name and version for the marks (see ui/brand.slint).
 pub fn init_brand(ui: &MainWindow) {
     let b = ui.global::<Brand>();
-    b.set_version(env!("CARGO_PKG_VERSION").into());
+    b.set_version(crate::VERSION.into());
     let letters: Vec<SharedString> = b.get_name().chars().map(|c| c.to_string().into()).collect();
     b.set_letters(ModelRc::new(VecModel::from(letters)));
 }

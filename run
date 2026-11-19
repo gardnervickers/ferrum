@@ -1,5 +1,118 @@
 #!/bin/sh
-# LinuxCNC DISPLAY entry for ferrum; runs the binary deployed by scripts/deploy.
+# LinuxCNC's DISPLAY program for Ferrum: [DISPLAY]DISPLAY = /path/to/ferrum/run
+#
+# In a folder laid out by scripts/ferrum-update it starts current/bin/ferrum.
+# A version the updater just switched to is on trial until it has run once:
+# if it crashes (segfault, abort, panic) within FERRUM_TRIAL_SECONDS (60) of
+# starting, this puts the previous version back and starts that instead, so
+# a bad build cannot leave the machine without a screen. A version that
+# exits normally or runs past the trial time is kept.
+#
+# An update staged by `ferrum-update stage` (automatic updates) goes into
+# use here, before the screen opens, unless another Ferrum is running (the
+# `--boot` screen starting LinuxCNC's own DISPLAY). With automatic updates
+# on, this also starts the day's background check.
+#
 # The layout is drawn for 1920x1080 at scale 1, whatever DPI X reports.
 export SLINT_SCALE_FACTOR="${SLINT_SCALE_FACTOR:-1}"
-exec "$(dirname "$0")/bin/ferrum" "$@"
+here="$(cd "$(dirname "$0")" && pwd)"
+# Ferrum re-runs this (with its own arguments) to restart through the
+# launcher, so a staged update goes into use (SETUP's RESTART LINUXCNC).
+FERRUM_LAUNCHER="$here/run"
+export FERRUM_LAUNCHER
+
+# A plain folder (scripts/deploy, a version folder, a source checkout).
+[ -L "$here/current" ] || exec "$here/bin/ferrum" "$@"
+
+state() { sed -n "s/^$1=//p" "$here/.ferrum-install" 2>/dev/null | tail -1; }
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >> "$here/update.log" 2>/dev/null; }
+other_ferrum() {
+  for c in /proc/[0-9]*/comm; do
+    [ "$(cat "$c" 2>/dev/null)" = ferrum ] && return 0
+  done
+  return 1
+}
+relink() { ln -sfn "$2" "$here/.$1.link" && mv -fT "$here/.$1.link" "$here/$1"; }
+
+cur="$(basename "$(readlink "$here/current")")"
+staged="$(cat "$here/.staged" 2>/dev/null || true)"
+if [ -n "$staged" ] && [ "$staged" != "$cur" ] && [ -x "$here/versions/$staged/bin/ferrum" ] && ! other_ferrum; then
+  for f in run boot ferrum-update; do
+    [ -f "$here/versions/$staged/$f" ] && cp "$here/versions/$staged/$f" "$here/.$f.new" &&
+      chmod +x "$here/.$f.new" && mv -f "$here/.$f.new" "$here/$f"
+  done
+  relink current "versions/$staged"
+  relink previous "versions/$cur"
+  echo "$staged" > "$here/.trial"
+  rm -f "$here/.staged" "$here/.fell-back"
+  log "switched $cur -> $staged (staged update, at start)"
+  echo "ferrum: updated $cur -> $staged" >&2
+  FERRUM_LAUNCH_NOTE="Updated Ferrum $cur to $staged. ferrum-update rollback goes back."
+  export FERRUM_LAUNCH_NOTE
+  cur="$staged"
+elif [ -n "$staged" ] && [ "$staged" = "$cur" ]; then
+  rm -f "$here/.staged"
+fi
+if [ "$(state auto)" = 1 ] && [ -x "$here/ferrum-update" ] && [ -z "${FERRUM_NO_AUTO_UPDATE:-}" ]; then
+  # Detached and at the lowest priority; it changes nothing in use.
+  (cd / && exec nice -n 19 "$here/ferrum-update" stage --if-due >> "$here/update.log" 2>&1 < /dev/null) &
+fi
+trial="$(cat "$here/.trial" 2>/dev/null || true)"
+if [ "$trial" != "$cur" ] || [ ! -L "$here/previous" ] || [ -n "${FERRUM_NO_FALLBACK:-}" ]; then
+  exec "$here/current/bin/ferrum" "$@"
+fi
+
+window="${FERRUM_TRIAL_SECONDS:-60}"
+start="$(date +%s)"
+"$here/current/bin/ferrum" "$@" &
+pid=$!
+# Signals meant for the screen (LinuxCNC shutting down, Ctrl-C) go to it,
+# and its exit after one is not a crash.
+forwarded=""
+fwd() { forwarded=1; kill -s "$1" "$pid" 2>/dev/null; }
+trap 'fwd TERM' TERM
+trap 'fwd INT' INT
+trap 'fwd HUP' HUP
+while :; do
+  wait "$pid"
+  st=$?
+  kill -0 "$pid" 2>/dev/null && continue
+  # A signal can interrupt wait just before the child exits.
+  wait "$pid" 2>/dev/null
+  st2=$?
+  [ "$st2" -ne 127 ] && st=$st2
+  break
+done
+elapsed=$(( $(date +%s) - start ))
+
+case "$st" in
+  # SIGILL SIGABRT SIGBUS SIGFPE SIGSEGV, a Rust panic, could not execute.
+  132|134|135|136|139|101|126|127) crashed=1 ;;
+  *) crashed="" ;;
+esac
+
+if [ -n "$crashed" ] && [ -z "$forwarded" ] && [ "$elapsed" -lt "$window" ]; then
+  prev="$(basename "$(readlink "$here/previous")")"
+  if [ -x "$here/versions/$prev/bin/ferrum" ]; then
+    ln -sfn "versions/$prev" "$here/.current.link" && mv -fT "$here/.current.link" "$here/current"
+    ln -sfn "versions/$cur" "$here/.previous.link" && mv -fT "$here/.previous.link" "$here/previous"
+    rm -f "$here/.trial"
+    echo "skip=$cur" >> "$here/.ferrum-install"
+    msg="Ferrum $cur crashed on its first start (exit $st), so $prev is back in use"
+    echo "$msg" > "$here/.fell-back"
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $msg" >> "$here/update.log" 2>/dev/null
+    echo "ferrum: $msg" >&2
+    # The crashed build's HAL component outlives it, so this one runs
+    # without HAL pins, and the screen watchdog keeps E-stop latched until
+    # LinuxCNC restarts.
+    FERRUM_LAUNCH_NOTE="$msg. Restart LinuxCNC before using the machine."
+    export FERRUM_LAUNCH_NOTE
+    exec "$here/current/bin/ferrum" "$@"
+  fi
+fi
+
+# It ran: keep it.
+if [ "$st" -eq 0 ] || [ "$elapsed" -ge "$window" ]; then
+  rm -f "$here/.trial"
+fi
+exit "$st"

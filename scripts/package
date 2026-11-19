@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Pack a built ferrum into the release tarball that scripts/ferrum-update
+# installs:
+#
+#   scripts/package BINARY VERSION ARCH [OUT_DIR]
+#
+#   BINARY   the release binary (target/<triple>/release/ferrum)
+#   VERSION  what `BINARY --version` prints after "ferrum " (FERRUM_VERSION
+#            at build time), e.g. 0.2.0 or 0.2.0-edge.71d7ce6
+#   ARCH     aarch64 or x86_64
+#
+# Writes OUT_DIR/ferrum-linux-ARCH.tar.gz (default OUT_DIR: dist) holding
+# ferrum-VERSION/ with bin/ferrum, run, boot, ferrum-update, macros/, hal/,
+# web/dist (when built: scripts/build-web), mdi.toml, machine.toml, LICENSE,
+# README.md and VERSION.
+set -euo pipefail
+[ $# -ge 3 ] || { sed -n '2,15p' "$0"; exit 2; }
+BIN="$1" VERSION="$2" ARCH="$3" OUT="${4:-dist}"
+case "$ARCH" in aarch64|x86_64) ;; *) echo "package: ARCH is aarch64 or x86_64" >&2; exit 2 ;; esac
+case "$VERSION" in ''|*/*|.*|*' '*) echo "package: bad version '$VERSION'" >&2; exit 2 ;; esac
+cd "$(dirname "$0")/.."
+ROOT="$PWD"
+mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+D="$STAGE/ferrum-$VERSION"
+mkdir -p "$D/bin" "$D/hal" "$D/macros"
+install -m 755 "$BIN" "$D/bin/ferrum"
+install -m 755 run boot scripts/ferrum-update "$D/"
+cp hal/*.hal "$D/hal/"
+cp macros/*.ngc macros/*.md "$D/macros/"
+cp mdi.toml machine.toml LICENSE README.md "$D/"
+if [ -f web/dist/index.html ]; then
+  mkdir -p "$D/web"
+  cp -R web/dist "$D/web/dist"
+else
+  echo "package: no web/dist (scripts/build-web); the browser screen is left out" >&2
+fi
+printf '%s\n' "$VERSION" > "$D/VERSION"
+TAR=tar
+command -v gtar >/dev/null 2>&1 && TAR=gtar
+# Same bytes for the same inputs where GNU tar allows it.
+if $TAR --version 2>/dev/null | grep -q GNU; then
+  $TAR --sort=name --owner=0 --group=0 --numeric-owner --mtime=@"${SOURCE_DATE_EPOCH:-0}" \
+    -C "$STAGE" -cf - "ferrum-$VERSION" | gzip -9n > "$OUT/ferrum-linux-$ARCH.tar.gz"
+else
+  COPYFILE_DISABLE=1 $TAR -C "$STAGE" -czf "$OUT/ferrum-linux-$ARCH.tar.gz" "ferrum-$VERSION"
+fi
+echo "$OUT/ferrum-linux-$ARCH.tar.gz ($VERSION)"

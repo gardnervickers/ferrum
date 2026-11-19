@@ -1,0 +1,751 @@
+#!/usr/bin/env bash
+# Install, update and roll back Ferrum.
+#
+# First install (the release's install.sh is this same script):
+#   curl -fsSL https://github.com/gardnervickers/ferrum/releases/latest/download/install.sh | bash
+#   curl -fsSL .../install.sh | bash -s -- --prefix ~/linuxcnc/configs/mymill/ferrum
+#
+# After that:
+#   ferrum-update                 update to the newest release
+#   ferrum-update --edge          follow builds of every green main (remembered)
+#   ferrum-update --stable        back to tagged releases (remembered)
+#   ferrum-update --version 0.2.0 install that release
+#   ferrum-update --from F.tar.gz install a downloaded or locally built package
+#   ferrum-update rollback        go back to the version before
+#   ferrum-update use 0.2.0       switch to any installed version
+#   ferrum-update list | status | check
+#   ferrum-update auto on|off     automatic updates (see below)
+#   ferrum-update stage           download and test the newest, use it at the next start
+#   ferrum-update unstage         forget a staged update
+#   ferrum-update apply           put a staged update into use now
+#   ferrum-update use V --on-restart, rollback --on-restart
+#                                 switch at the next start instead of now
+#   ferrum-update channel stable|edge
+#   ferrum-update status --json   for the SETUP screen; no network
+#
+# Commands that change nothing in use (status, list, check, stage,
+# unstage, channel, auto, --on-restart) work while LinuxCNC runs.
+#
+# Each version is unpacked into its own folder, PREFIX/versions/<version>,
+# and PREFIX/current is a link to the one in use. Switching versions is one
+# rename of that link, so the screen sees the old build or the new one,
+# never half of each. The last few versions stay on disk (--keep), which
+# makes a rollback instant and possible without a network.
+#
+# Nothing changes while LinuxCNC or Ferrum is running. A new build has to
+# load and pass `ferrum --check` on your INI before the switch, and the
+# download has to match the release's SHA256SUMS. PREFIX/run, the program
+# your INI starts, goes back to the previous version by itself when a new
+# one crashes on its first start (see `run`).
+#
+# Automatic updates (`ferrum-update auto on`): each time `run` starts the
+# screen it also starts `ferrum-update stage --if-due` in the background, at
+# most once a day. That downloads, verifies and self-tests the newest
+# version into versions/ while the machine works, and changes nothing in
+# use. The staged version goes into use the next time `run` starts, before
+# the screen opens, so an update never lands under a running program. It is
+# then on trial like any other. A version you rolled back from, or one that
+# crashed on its first start, is not staged again.
+#
+# Never edits your INI, ferrum.toml or machine.toml.
+set -euo pipefail
+
+REPO_URL="${FERRUM_REPO_URL:-https://github.com/gardnervickers/ferrum}"
+# Where release files come from. Tests point this at a local folder:
+# <base>/latest/..., <base>/edge/..., <base>/v0.2.0/...
+RELEASES="${FERRUM_RELEASES:-$REPO_URL/releases}"
+DEFAULT_PREFIX="${XDG_DATA_HOME:-$HOME/.local/share}/ferrum"
+# Folders and files a version provides; PREFIX/<name> links into current.
+VERSIONED=(bin macros hal web mdi.toml)
+# Copied into PREFIX instead: `run` decides which version to start and
+# ferrum-update switches them, so neither may vanish with a version.
+COPIED=(run boot ferrum-update)
+
+say() { printf '%s\n' "$*"; }
+warn() { printf 'ferrum-update: %s\n' "$*" >&2; }
+die() {
+  printf 'ferrum-update: %s\n' "$*" >&2
+  # stage and check leave their failure for `status --json` (the SETUP screen).
+  if [ -n "${RECORD_ERRORS:-}" ] && [ -d "${PREFIX:-}" ]; then
+    state_set last_error "$(printf '%s' "$*" | tr '\n' ' ')" 2>/dev/null || true
+  fi
+  exit 1
+}
+
+usage() {
+  sed -n '2,/^set -euo/p' "$0" 2>/dev/null | sed -e '/^set -euo/d' -e 's/^# \{0,1\}//' || true
+}
+
+# --- where we are -----------------------------------------------------------
+
+# PREFIX/versions/<v>/ferrum-update knows its prefix; install.sh piped into
+# bash does not, and uses --prefix or the default.
+own_prefix() {
+  local self dir
+  self="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || true)"
+  [ -f "$self" ] || return 1
+  dir="$(dirname "$self")"
+  # PREFIX/ferrum-update, or PREFIX/versions/<v>/ferrum-update.
+  for dir in "$dir" "$(dirname "$(dirname "$dir")")"; do
+    if [ -L "$dir/current" ] && [ -d "$dir/versions" ]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+  done
+  return 1
+}
+
+arch() {
+  case "$(uname -m)" in
+    aarch64|arm64) echo aarch64 ;;
+    x86_64|amd64) echo x86_64 ;;
+    *) die "no Ferrum builds for $(uname -m) (there are aarch64 and x86_64)" ;;
+  esac
+}
+
+# --- state ------------------------------------------------------------------
+
+# PREFIX/.ferrum-install holds key=value lines: channel, ini, keep.
+state_get() {
+  local f="$PREFIX/.ferrum-install"
+  [ -f "$f" ] || return 0
+  sed -n "s/^$1=//p" "$f" | tail -1
+}
+state_set() {
+  local f="$PREFIX/.ferrum-install"
+  touch "$f"
+  { grep -v "^$1=" "$f" || true; printf '%s=%s\n' "$1" "$2"; } > "$f.new"
+  mv -f "$f.new" "$f"
+}
+
+current_version() {
+  [ -L "$PREFIX/current" ] || return 0
+  basename "$(readlink "$PREFIX/current")"
+}
+previous_version() {
+  [ -L "$PREFIX/previous" ] || return 0
+  basename "$(readlink "$PREFIX/previous")"
+}
+
+log() {
+  printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$PREFIX/update.log" 2>/dev/null || true
+}
+
+# --- guards -----------------------------------------------------------------
+
+# The process names LinuxCNC runs while it is up, and Ferrum's own.
+RUNNING_NAMES=" linuxcnc linuxcncsvr milltask rtapi_app io iocontrol halui ferrum "
+
+running() {
+  local d name found=""
+  for d in /proc/[0-9]*; do
+    name="$(cat "$d/comm" 2>/dev/null)" || continue
+    case "$RUNNING_NAMES" in
+      *" $name "*) found="$found $name(pid ${d#/proc/})" ;;
+    esac
+  done
+  printf '%s' "${found# }"
+}
+
+refuse_if_running() {
+  [ -n "${FERRUM_UPDATE_IGNORE_RUNNING_FOR_TESTS:-}" ] && return 0
+  local r; r="$(running)"
+  if [ -n "$r" ]; then
+    die "LinuxCNC or Ferrum is running: $r
+Nothing was changed. Shut LinuxCNC down, then run this again."
+  fi
+}
+
+lock() {
+  mkdir -p "$PREFIX"
+  exec 9> "$PREFIX/.lock"
+  if command -v flock >/dev/null 2>&1; then
+    flock -n 9 || die "another ferrum-update is running in $PREFIX"
+  fi
+}
+
+# --- download ---------------------------------------------------------------
+
+fetch() { # url dest
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 3 -o "$2" "$1"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$2" "$1"
+  else
+    die "needs curl or wget to download"
+  fi
+}
+
+# Release folder for a channel or version: latest, edge, or v<version>.
+release_dir() {
+  if [ -n "$WANT_VERSION" ]; then
+    echo "v${WANT_VERSION#v}"
+  elif [ "$CHANNEL" = edge ]; then
+    echo edge
+  else
+    echo latest
+  fi
+}
+
+release_url() { # dir file
+  case "$1" in
+    latest) echo "$RELEASES/latest/download/$2" ;;
+    *) echo "$RELEASES/download/$1/$2" ;;
+  esac
+}
+
+sha256() { sha256sum "$1" | cut -d' ' -f1; }
+
+# Download this machine's package and its checksum into $TMP; sets PKG.
+download() {
+  local dir file
+  dir="$(release_dir)"
+  file="ferrum-linux-$(arch).tar.gz"
+  say "Downloading $file ($dir)"
+  fetch "$(release_url "$dir" SHA256SUMS)" "$TMP/SHA256SUMS" ||
+    die "could not download the checksums for '$dir' from $RELEASES"
+  fetch "$(release_url "$dir" "$file")" "$TMP/$file" ||
+    die "could not download $file for '$dir' from $RELEASES"
+  local want
+  want="$(awk -v f="$file" '$2 == f || $2 == "*"f { print $1 }' "$TMP/SHA256SUMS")"
+  [ -n "$want" ] || die "$file is not listed in SHA256SUMS"
+  [ "$(sha256 "$TMP/$file")" = "$want" ] ||
+    die "$file does not match its checksum (download damaged or tampered with). Nothing was changed."
+  PKG="$TMP/$file"
+}
+
+# --- unpack and test --------------------------------------------------------
+
+# Unpack $PKG into versions/.unpack and print the version it holds.
+unpack() {
+  local into="$PREFIX/versions/.unpack"
+  rm -rf "$into"
+  mkdir -p "$into"
+  tar -xzf "$PKG" -C "$into" || die "could not unpack $PKG"
+  local top; top="$(find "$into" -mindepth 1 -maxdepth 1 -type d | head -1)"
+  [ -n "$top" ] && [ -f "$top/VERSION" ] && [ -x "$top/bin/ferrum" ] ||
+    die "$PKG is not a Ferrum package (no VERSION or bin/ferrum)"
+  local v; v="$(tr -d ' \n' < "$top/VERSION")"
+  case "$v" in ''|*/*|.*) die "bad version '$v' in $PKG" ;; esac
+  UNPACKED="$top"
+  NEW_VERSION="$v"
+}
+
+# The INI the self-check runs against: --ini, the remembered one, else the
+# ferrum.ini of a config the prefix sits in (the mymill layout).
+find_ini() {
+  local ini="${INI:-$(state_get ini)}"
+  if [ -z "$ini" ] && [ -f "$PREFIX/../ferrum.ini" ]; then
+    ini="$(readlink -f "$PREFIX/../ferrum.ini")"
+  fi
+  printf '%s' "$ini"
+}
+
+# Status of `ferrum --check INI` for a version folder: 0 ready, 1 core blocked.
+check_status() { # dir ini
+  local st=0
+  timeout 60 env FERRUM_MACROS="$1/macros" "$1/bin/ferrum" --check "$2" > "$TMP/check.out" 2>&1 || st=$?
+  echo "$st"
+}
+
+# Refuses a build that does not load on this machine, or one that turns a
+# working INI into a broken one.
+self_test() { # dir version
+  local dir="$1" v="$2" out
+  out="$(timeout 20 "$dir/bin/ferrum" --version 2>&1)" || {
+    printf '%s\n' "$out" | sed 's/^/  /' >&2
+    die "the new build ($v) does not start on this machine: missing libraries, or the wrong LinuxCNC or Linux version? Nothing was changed."
+  }
+  case "$out" in
+    "ferrum $v") ;;
+    *) die "the new build says '$out', expected 'ferrum $v'. Nothing was changed." ;;
+  esac
+  say "  starts: $out"
+  local ini; ini="$(find_ini)"
+  if [ -z "$ini" ]; then
+    say "  no INI to check against (use --ini FILE)"
+    return 0
+  fi
+  [ -f "$ini" ] || { warn "INI $ini not found; skipping the configuration check"; return 0; }
+  local st; st="$(check_status "$dir" "$ini")"
+  if [ "$st" -ge 2 ]; then
+    sed 's/^/  /' "$TMP/check.out" | tail -20 >&2
+    die "the new build's check of $ini failed (exit $st). Nothing was changed."
+  fi
+  if [ "$st" = 1 ]; then
+    local cur="$PREFIX/current" was=1
+    [ -x "$cur/bin/ferrum" ] && was="$(check_status "$cur" "$ini")"
+    if [ "$was" = 0 ] && [ -z "$FORCE" ]; then
+      sed 's/^/  /' "$TMP/check.out" >&2
+      die "with $v, ferrum --check $ini reports a problem that the version in use does not. Nothing was changed (--force installs it anyway)."
+    fi
+    warn "ferrum --check $ini reports a problem (as before this update); see ferrum --check"
+  fi
+  say "  checked against $ini"
+}
+
+# --- switching --------------------------------------------------------------
+
+# Point PREFIX/<name> at <target> with one rename.
+relink() { # name target
+  ln -sfn "$2" "$PREFIX/.$1.link"
+  mv -fT "$PREFIX/.$1.link" "$PREFIX/$1"
+}
+
+# The first install into a folder that already holds a hand-copied Ferrum
+# (the Pi's mymill/ferrum from scripts/deploy): keep that build as version
+# "pre-installer" so a rollback reaches it, and move each file the installer
+# will now manage into backup-<time>/ rather than deleting it.
+adopt() {
+  [ -L "$PREFIX/current" ] && return 0
+  local f moved="" backup
+  backup="$PREFIX/backup-$(date +%Y%m%d-%H%M%S)"
+  if [ -x "$PREFIX/bin/ferrum" ] && [ ! -L "$PREFIX/bin" ]; then
+    local old="$PREFIX/versions/pre-installer"
+    say "Keeping the Ferrum already in $PREFIX as version pre-installer"
+    mkdir -p "$old"
+    cp -a "$PREFIX/bin" "$old/bin"
+    for f in hal web mdi.toml; do
+      [ -e "$PREFIX/$f" ] && [ ! -L "$PREFIX/$f" ] && cp -a "$PREFIX/$f" "$old/$f"
+    done
+    [ -d "$PREFIX/macros" ] && [ ! -L "$PREFIX/macros" ] && cp -a "$PREFIX/macros" "$old/macros"
+    echo pre-installer > "$old/VERSION"
+    relink previous versions/pre-installer
+  fi
+  for f in "${VERSIONED[@]}" "${COPIED[@]}"; do
+    if [ -e "$PREFIX/$f" ] && [ ! -L "$PREFIX/$f" ]; then
+      mkdir -p "$backup"
+      mv "$PREFIX/$f" "$backup/"
+      moved="$moved $f"
+    fi
+  done
+  [ -n "$moved" ] && say "Moved the old$moved to $backup"
+  return 0
+}
+
+# Before a switch to versions/<v>: refuse if a managed name is a real file,
+# and copy its launchers and updater into PREFIX (a version without them,
+# like pre-installer, keeps the ones there).
+prepare() { # version
+  local f src="$PREFIX/versions/$1"
+  for f in "${VERSIONED[@]}"; do
+    if [ -e "$PREFIX/$f" ] && [ ! -L "$PREFIX/$f" ]; then
+      die "$PREFIX/$f is in the way (not a link); move it aside and run again. Nothing was changed."
+    fi
+  done
+  for f in "${COPIED[@]}"; do
+    [ -f "$src/$f" ] || continue
+    cp "$src/$f" "$PREFIX/.$f.new"
+    chmod +x "$PREFIX/.$f.new"
+    mv -f "$PREFIX/.$f.new" "$PREFIX/$f"
+  done
+}
+
+# After a switch: PREFIX's links into current, machine.toml the first time.
+lay_out() {
+  local f
+  for f in "${VERSIONED[@]}"; do
+    relink "$f" "current/$f"
+  done
+  if [ ! -e "$PREFIX/machine.toml" ] && [ -f "$PREFIX/current/machine.toml" ]; then
+    cp "$PREFIX/current/machine.toml" "$PREFIX/machine.toml"
+  fi
+  # ~/.local/bin/ferrum-update, unless something else has that name.
+  local bin="$HOME/.local/bin"
+  if [ -z "${FERRUM_NO_BIN_LINK:-}" ]; then
+    mkdir -p "$bin" 2>/dev/null || true
+    if [ ! -e "$bin/ferrum-update" ] || [ -L "$bin/ferrum-update" ]; then
+      ln -sfn "$PREFIX/ferrum-update" "$bin/ferrum-update" 2>/dev/null || true
+    fi
+  fi
+}
+
+# Make <version> current; the one it replaces becomes previous. A version
+# switched to is on trial until it has run once (see run).
+switch_to() { # version
+  local v="$1" was
+  was="$(current_version)"
+  [ -d "$PREFIX/versions/$v" ] || die "version $v is not installed (ferrum-update list)"
+  if [ "$was" = "$v" ]; then
+    say "Ferrum $v is already in use"
+    return 0
+  fi
+  prepare "$v"
+  relink current "versions/$v"
+  [ -n "$was" ] && relink previous "versions/$was"
+  echo "$v" > "$PREFIX/.trial.new" && mv -f "$PREFIX/.trial.new" "$PREFIX/.trial"
+  rm -f "$PREFIX/.fell-back" "$PREFIX/.staged"
+  lay_out
+  log "switched ${was:-nothing} -> $v"
+  say "Ferrum $v is now in use${was:+ (was $was; ferrum-update rollback goes back)}"
+}
+
+# Keep current, previous and the newest --keep others.
+prune() {
+  local keep="${KEEP:-$(state_get keep)}"
+  keep="${keep:-3}"
+  local cur prev v n=0
+  cur="$(current_version)"; prev="$(previous_version)"
+  local staged; staged="$(cat "$PREFIX/.staged" 2>/dev/null || true)"
+  # Newest first by when they were installed.
+  while IFS= read -r v; do
+    [ "$v" = "$cur" ] || [ "$v" = "$prev" ] || [ "$v" = "$staged" ] && continue
+    n=$((n + 1))
+    if [ "$n" -gt "$keep" ]; then
+      rm -rf "${PREFIX:?}/versions/$v"
+      log "removed $v"
+    fi
+  done < <(ls -1t "$PREFIX/versions" 2>/dev/null | grep -v '^\.')
+}
+
+# --- commands ---------------------------------------------------------------
+
+cmd_update() {
+  if [ -n "$STAGE" ]; then
+    [ -n "$(current_version)" ] || die "Ferrum is not installed in $PREFIX; install it first"
+    if [ -n "$IF_DUE" ]; then
+      local last now; last="$(state_get last_stage)"; now="$(date +%s)"
+      [ -n "$last" ] && [ $((now - last)) -lt "${FERRUM_STAGE_INTERVAL:-72000}" ] && return 0
+    fi
+  else
+    refuse_if_running
+  fi
+  lock
+  if [ -n "$STAGE" ]; then
+    RECORD_ERRORS=1
+    state_set last_stage "$(date +%s)"
+    state_set last_check "$(date +%s)"
+  fi
+  mkdir -p "$PREFIX/versions"
+  TMP="$(mktemp -d "$PREFIX/.tmp.XXXXXX")"
+  trap 'rm -rf "$TMP" "$PREFIX/versions/.unpack"' EXIT
+  if [ -n "$FROM" ]; then
+    [ -f "$FROM" ] || die "$FROM not found"
+    PKG="$FROM"
+    local sums="${FROM%/*}/SHA256SUMS"
+    [ "$sums" = "$FROM" ] && sums=SHA256SUMS
+    if [ -n "$SHA" ]; then
+      [ "$(sha256 "$PKG")" = "$SHA" ] || die "$FROM does not match --sha256. Nothing was changed."
+    elif [ -f "$sums" ] && grep -q " \*\?$(basename "$FROM")\$" "$sums"; then
+      local want; want="$(awk -v f="$(basename "$FROM")" '$2 == f || $2 == "*"f { print $1 }' "$sums")"
+      [ "$(sha256 "$PKG")" = "$want" ] || die "$FROM does not match $sums. Nothing was changed."
+      say "Checksum matches $sums"
+    else
+      warn "no checksum for $FROM (no SHA256SUMS beside it, no --sha256): installing it unverified"
+    fi
+  else
+    if [ -n "$STAGE" ]; then
+      # Skip the download when there is nothing new.
+      fetch "$(release_url "$(release_dir)" VERSION)" "$TMP/VERSION" || die "could not reach $RELEASES"
+      local avail; avail="$(tr -d ' \n' < "$TMP/VERSION")"
+      state_set available "$avail"
+      state_set last_error ""
+      if [ "$avail" = "$(current_version)" ]; then
+        rm -f "$PREFIX/.staged"
+        say "Ferrum $avail is up to date"
+        return 0
+      fi
+      if [ "$avail" = "$(cat "$PREFIX/.staged" 2>/dev/null)" ] && [ -x "$PREFIX/versions/$avail/bin/ferrum" ]; then
+        say "Ferrum $avail is already staged"
+        return 0
+      fi
+      if [ "$avail" = "$(state_get skip)" ] && [ -z "$WANT_VERSION" ]; then
+        say "Ferrum $avail was rolled back or crashed here before; not staging it again (ferrum-update stage --version $avail does)"
+        return 0
+      fi
+    fi
+    download
+  fi
+  unpack
+  local v="$NEW_VERSION"
+  if [ "$(current_version)" = "$v" ] && [ -z "$REINSTALL" ]; then
+    say "Ferrum $v is already installed and in use"
+    return 0
+  fi
+  if [ -n "$STAGE" ]; then
+    stage "$v"
+    return 0
+  fi
+  say "Testing Ferrum $v"
+  self_test "$UNPACKED" "$v"
+  adopt
+  # Install under a fresh name, then rename into place; a reinstall of the
+  # version in use moves the old copy aside first and back on failure.
+  local dest="$PREFIX/versions/$v"
+  if [ -e "$dest" ]; then
+    if [ "$(current_version)" = "$v" ]; then
+      rm -rf "$dest.old"
+      mv "$dest" "$dest.old"
+      mv "$UNPACKED" "$dest" || { mv "$dest.old" "$dest"; die "could not install $v"; }
+      rm -rf "$dest.old"
+      prepare "$v"
+      lay_out
+      log "reinstalled $v"
+      say "Reinstalled Ferrum $v"
+      return 0
+    fi
+    rm -rf "$dest"
+  fi
+  mv "$UNPACKED" "$dest"
+  # Packages carry fixed timestamps; prune goes by when it was installed.
+  touch "$dest"
+  switch_to "$v"
+  prune
+  [ -n "$CHANNEL_SET" ] && state_set channel "$CHANNEL"
+  [ -n "$INI" ] && state_set ini "$INI"
+  [ -n "$KEEP" ] && state_set keep "$KEEP"
+  first_steps
+}
+
+# Unpacked and tested, kept beside the version in use; `run` puts it into
+# use at the next start (or `ferrum-update apply`).
+stage() { # version
+  local v="$1"
+  if [ "$v" = "$(state_get skip)" ] && [ -z "$WANT_VERSION" ]; then
+    say "Ferrum $v was rolled back or crashed here before; not staging it again (ferrum-update --version $v installs it)"
+    return 0
+  fi
+  if [ "$v" = "$(cat "$PREFIX/.staged" 2>/dev/null)" ] && [ -x "$PREFIX/versions/$v/bin/ferrum" ]; then
+    say "Ferrum $v is already staged"
+    return 0
+  fi
+  say "Testing Ferrum $v"
+  self_test "$UNPACKED" "$v"
+  if [ ! -x "$PREFIX/versions/$v/bin/ferrum" ]; then
+    rm -rf "$PREFIX/versions/$v"
+    mv "$UNPACKED" "$PREFIX/versions/$v"
+    touch "$PREFIX/versions/$v"
+  fi
+  echo "$v" > "$PREFIX/.staged.new" && mv -f "$PREFIX/.staged.new" "$PREFIX/.staged"
+  log "staged $v"
+  prune
+  state_set last_error ""
+  say "Ferrum $v is ready. It goes into use the next time LinuxCNC starts (or ferrum-update apply)."
+}
+
+cmd_apply() {
+  local v; v="$(cat "$PREFIX/.staged" 2>/dev/null || true)"
+  [ -n "$v" ] || { say "No update is staged"; return 0; }
+  refuse_if_running
+  lock
+  switch_to "$v"
+}
+
+cmd_auto() {
+  case "${1:-}" in
+    on) state_set auto 1; say "Automatic updates on ($CHANNEL): checked at most daily when the screen starts, put into use at the next start." ;;
+    off) state_set auto 0; rm -f "$PREFIX/.staged"; say "Automatic updates off" ;;
+    *) die "auto on or auto off?" ;;
+  esac
+  [ -n "$CHANNEL_SET" ] && state_set channel "$CHANNEL"
+  return 0
+}
+
+first_steps() {
+  [ -n "$(state_get told)" ] && return 0
+  state_set told 1
+  local ini; ini="$(find_ini)"
+  say ""
+  say "To use Ferrum as LinuxCNC's screen, set in your INI:"
+  say "  [DISPLAY]"
+  say "  DISPLAY = $PREFIX/run"
+  say "Check your machine with:  $PREFIX/bin/ferrum --check ${ini:-your.ini}"
+  say "Update later with:        ferrum-update   (or $PREFIX/ferrum-update)"
+}
+
+# --on-restart: leave the version for `run` to put into use at the next
+# start, like a staged update.
+on_restart() { # version
+  [ -x "$PREFIX/versions/$1/bin/ferrum" ] || die "version $1 is not installed (ferrum-update list)"
+  if [ "$1" = "$(current_version)" ]; then
+    rm -f "$PREFIX/.staged"
+    say "Ferrum $1 is already in use"
+    return 0
+  fi
+  echo "$1" > "$PREFIX/.staged.new" && mv -f "$PREFIX/.staged.new" "$PREFIX/.staged"
+  log "staged $1 for the next start"
+  say "Ferrum $1 goes into use the next time LinuxCNC starts"
+}
+
+cmd_rollback() {
+  local prev; prev="$(previous_version)"
+  [ -n "$prev" ] && [ -d "$PREFIX/versions/$prev" ] || die "there is no previous version to go back to (ferrum-update list)"
+  local from; from="$(current_version)"
+  if [ -n "$ON_RESTART" ]; then
+    lock
+    on_restart "$prev"
+    state_set skip "$from"
+    return 0
+  fi
+  refuse_if_running
+  lock
+  switch_to "$prev"
+  # A version gone back to has run before; the one left is not staged again.
+  rm -f "$PREFIX/.trial"
+  state_set skip "$from"
+}
+
+cmd_use() {
+  [ -n "${1:-}" ] || die "use which version? (ferrum-update list)"
+  if [ -n "$ON_RESTART" ]; then
+    lock
+    on_restart "$1"
+    return 0
+  fi
+  refuse_if_running
+  lock
+  switch_to "$1"
+}
+
+cmd_list() {
+  local cur prev v mark
+  cur="$(current_version)"; prev="$(previous_version)"
+  [ -d "$PREFIX/versions" ] || { say "Ferrum is not installed in $PREFIX"; return 0; }
+  while IFS= read -r v; do
+    mark="  "
+    [ "$v" = "$prev" ] && mark="  previous"
+    [ "$v" = "$cur" ] && mark="* in use"
+    printf '%-24s %s\n' "$v" "$mark"
+  done < <(ls -1t "$PREFIX/versions" | grep -v '^\.')
+}
+
+cmd_status() {
+  local cur; cur="$(current_version)"
+  if [ -z "$cur" ]; then
+    say "Ferrum is not installed in $PREFIX"
+    return 0
+  fi
+  say "Ferrum $cur in $PREFIX"
+  say "  channel:  ${CHANNEL}"
+  local prev; prev="$(previous_version)"
+  [ -n "$prev" ] && say "  previous: $prev"
+  [ -f "$PREFIX/.trial" ] && say "  $(cat "$PREFIX/.trial") has not finished a first run yet"
+  [ -f "$PREFIX/.fell-back" ] && say "  $(cat "$PREFIX/.fell-back")"
+  [ -f "$PREFIX/.staged" ] && say "  staged:   $(cat "$PREFIX/.staged") (goes into use at the next start)"
+  if [ "$(state_get auto)" = 1 ]; then say "  auto:     on"; else say "  auto:     off (ferrum-update auto on)"; fi
+  local ini; ini="$(find_ini)"
+  [ -n "$ini" ] && say "  INI:      $ini"
+  local r; r="$(running)"
+  say "  running:  ${r:-no}"
+}
+
+cmd_unstage() {
+  lock
+  local v; v="$(cat "$PREFIX/.staged" 2>/dev/null || true)"
+  rm -f "$PREFIX/.staged"
+  if [ -n "$v" ]; then log "unstaged $v"; say "Ferrum $v will not be put into use"; else say "No update is staged"; fi
+}
+
+cmd_channel() {
+  case "${1:-}" in
+    stable|edge) state_set channel "$1"; say "Channel: $1 (ferrum-update stage or update fetches from it)" ;;
+    *) die "channel stable or channel edge?" ;;
+  esac
+}
+
+json_str() { # value, or null when empty
+  if [ -z "$1" ]; then printf 'null'; return; fi
+  printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\000-\037')"
+}
+json_time() { # epoch seconds -> "2026-11-19T14:00:00Z" or null
+  if [ -z "$1" ]; then printf 'null'; return; fi
+  printf '"%s"' "$(date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$1")"
+}
+
+# One JSON object, no network. Every key is always present.
+cmd_status_json() {
+  local cur prev staged trial fell v first=1 installed="" r
+  cur="$(current_version)"; prev="$(previous_version)"
+  staged="$(cat "$PREFIX/.staged" 2>/dev/null || true)"
+  trial="$(cat "$PREFIX/.trial" 2>/dev/null || true)"
+  fell="$(cat "$PREFIX/.fell-back" 2>/dev/null || true)"
+  if [ -d "$PREFIX/versions" ]; then
+    while IFS= read -r v; do
+      [ $first = 1 ] || installed="$installed,"
+      first=0
+      installed="$installed$(json_str "$v")"
+    done < <(ls -1t "$PREFIX/versions" | grep -v '^\.')
+  fi
+  r="$(running)"
+  printf '{"installed_in":%s,"current":%s,"previous":%s,"installed":[%s],' \
+    "$(json_str "$PREFIX")" "$(json_str "$cur")" "$(json_str "$prev")" "$installed"
+  printf '"channel":%s,"auto":%s,"available":%s,"staged":%s,"on_trial":%s,"fell_back":%s,' \
+    "$(json_str "$CHANNEL")" "$([ "$(state_get auto)" = 1 ] && echo true || echo false)" \
+    "$(json_str "$(state_get available)")" "$(json_str "$staged")" "$(json_str "$trial")" "$(json_str "$fell")"
+  printf '"skipped":%s,"last_check":%s,"last_error":%s,"running":%s}\n' \
+    "$(json_str "$(state_get skip)")" "$(json_time "$(state_get last_check)")" \
+    "$(json_str "$(state_get last_error)")" "$([ -n "$r" ] && echo true || echo false)"
+}
+
+cmd_check() {
+  RECORD_ERRORS=1
+  state_set last_check "$(date +%s)"
+  TMP="$(mktemp -d)"
+  trap 'rm -rf "$TMP"' EXIT
+  local dir; dir="$(release_dir)"
+  fetch "$(release_url "$dir" VERSION)" "$TMP/VERSION" || die "could not reach $RELEASES"
+  local v; v="$(tr -d ' \n' < "$TMP/VERSION")"
+  state_set available "$v"
+  state_set last_error ""
+  local cur; cur="$(current_version)"
+  if [ "$v" = "$cur" ]; then
+    say "Ferrum $cur is up to date ($CHANNEL)"
+  else
+    say "Ferrum $v is available ($CHANNEL); ${cur:-nothing} is installed. Run ferrum-update to install it."
+  fi
+}
+
+# --- arguments --------------------------------------------------------------
+
+main() {
+  local cmd=update
+  STAGE="" IF_DUE="" AUTO_ARG="" ON_RESTART="" JSON=""
+  PREFIX="" CHANNEL="" CHANNEL_SET="" WANT_VERSION="" FROM="" SHA="" INI="" KEEP="" FORCE="" REINSTALL=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      update|install|rollback|use|list|status|check|apply|auto|unstage|channel) cmd="$1" ;;
+      --on-restart) ON_RESTART=1 ;;
+      --json) JSON=1 ;;
+      stage) cmd=update; STAGE=1 ;;
+      --if-due) IF_DUE=1 ;;
+      --prefix) PREFIX="${2:?--prefix needs a folder}"; shift ;;
+      --edge) CHANNEL=edge; CHANNEL_SET=1 ;;
+      --stable) CHANNEL=stable; CHANNEL_SET=1 ;;
+      --version) WANT_VERSION="${2:?--version needs a version}"; shift ;;
+      --from) FROM="$(readlink -f "${2:?--from needs a file}")"; shift ;;
+      --sha256) SHA="${2:?}"; shift ;;
+      --ini) INI="$(readlink -f "${2:?--ini needs a file}")"; shift ;;
+      --keep) KEEP="${2:?}"; shift ;;
+      --force) FORCE=1 ;;
+      --reinstall) REINSTALL=1 ;;
+      -h|--help|help) usage; exit 0 ;;
+      -*) die "unknown option $1 (ferrum-update --help)" ;;
+      *)
+        if [ "$cmd" = use ]; then USE_VERSION="$1"; elif [ "$cmd" = auto ] || [ "$cmd" = channel ]; then AUTO_ARG="$1"; else die "unknown command $1 (ferrum-update --help)"; fi ;;
+    esac
+    shift
+  done
+  if [ -z "$PREFIX" ]; then
+    PREFIX="$(own_prefix || true)"
+    PREFIX="${PREFIX:-$DEFAULT_PREFIX}"
+  fi
+  mkdir -p "$PREFIX" 2>/dev/null || true
+  PREFIX="$(cd "$PREFIX" 2>/dev/null && pwd -P || printf '%s' "$PREFIX")"
+  [ -n "$CHANNEL" ] || CHANNEL="$(state_get channel)"
+  CHANNEL="${CHANNEL:-stable}"
+  case "$cmd" in
+    update|install) cmd_update ;;
+    rollback) cmd_rollback ;;
+    use) cmd_use "${USE_VERSION:-}" ;;
+    list) cmd_list ;;
+    status) if [ -n "$JSON" ]; then cmd_status_json; else cmd_status; fi ;;
+    unstage) cmd_unstage ;;
+    channel) cmd_channel "$AUTO_ARG" ;;
+    check) cmd_check ;;
+    apply) cmd_apply ;;
+    auto) cmd_auto "$AUTO_ARG" ;;
+  esac
+}
+
+USE_VERSION=""
+main "$@"

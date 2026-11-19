@@ -22,9 +22,12 @@ ferrum/scripts/deploy
   LinuxCNC's `libnml` ABI. Rust and the target come from rustup.
 - `scripts/fetch-sysroot` copies those headers and libraries from the Pi into
   `sysroot/` (gitignored, ~330 MB). Rerun it after upgrading the Pi.
-- `scripts/deploy` copies only Ferrum's own files: `ferrum/run`,
-  `ferrum/bin/ferrum`, `ferrum/mdi.toml`, `ferrum/hal/*.hal`, `ferrum/web/dist` (the
-  browser screen, from `scripts/build-web`) and `ferrum.ini`.
+- `scripts/deploy` packs the build (`scripts/package`, version
+  `<crate>-dev.<time>.<sha>`) and installs it in `mymill/ferrum` with
+  `scripts/ferrum-update --from`, the installer users get: it refuses while
+  LinuxCNC runs, tests the build, switches atomically and keeps the old one
+  (`ferrum/ferrum-update rollback`). It also copies `ferrum.ini`. See
+  `docs/installing.md`.
 - Browser screen (off by default; it has no access control): with `[FERRUM]REMOTE_PORT = 8088`, open `http://<pi>:8088/` (`?perf` logs
   frame timings to the console). It mirrors the touchscreen; navigation is per screen.
 - Override the target with `FERRUM_PI=user@host` and `FERRUM_DEST=path`.

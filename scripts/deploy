@@ -1,29 +1,38 @@
 #!/usr/bin/env bash
-# Build and copy ferrum to the Pi's config checkout. Only ferrum's own files
-# are written; mymill.ini and the Probe Basic setup are not touched.
+# Build ferrum and install it on the Pi with the same installer users get
+# (scripts/ferrum-update): its own version folder, an atomic switch, the
+# old build kept for `ferrum-update rollback`, and the crash fallback in
+# `run`. It refuses while LinuxCNC runs. mymill.ini and the Probe Basic
+# setup are not touched; ../ferrum.ini (the mymill profile) is copied.
+#
+#   FERRUM_PI=user@host FERRUM_DEST=linuxcnc/configs/mymill scripts/deploy
+#   FERRUM_DEPLOY_BINARY=path skips the build (tests).
 set -euo pipefail
 PI="${FERRUM_PI:-cnc@cncmill.localdomain}"
 DEST="${FERRUM_DEST:-linuxcnc/configs/mymill}"
 cd "$(dirname "$0")/.."
-scripts/build
-scripts/build-web >/dev/null
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' app/Cargo.toml | head -1)-dev.$(date -u +%Y%m%d%H%M).$(git rev-parse --short=7 HEAD 2>/dev/null || echo local)"
+git diff --quiet HEAD 2>/dev/null || VERSION="$VERSION.dirty"
+BIN="${FERRUM_DEPLOY_BINARY:-}"
+if [ -z "$BIN" ]; then
+  FERRUM_VERSION="$VERSION" scripts/build
+  scripts/build-web >/dev/null
+  BIN=target/aarch64-unknown-linux-gnu/release/ferrum
+fi
+OUT="$(mktemp -d)"
+trap 'rm -rf "$OUT"' EXIT
+scripts/package "$BIN" "$VERSION" aarch64 "$OUT" >/dev/null
+(cd "$OUT" && shasum -a 256 ferrum-linux-aarch64.tar.gz 2>/dev/null > SHA256SUMS || sha256sum ferrum-linux-aarch64.tar.gz > SHA256SUMS)
 # Ferrum was called millgui: move a pre-rename install to ferrum/ and leave
 # millgui -> ferrum and millgui.ini -> ferrum.ini links, so launchers and an
 # INI SUBROUTINE_PATH that still say millgui keep working.
 ssh "$PI" "cd $DEST && if [ -d millgui ] && [ ! -L millgui ] && [ ! -e ferrum ]; then mv millgui ferrum && ln -s ferrum millgui; fi"
-ssh "$PI" "mkdir -p $DEST/ferrum/bin"
-scp -q target/aarch64-unknown-linux-gnu/release/ferrum "$PI:$DEST/ferrum/bin/ferrum.new"
-scp -q run boot mdi.toml "$PI:$DEST/ferrum/"
-# The JOB page used to run ferrum/job_helper.py; it is built in now.
-ssh "$PI" "rm -f $DEST/ferrum/job_helper.py"
-# machine.toml is edited on the machine: install it only the first time.
-ssh "$PI" "test -e $DEST/ferrum/machine.toml" || scp -q machine.toml "$PI:$DEST/ferrum/"
+ssh "$PI" "mkdir -p $DEST/ferrum && rm -rf /tmp/ferrum-deploy && mkdir -p /tmp/ferrum-deploy"
+scp -q "$OUT/ferrum-linux-aarch64.tar.gz" "$OUT/SHA256SUMS" scripts/ferrum-update "$PI:/tmp/ferrum-deploy/"
+# The installer refuses while LinuxCNC runs and changes nothing then.
+ssh "$PI" "bash /tmp/ferrum-deploy/ferrum-update --prefix $DEST/ferrum --from /tmp/ferrum-deploy/ferrum-linux-aarch64.tar.gz && rm -rf /tmp/ferrum-deploy"
 scp -q ../ferrum.ini "$PI:$DEST/"
 ssh "$PI" "cd $DEST && if [ -f millgui.ini ] && [ ! -L millgui.ini ]; then mv millgui.ini millgui.ini.pre-ferrum && ln -s ferrum.ini millgui.ini; fi"
-ssh "$PI" "mkdir -p $DEST/ferrum/hal"
-scp -q hal/*.hal "$PI:$DEST/ferrum/hal/"
-ssh "$PI" "rm -rf $DEST/ferrum/web/dist.new && mkdir -p $DEST/ferrum/web/dist.new"
-scp -q web/dist/* "$PI:$DEST/ferrum/web/dist.new/"
-ssh "$PI" "rm -rf $DEST/ferrum/web/dist && mv $DEST/ferrum/web/dist.new $DEST/ferrum/web/dist"
-ssh "$PI" "mv $DEST/ferrum/bin/ferrum.new $DEST/ferrum/bin/ferrum && chmod +x $DEST/ferrum/run $DEST/ferrum/boot"
-echo "deployed to $PI:$DEST"
+# The JOB page used to run ferrum/job_helper.py; it is built in now.
+ssh "$PI" "rm -f $DEST/ferrum/job_helper.py"
+echo "deployed Ferrum $VERSION to $PI:$DEST (ferrum-update rollback goes back)"

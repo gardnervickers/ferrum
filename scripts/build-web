@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the browser screen (web/) into web/dist: wasm + JS glue + index.html.
 # ferrum on the Pi serves web/dist when [FERRUM]REMOTE_PORT is set.
-# wasm-bindgen-cli comes from nixpkgs and must match the crate's pinned
+# wasm-bindgen-cli (from PATH or nixpkgs) must match the crate's pinned
 # wasm-bindgen version (web/Cargo.toml).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -11,7 +11,9 @@ if [ "$(uname)" = Darwin ]; then
 fi
 cargo build -p ferrum-web --release --target wasm32-unknown-unknown
 rm -rf web/dist && mkdir -p web/dist
-nix shell nixpkgs#wasm-bindgen-cli -c wasm-bindgen --target web --no-typescript \
+# A wasm-bindgen on PATH (CI installs the pinned version), else nixpkgs'.
+if command -v wasm-bindgen >/dev/null 2>&1; then BINDGEN=(wasm-bindgen); else BINDGEN=(nix shell nixpkgs#wasm-bindgen-cli -c wasm-bindgen); fi
+"${BINDGEN[@]}" --target web --no-typescript \
   --out-dir web/dist target/wasm32-unknown-unknown/release/ferrum_web.wasm
 cp web/static/index.html web/dist/
 gzip -9 -k web/dist/ferrum_web_bg.wasm web/dist/ferrum_web.js

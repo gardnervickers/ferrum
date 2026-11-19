@@ -707,13 +707,30 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     });
 }
 
+/// The release version: `FERRUM_VERSION` at build time (scripts/package sets
+/// it, e.g. `0.2.0` or `0.2.0-edge.71d7ce6`), else the crate version.
+pub const VERSION: &str = match option_env!("FERRUM_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 fn main() -> Result<(), slint::PlatformError> {
+    // Before anything touches the display, HAL or state: the installer runs
+    // this to see that a new build loads at all.
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("ferrum {VERSION}");
+        return Ok(());
+    }
     settings::migrate_legacy();
     // Under `ferrum --boot` LinuxCNC starts this copy only to hold its
     // session open; the launcher is the display.
     boot::attach_if_launched();
     let args = parse_args();
     let mut notes = Vec::new();
+    // `run` went back to the previous build because a new one crashed.
+    if let Some(n) = std::env::var("FERRUM_LAUNCH_NOTE").ok().filter(|n| !n.is_empty()) {
+        notes.push(n);
+    }
     let cfg = match &args.ini {
         Some(p) => Config::load(p).unwrap_or_else(|e| {
             notes.push(e);

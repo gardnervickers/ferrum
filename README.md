@@ -51,26 +51,46 @@ cargo run --release -p ferrum-lcnc -- --sim --windowed
 
 ## Install
 
+On Debian 12 (Raspberry Pi OS bookworm or the LinuxCNC 2.9 image) with LinuxCNC 2.9 installed, arm64 or x86_64:
+
+```sh
+curl -fsSL https://github.com/gardnervickers/ferrum/releases/latest/download/install.sh | bash
+```
+
+That installs into `~/.local/share/ferrum` (`--prefix DIR` picks another folder) and puts `ferrum-update` in `~/.local/bin`. Then make Ferrum the display in your INI:
+
+```ini
+[DISPLAY]
+DISPLAY = /home/you/.local/share/ferrum/run
+```
+
+Check what Ferrum makes of your machine. This works with LinuxCNC stopped and changes nothing:
+
+```sh
+~/.local/share/ferrum/bin/ferrum --check ~/linuxcnc/configs/mymachine/mymachine.ini
+```
+
+It prints what it read, what is missing and which features are off because of it. Add `--write-ini` and it adds the INI lines it asks for, keeping the old file as `mymachine.ini.bak`.
+
+### Updating
+
+```sh
+ferrum-update             # the newest release
+ferrum-update rollback    # back to the version before
+ferrum-update auto on     # fetch updates in the background, use them at the next start
+```
+
+Each version gets its own folder and switching is a single atomic link change, so a rollback is instant and works offline. `ferrum-update` will not change anything while LinuxCNC is running. A new build must start and pass `ferrum --check` on your INI before it is switched in. If it then crashes on its first start, `run` goes back to the previous version by itself. Details are in [docs/installing.md](docs/installing.md).
+
+### From source
+
 Build on the machine that runs LinuxCNC, pointing the build at LinuxCNC's headers and libraries:
 
 ```sh
 LCNC_INCLUDE_DIR=/usr/include/linuxcnc LCNC_LIB_DIR=/usr/lib cargo build --release -p ferrum-lcnc
 ```
 
-Then make Ferrum the display in your INI:
-
-```ini
-[DISPLAY]
-DISPLAY = /path/to/ferrum/run
-```
-
-Check what Ferrum makes of your machine. This works with LinuxCNC stopped and changes nothing:
-
-```sh
-target/release/ferrum --check ~/linuxcnc/configs/mymachine/mymachine.ini
-```
-
-It prints what it read, what is missing and which features are off because of it. Add `--write-ini` and it adds the INI lines it asks for, keeping the old file as `mymachine.ini.bak`.
+Then set `DISPLAY = /path/to/ferrum/run` in your INI, where `run` sits beside `bin/ferrum`, or pack the build with `scripts/package` and install that with `ferrum-update --from`.
 
 ## Run
 
