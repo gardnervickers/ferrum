@@ -1676,6 +1676,39 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                     }
                 }
             }
+            // "drag:x,y;x,y;...": press at the first point (window px),
+            // move through the rest, release at the last. "drag-web:" also
+            // re-sets every Live property after each event, as the browser
+            // screen does when the props arrive, so a drag that only works
+            // natively fails here. Prints the touch points to stderr.
+            w if w.starts_with("drag:") || w.starts_with("drag-web:") => {
+                use slint::platform::{PointerEventButton, WindowEvent};
+                use slint::Model;
+                let web = w.starts_with("drag-web:");
+                let pts: Vec<slint::LogicalPosition> = w.split_once(':').unwrap().1.split(';').filter_map(|p| {
+                    let (x, y) = p.split_once(',')?;
+                    Some(slint::LogicalPosition::new(x.trim().parse().ok()?, y.trim().parse().ok()?))
+                }).collect();
+                let step = |e: WindowEvent| {
+                    ui.window().dispatch_event(e);
+                    slint::platform::update_timers_and_animations();
+                    if web {
+                        remote::echo_props(&ui);
+                    }
+                    headless::settle(&window, 1);
+                };
+                for (i, &position) in pts.iter().enumerate() {
+                    step(WindowEvent::PointerMoved { position });
+                    if i == 0 {
+                        step(WindowEvent::PointerPressed { position, button: PointerEventButton::Left });
+                    }
+                }
+                if let Some(&position) = pts.last() {
+                    step(WindowEvent::PointerReleased { position, button: PointerEventButton::Left });
+                }
+                let at: Vec<String> = live.get_pr_points().iter().map(|p| format!("{}@{:.0},{:.0}", p.id, p.x, p.y)).collect();
+                eprintln!("points: {}", at.join(" "));
+            }
             "file-code" => live.set_files_tab("code".into()),
             "jog" => live.set_run_tab("jog".into()),
             "feed" | "goto" => live.set_jog_tab(what.as_str().into()),

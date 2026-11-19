@@ -27,6 +27,17 @@ mod mirror {
     include!(concat!(env!("OUT_DIR"), "/mirror.rs"));
 }
 
+/// Re-set every mirrored `Live` property to its own value, as a browser
+/// screen does when the props arrive (`--show drag-web:` tests drags with it).
+pub fn echo_props(ui: &MainWindow) {
+    let live = ui.global::<Live>();
+    for &name in mirror::PROPS {
+        if let Some(v) = mirror::get_prop(&live, name) {
+            mirror::set_prop(&live, name, &v);
+        }
+    }
+}
+
 /// Per-screen state, never mirrored.
 const LOCAL: &[&str] = &["remote", "demo", "screen", "run-tab", "jog-tab", "files-tab", "drawer-open", "plot-dx", "plot-dy", "plot-landed", "pr-dialog"];
 /// Browser-side edits the Pi accepts (two-way properties the actions read).
