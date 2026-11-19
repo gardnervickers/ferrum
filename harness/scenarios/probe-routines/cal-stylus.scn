@@ -1,0 +1,27 @@
+title CAL probe tip in the ring, then the stylus check: the sim's stylus is centred, so it reads about 0
+needs probe-basic probe-geometry
+# As cal-ring, with STYLUS RUNOUT on: after CALIBRATE the run button turns
+# into CHECK STYLUS (the operator turns the spindle half a turn; the sim's
+# ball is on the axis, so nothing changes) and the second run measures the
+# ring's centre again from where the first ended.
+include ../common/probe-start.scn
+do probe-mode "cal"
+do probe-shape "ring"
+do probe-opt "stylus-on"
+do edit "prun-3033"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "2"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${ring_start_x} Y${ring_y}
+mdi G53 G1 Z${ring_above_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result contains "turn the spindle half a turn"
+wait prop.pr-run-label == "CHECK STYLUS" within 5
+include ../common/probe-run.scn
+expect prop.pr-result{Stylus off center} ~= 0 +- ${cal_tol}
+expect prop.pr-run-label == "CALIBRATE"
+mdi G53 G0 Z${travel_z}
+shot cal-stylus-done

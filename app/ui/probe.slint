@@ -213,6 +213,41 @@ export component ProbeScreen inherits Rectangle {
                             border-color: Theme.good;
                         }
                     }
+                    // Points to drag: the 3-point touches around the circle,
+                    // or SET ROTATION's two along the edge. Each takes its
+                    // own drag (the pointer in picture units); the rest of
+                    // the picture stays tappable.
+                    for pt in Live.pr-points: Rectangle {
+                        property <length> r: pt.r * pic.sc * 1px;
+                        // A touch target larger than the drawn point.
+                        property <length> hit: max(self.r + 12px, 30px);
+                        x: pic.ox + pt.x * pic.sc * 1px - self.r;
+                        y: pic.oy + pt.y * pic.sc * 1px - self.r;
+                        width: 2 * self.r; height: 2 * self.r;
+                        border-radius: self.r;
+                        background: pt.on ? Theme.warn.with-alpha(0.55) : Theme.sel.with-alpha(0.3);
+                        border-width: pt.on ? 3px : 2px;
+                        border-color: pt.on ? Theme.warn : Theme.sel;
+                        animate background, border-color { duration: Theme.quick; }
+                        Text { text: pt.id; font-family: Theme.body; font-weight: 700; font-size: Theme.t-body; color: Theme.ink; horizontal-alignment: center; vertical-alignment: center; }
+                        ta := TouchArea {
+                            x: parent.r - parent.hit; y: parent.r - parent.hit;
+                            width: 2 * parent.hit; height: 2 * parent.hit;
+                            enabled: !Live.pr-running;
+                            pointer-event(e) => {
+                                if e.kind == PointerEventKind.down {
+                                    Actions.probe-drag(0, (parent.x + self.x + self.mouse-x - pic.ox) / pic.sc / 1px, (parent.y + self.y + self.mouse-y - pic.oy) / pic.sc / 1px);
+                                } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                                    Actions.probe-drag(2, 0, 0);
+                                }
+                            }
+                            moved => {
+                                if self.pressed {
+                                    Actions.probe-drag(1, (parent.x + self.x + self.mouse-x - pic.ox) / pic.sc / 1px, (parent.y + self.y + self.mouse-y - pic.oy) / pic.sc / 1px);
+                                }
+                            }
+                        }
+                    }
                     // What the tip is doing; its own band, so it never
                     // covers the picture.
                     Caption {
@@ -341,7 +376,7 @@ export component ProbeScreen inherits Rectangle {
                             height: Theme.h-big;
                             font-size: Theme.t-value;
                             text: check ? "CHECK A SIZE" : "SET " + Live.pr-wcs;
-                            enabled: !check || Live.pr-job-check;
+                            enabled: check ? Live.pr-job-check : Live.pr-wcs != "NOTHING";
                             clicked => { Actions.probe-add-job(check); Live.pr-dialog = ""; }
                         }
                         Note {
@@ -349,7 +384,7 @@ export component ProbeScreen inherits Rectangle {
                             min-width: 0;
                             horizontal-alignment: center;
                             vertical-alignment: top;
-                            text: !check ? "Probes and writes the work offset." : Live.pr-job-check ? "Measures and reports. Offsets stay as they are." : "Only a bore, boss, pocket, slot, ridge or top face can be checked.";
+                            text: !check ? (Live.pr-wcs == "NOTHING" ? "WRITE TO is NOTHING: pick a work offset to set one." : "Probes and writes the work offset.") : Live.pr-job-check ? "Measures and reports. Offsets stay as they are." : "Only a bore, boss, pocket, slot, ridge or top face can be checked.";
                         }
                     }
                 }
@@ -422,7 +457,7 @@ export component ProbeScreen inherits Rectangle {
     if wcs-open: Scrim {
         Dialog {
             width: 760px;
-            height: min(820px, 176px + Live.wcs-codes.length * 72px);
+            height: min(900px, 176px + (Live.wcs-codes.length + 1) * 72px);
             VerticalLayout {
                 padding: Theme.dlg-pad;
                 spacing: Theme.dlg-row;
@@ -441,6 +476,15 @@ export component ProbeScreen inherits Rectangle {
                                 text: c;
                                 on: c == Live.pr-wcs;
                                 clicked => { Actions.probe-wcs(c); Live.pr-dialog = ""; }
+                            }
+                            // Report the result and write no offset at all.
+                            Btn {
+                                height: Theme.h-choice;
+                                family: Theme.body;
+                                font-size: Theme.t-value;
+                                text: "NOTHING · MEASURE ONLY";
+                                on: Live.pr-wcs == "NOTHING";
+                                clicked => { Actions.probe-wcs("NOTHING"); Live.pr-dialog = ""; }
                             }
                         }
                     }

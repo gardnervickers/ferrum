@@ -1,7 +1,8 @@
 ; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; Measures across a boss or ridge along one axis from above it:
-; o<ferrum_span_outside> call [axis] [hint] [z clear] [z probe],
-; axis 0 = X, 1 = Y. The probe starts at Z [z clear] over the feature's
+; o<ferrum_span_outside> call [axis] [hint] [z clear] [z probe] [raw],
+; axis 0 = X, 1 = Y. [raw] = 1 leaves the calibration offset out (the
+; tip radius is #5410/2, for calibrating); it is 0 when left out. The probe starts at Z [z clear] over the feature's
 ; middle. It steps out to start - (hint/2 + #3023), plunges to
 ; [z probe], touches towards the feature (reach #3018) and rises; then it
 ; goes over to start + (hint/2 + #3023), plunges, touches back
@@ -18,6 +19,9 @@ o<ferrum_span_outside> sub
 #<z_clear> = #3
 #<z_probe> = #4
 #<r> = [[#5410 / 2] - #3032]
+o99 if [#5 EQ 1]
+    #<r> = [#5410 / 2]
+o99 endif
 o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
     (ABORT, Invalid span axis)
 o100 endif

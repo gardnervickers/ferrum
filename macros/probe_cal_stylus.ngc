@@ -1,0 +1,53 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; CAL stylus runout, second half: o<probe_cal_stylus> call [gauge], gauge
+; 0 = the ring of o<probe_cal_round_pocket>, 1 = the pin of
+; o<probe_cal_boss>. Run right after that calibration, without jogging,
+; once the operator has turned the spindle (and so the probe) half a turn
+; by hand. The probe is where the calibration left it: over the gauge's
+; centre, #3021 above its top. It measures the gauge's centre again the
+; same way (ring: guarded plunge #3021 + tip diameter + #3022, across X
+; and Y twice from inside, guarded rise; pin: across X and Y twice from
+; outside at that depth) and reports x_center_probed #1002 and
+; y_center_probed #1004. ferrum compares them with the calibration's
+; centre: a stylus off the spindle's axis by e moves the measured centre by
+; 2e when the spindle turns half a turn. Changes no parameter and no work
+; offset. Ends over the centre at the clearance height.
+o<probe_cal_stylus> sub
+o10 if [#<_task> EQ 0]
+    o<probe_cal_stylus> return
+o10 endif
+o<ferrum_probe_ready> call
+M73
+M50 P0
+G90 G94
+#<z_clear> = #5422
+#<z_probe> = [#<z_clear> - #3021 - #5410 - #3022]
+o20 if [#1 EQ 0]
+    o21 if [#3033 LE 0]
+        (ABORT, Set the ring gauge diameter #3033 first)
+    o21 endif
+    o<ferrum_guarded_move> call [0] [0] [#<z_probe> - #5422]
+    o<ferrum_span_inside> call [0] [#3033] [#3032]
+    o<ferrum_span_inside> call [1] [#3033] [#3032]
+    o<ferrum_span_inside> call [0] [#3033] [#3032]
+    #1002 = #<_ferrum_center>
+    o<ferrum_span_inside> call [1] [#3033] [#3032]
+    #1004 = #<_ferrum_center>
+    o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+o20 else
+    o22 if [#3034 LE 0]
+        (ABORT, Set the gauge pin diameter #3034 first)
+    o22 endif
+    o<ferrum_span_outside> call [0] [#3034] [#<z_clear>] [#<z_probe>]
+    o<ferrum_span_outside> call [1] [#3034] [#<z_clear>] [#<z_probe>]
+    o<ferrum_span_outside> call [0] [#3034] [#<z_clear>] [#<z_probe>]
+    #1002 = #<_ferrum_center>
+    o<ferrum_span_outside> call [1] [#3034] [#<z_clear>] [#<z_probe>]
+    #1004 = #<_ferrum_center>
+o20 endif
+
+(DEBUG, EVAL[vcp.getWidget{"x_center_probed"}.setValue{#1002}])
+(DEBUG, EVAL[vcp.getWidget{"y_center_probed"}.setValue{#1004}])
+G90
+o<probe_cal_stylus> endsub
+M2

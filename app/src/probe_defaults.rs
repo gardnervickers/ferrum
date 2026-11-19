@@ -61,7 +61,7 @@ pub const DEFS: &[Def] = &[
     d(3024, "probe.defaults.edge_width", "Edge width", Dist, Some(20.0), Some(0.8), |c| c.probe.defaults.edge_width),
     d(3032, "probe.defaults.calibration_offset", "Calibration offset (from CAL)", Dist, Some(0.0), Some(0.0), |c| c.probe.defaults.calibration_offset),
     d(3033, "probe.defaults.ring_gauge", "Ring gauge diameter", Dist, Some(25.0), Some(1.0), |c| c.probe.defaults.ring_gauge),
-    d(3034, "probe.defaults.cal_block_x", "Calibration block X width", Dist, None, None, |c| c.probe.defaults.cal_block_x),
+    d(3034, "probe.defaults.pin_gauge", "Gauge pin diameter", Dist, Some(10.0), Some(0.375), |c| c.probe.defaults.pin_gauge.or(c.probe.defaults.cal_block_x)),
     d(3035, "probe.defaults.cal_block_y", "Calibration block Y width", Dist, None, None, |c| c.probe.defaults.cal_block_y),
     d(3004, "toolsetter.fast_feed", "Fast feed (finding)", Feed, Some(300.0), Some(12.0), |c| c.toolsetter.fast_feed),
     d(3005, "toolsetter.slow_feed", "Slow feed (the touch)", Feed, Some(25.0), Some(1.0), |c| c.toolsetter.slow_feed),

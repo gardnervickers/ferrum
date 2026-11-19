@@ -1,0 +1,72 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; CAL probe tip on a gauge pin (or any round boss) of known diameter
+; #3034: measures the probe's calibration offset #3032 from outside, the
+; counterpart of o<probe_cal_round_pocket> in a ring. The probe starts
+; above the pin's centre, within #3020 of its top. It touches the top, then
+; measures across X and Y from outside twice (step out #3034/2 + #3023,
+; plunge #3021 + tip diameter + #3022 below the clearance height, touch
+; towards the pin, rise; the second pass, from the refined centre, counts)
+; with the tool table's tip diameter and no calibration offset. The offset
+; is #3032 = (#3034 - measured width) / 2, signed, so the effective tip
+; radius #5410/2 - #3032 equals the true one: per axis averaged (#3036 =
+; 0), X only (1) or Y only (2). Reports z_minus_probed_position #1009,
+; x_probed_width #1001, x_center_probed #1002, y_probed_width #1003,
+; y_center_probed #1004, averaged_diam #1010 (all uncalibrated) and, last
+; and only once, calibration_offset_3032 with the new value, which ferrum
+; saves. Never writes a work offset, whatever #3030 says. Ends over the
+; pin's centre at the clearance height.
+o<probe_cal_boss> sub
+o10 if [#<_task> EQ 0]
+    o<probe_cal_boss> return
+o10 endif
+o<ferrum_probe_ready> call
+M73
+M50 P0
+G90 G94
+o20 if [#3034 LE 0]
+    (ABORT, Set the gauge pin diameter #3034 first)
+o20 endif
+o21 if [[#3036 LT 0] OR [#3036 GT 2]]
+    (ABORT, Cal axis #3036 must be 0 X+Y, 1 X or 2 Y)
+o21 endif
+
+o<ferrum_touch> call [2] [-1] [#3020]
+#1009 = #<_ferrum_hit>
+#<z_clear> = [#1009 + #3021]
+#<z_probe> = [#1009 - #5410 - #3022]
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+
+o<ferrum_span_outside> call [0] [#3034] [#<z_clear>] [#<z_probe>] [1]
+o<ferrum_span_outside> call [1] [#3034] [#<z_clear>] [#<z_probe>] [1]
+o<ferrum_span_outside> call [0] [#3034] [#<z_clear>] [#<z_probe>] [1]
+#1001 = #<_ferrum_width>
+#1002 = #<_ferrum_center>
+o<ferrum_span_outside> call [1] [#3034] [#<z_clear>] [#<z_probe>] [1]
+#1003 = #<_ferrum_width>
+#1004 = #<_ferrum_center>
+#1010 = [[#1001 + #1003] / 2]
+
+#<ex> = [[#3034 - #1001] / 2]
+#<ey> = [[#3034 - #1003] / 2]
+o30 if [#3036 EQ 1]
+    #<cal> = #<ex>
+o30 elseif [#3036 EQ 2]
+    #<cal> = #<ey>
+o30 else
+    #<cal> = [[#<ex> + #<ey>] / 2]
+o30 endif
+o40 if [#<cal> GE [#5410 / 2]]
+    (ABORT, Calibration gives no usable tip radius - check #3034 and the tip diameter)
+o40 endif
+#3032 = #<cal>
+
+(DEBUG, EVAL[vcp.getWidget{"z_minus_probed_position"}.setValue{#1009}])
+(DEBUG, EVAL[vcp.getWidget{"x_probed_width"}.setValue{#1001}])
+(DEBUG, EVAL[vcp.getWidget{"x_center_probed"}.setValue{#1002}])
+(DEBUG, EVAL[vcp.getWidget{"y_probed_width"}.setValue{#1003}])
+(DEBUG, EVAL[vcp.getWidget{"y_center_probed"}.setValue{#1004}])
+(DEBUG, EVAL[vcp.getWidget{"averaged_diam"}.setValue{#1010}])
+(DEBUG, EVAL[vcp.getWidget{"calibration_offset_3032"}.setValue{#3032}])
+G90
+o<probe_cal_boss> endsub
+M2

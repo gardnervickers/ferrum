@@ -1,0 +1,61 @@
+title FIND SET ROTATION on the TILTED block's left edge: measure only first, then the rotation (+2 deg) goes to G54
+needs probe-basic probe-geometry
+# The TILTED block (turned +2 deg CCW, top ${tilt_top}). Start over the
+# top 3 in from the left edge; the two touches go 45 below and 5 above the
+# start along the edge (typed here; the screen drags them). Nothing but the
+# rotation is written: G54's X Y Z stay at wcs0.
+include ../common/probe-start.scn
+do probe-shape "block"
+do probe-target "e-l"
+do probe-opt "angle-skew"
+wait prop.pr-title == "LEFT EDGE · SKEW" within 5
+do edit "prun-L0"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "±"
+do keypad-key "4"
+do keypad-key "5"
+do keypad-done true
+wait prop.keypad-open == false within 5
+do edit "prun-L1"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "5"
+do keypad-done true
+wait prop.keypad-open == false within 5
+
+# Measure only: WRITE TO NOTHING.
+do probe-wcs "NOTHING"
+wait prop.pr-run-label == "MEASURE" within 5
+mdi G53 G0 X${tilt_left_x} Y${tilt_left_y}
+mdi G53 G1 Z${tilt_above_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Edge angle} ~= ${tilt_angle} +- ${angle_tol}
+expect prop.pr-result contains "nothing written"
+expect stat.rotation_xy ~= 0 +- 0.0001
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+
+# Now set it.
+do probe-wcs "G54"
+wait prop.pr-run-label == "PROBE" within 5
+mdi G53 G0 Z${travel_z}
+mdi G53 G0 X${tilt_left_x} Y${tilt_left_y}
+mdi G53 G1 Z${tilt_above_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Edge angle} ~= ${tilt_angle} +- ${angle_tol}
+expect prop.pr-result contains "Rotation written to G54"
+expect stat.rotation_xy ~= ${tilt_angle} +- ${angle_tol}
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+
+# Run again with G54 already rotated: it clears and measures again.
+mdi G53 G0 Z${travel_z}
+mdi G53 G0 X${tilt_left_x} Y${tilt_left_y}
+mdi G53 G1 Z${tilt_above_mz} F2000
+include ../common/probe-run.scn
+expect stat.rotation_xy ~= ${tilt_angle} +- ${angle_tol}
+mdi G53 G0 Z${travel_z}
+shot skew-done
+mdi G10 L2 P1 R0

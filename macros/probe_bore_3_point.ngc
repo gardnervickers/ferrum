@@ -1,0 +1,61 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND/MEASURE bore from three touches: o<probe_bore_3_point> call [a1]
+; [a2] [a3]. Finds the centre and diameter of a round pocket, or of an arc
+; of one, from touches at three chosen angles (degrees counter-clockwise
+; from +X, seen from above), so a clamp, a slot or a missing part of the
+; wall can be left out. The probe starts inside near the centre with the
+; tip already below the top edge; there is no Z motion. For each angle in
+; turn it touches outwards (reach #3018 + diameter hint #3025 / 2) and
+; makes a guarded move back to the start. The circle through the three
+; stylus-centre touches gives the centre; the diameter adds the effective
+; tip diameter (#5410 - 2 x #3032). Reports x_center_probed #1002,
+; y_center_probed #1004 and averaged_diam #1010 (#1001 and #1003 get the
+; diameter too). With #3030 = 0 the active work offset gets X0 Y0 at the
+; centre. Ends at the centre (guarded move), same Z.
+o<probe_bore_3_point> sub
+o10 if [#<_task> EQ 0]
+    o<probe_bore_3_point> return
+o10 endif
+o<ferrum_probe_ready> call
+M73
+M50 P0
+G90 G94
+o20 if [#3025 LT 0]
+    (ABORT, Diameter hint must not be negative)
+o20 endif
+#<r> = [[#5410 / 2] - #3032]
+#<sx> = #5420
+#<sy> = #5421
+#<reach> = [#3018 + [#3025 / 2]]
+
+o<ferrum_touch_xy> call [#1] [#<reach>]
+#<x1> = #<_ferrum_hit_x>
+#<y1> = #<_ferrum_hit_y>
+o<ferrum_guarded_move> call [#<sx> - #5420] [#<sy> - #5421] [0]
+o<ferrum_touch_xy> call [#2] [#<reach>]
+#<x2> = #<_ferrum_hit_x>
+#<y2> = #<_ferrum_hit_y>
+o<ferrum_guarded_move> call [#<sx> - #5420] [#<sy> - #5421] [0]
+o<ferrum_touch_xy> call [#3] [#<reach>]
+#<x3> = #<_ferrum_hit_x>
+#<y3> = #<_ferrum_hit_y>
+o<ferrum_guarded_move> call [#<sx> - #5420] [#<sy> - #5421] [0]
+
+o<ferrum_circle3> call [#<x1>] [#<y1>] [#<x2>] [#<y2>] [#<x3>] [#<y3>]
+#1002 = #<_ferrum_cx>
+#1004 = #<_ferrum_cy>
+#1010 = [2 * [#<_ferrum_cr> + #<r>]]
+#1001 = #1010
+#1003 = #1010
+o<ferrum_guarded_move> call [#1002 - #5420] [#1004 - #5421] [0]
+
+(DEBUG, EVAL[vcp.getWidget{"x_center_probed"}.setValue{#1002}])
+(DEBUG, EVAL[vcp.getWidget{"y_center_probed"}.setValue{#1004}])
+(DEBUG, EVAL[vcp.getWidget{"averaged_diam"}.setValue{#1010}])
+
+o30 if [#3030 EQ 0]
+    G10 L20 P0 X[#5420 - #1002] Y[#5421 - #1004]
+o30 endif
+G90
+o<probe_bore_3_point> endsub
+M2

@@ -42,3 +42,23 @@ itself: `ferrum_measure_tool` (TOOLS › MEASURE: load a tool and measure
 its length on the setter) and `ferrum_tool_check` (TOOLS › CHECK and a
 job's TOOL CHECK op: measure the loaded tool and stop when it is off its
 table length by more than `#3037`, the breakage tolerance).
+
+## Routines with no Probe Basic counterpart
+
+These are Ferrum's own (not in [SPEC.md](SPEC.md)); each file's header
+says exactly what it does.
+
+- `probe_bore_3_point [a1] [a2] [a3]` and `probe_boss_3_point [a1] [a2]
+  [a3]`: a bore or boss (or an arc of one) from three touches at chosen
+  angles (degrees counter-clockwise from +X), fitted with
+  `ferrum_circle3`; same results as the bore and boss routines. The PROBE
+  screen's 3 POINTS lets the operator drag the angles.
+- `probe_cal_boss`: CAL › PROBE TIP on a gauge pin of diameter `#3034`.
+- `probe_cal_stylus [gauge]`: after either calibration, with the spindle
+  turned half a turn by hand, measures the gauge's centre again; Ferrum
+  shows how far the stylus sits off the spindle's axis.
+- `probe_edge_skew [axis] [side] [d1] [d2]`: two touches at chosen places
+  along an edge; reports its angle and (`#3030` = 0) sets the active work
+  system's rotation to it, leaving X0 Y0 as they are.
+
+`ferrum_touch_xy [angle] [max]` is `ferrum_touch` along any XY direction.

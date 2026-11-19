@@ -299,6 +299,8 @@ export global Live {
     in property <string> pr-arrows;
     in property <string> pr-heads;
     in property <[ProbeSpot]> pr-spots;
+    // BORE / BOSS with 3 POINTS: the touch points to drag around the circle.
+    in property <[ProbeSpot]> pr-points;
     // The preview: the probe tip playing the routine in a loop (probe_anim.rs).
     // Where the tip is in picture units; z is its height (1 clear, 0 at depth).
     in property <bool> pr-tip-on;
@@ -565,6 +567,9 @@ export global Actions {
     callback probe-load();
     callback probe-run();
     callback probe-stop();
+    // A drag on the probe picture, in picture units (400 x 300): phase 0
+    // pressed, 1 moved, 2 released.
+    callback probe-drag(phase: int, x: float, y: float);
     callback job-select(index: int);
     callback job-toggle(index: int);
     callback job-new();

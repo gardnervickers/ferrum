@@ -89,7 +89,7 @@ step_off = 10             # #3023
 edge_width = 20           # #3024
 calibration_offset = 0    # #3032, written by CAL
 ring_gauge = 25           # #3033
-cal_block_x = 25.4        # #3034
+pin_gauge = 10            # #3034, the pin CAL › PROBE TIP › PIN uses (was cal_block_x)
 cal_block_y = 25.4        # #3035
 
 [toolsetter]

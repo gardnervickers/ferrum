@@ -1,0 +1,82 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND/MEASURE round boss from three touches: o<probe_boss_3_point> call
+; [a1] [a2] [a3]. Finds the top, centre and diameter of a round boss, or of
+; an arc of one, from touches at three chosen angles (degrees
+; counter-clockwise from +X, seen from above, the side of the boss each
+; touch lands on), so a clamp or a missing part can be left out. The probe
+; starts above the boss's centre, within #3020 of its top. It touches the
+; top, rises to #3021 above it, and for each angle moves out over that side
+; (diameter hint #3025 / 2 + step off #3023 from the start), plunges to
+; #5410 + #3022 below the top, touches in towards the start (reach #3018)
+; and rises again; every positioning move is guarded. The circle through
+; the three stylus-centre touches gives the centre; the diameter takes off
+; the effective tip diameter (#5410 - 2 x #3032). Reports
+; z_minus_probed_position #1009 (the top, before any write),
+; x_center_probed #1002, y_center_probed #1004 and averaged_diam #1010
+; (#1001 and #1003 get the diameter too). With #3030 = 0 the active work
+; offset gets Z0 at the top and X0 Y0 at the centre. Ends over the centre,
+; #3021 above the top.
+o<probe_boss_3_point> sub
+o10 if [#<_task> EQ 0]
+    o<probe_boss_3_point> return
+o10 endif
+o<ferrum_probe_ready> call
+M73
+M50 P0
+G90 G94
+o20 if [#3025 LT 0]
+    (ABORT, Diameter hint must not be negative)
+o20 endif
+#<r> = [[#5410 / 2] - #3032]
+#<sx> = #5420
+#<sy> = #5421
+#<off> = [[#3025 / 2] + #3023]
+
+o<ferrum_touch> call [2] [-1] [#3020]
+#1009 = #<_ferrum_hit>
+#<z_clear> = [#1009 + #3021]
+#<z_probe> = [#1009 - #5410 - #3022]
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+
+#<i> = 1
+o100 while [#<i> LE 3]
+    #<a> = #[#<i>]
+    o<ferrum_guarded_move> call [#<sx> + #<off> * COS[#<a>] - #5420] [#<sy> + #<off> * SIN[#<a>] - #5421] [0]
+    o<ferrum_guarded_move> call [0] [0] [#<z_probe> - #5422]
+    o<ferrum_touch_xy> call [#<a> + 180] [#3018]
+    o110 if [#<i> EQ 1]
+        #<x1> = #<_ferrum_hit_x>
+        #<y1> = #<_ferrum_hit_y>
+    o110 elseif [#<i> EQ 2]
+        #<x2> = #<_ferrum_hit_x>
+        #<y2> = #<_ferrum_hit_y>
+    o110 else
+        #<x3> = #<_ferrum_hit_x>
+        #<y3> = #<_ferrum_hit_y>
+    o110 endif
+    o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+    #<i> = [#<i> + 1]
+o100 endwhile
+
+o<ferrum_circle3> call [#<x1>] [#<y1>] [#<x2>] [#<y2>] [#<x3>] [#<y3>]
+#1002 = #<_ferrum_cx>
+#1004 = #<_ferrum_cy>
+#1010 = [2 * [#<_ferrum_cr> - #<r>]]
+o30 if [#1010 LE 0]
+    (ABORT, The touches do not fit a boss: check the angles and the diameter hint)
+o30 endif
+#1001 = #1010
+#1003 = #1010
+o<ferrum_guarded_move> call [#1002 - #5420] [#1004 - #5421] [0]
+
+(DEBUG, EVAL[vcp.getWidget{"z_minus_probed_position"}.setValue{#1009}])
+(DEBUG, EVAL[vcp.getWidget{"x_center_probed"}.setValue{#1002}])
+(DEBUG, EVAL[vcp.getWidget{"y_center_probed"}.setValue{#1004}])
+(DEBUG, EVAL[vcp.getWidget{"averaged_diam"}.setValue{#1010}])
+
+o40 if [#3030 EQ 0]
+    G10 L20 P0 X[#5420 - #1002] Y[#5421 - #1004] Z[#5422 - #1009]
+o40 endif
+G90
+o<probe_boss_3_point> endsub
+M2

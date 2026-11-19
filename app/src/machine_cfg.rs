@@ -203,6 +203,9 @@ pub struct ProbeDefaults {
     pub edge_width: Option<f64>,
     pub calibration_offset: Option<f64>,
     pub ring_gauge: Option<f64>,
+    /// #3034: the gauge pin CAL › PROBE TIP › PIN measures. Older files
+    /// call it `cal_block_x` (read when `pin_gauge` is missing).
+    pub pin_gauge: Option<f64>,
     pub cal_block_x: Option<f64>,
     pub cal_block_y: Option<f64>,
 }

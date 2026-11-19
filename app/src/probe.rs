@@ -40,7 +40,7 @@ pub const MACROS: &[&str] = &[
     "probe_a_measure_deflection", "probe_a_measure_diameter", "probe_a_measure_runout", "probe_a_rotary",
     "probe_a_setup_cylinder_center", "probe_auto_stock_center", "probe_back_left_inside_corner",
     "probe_back_left_top_corner", "probe_back_right_inside_corner", "probe_back_right_top_corner",
-    "probe_cal_round_pocket", "probe_front_left_inside_corner", "probe_front_left_top_corner",
+    "probe_bore_3_point", "probe_boss_3_point", "probe_cal_boss", "probe_cal_round_pocket", "probe_cal_stylus", "probe_edge_skew", "probe_front_left_inside_corner", "probe_front_left_top_corner",
     "probe_front_right_inside_corner", "probe_front_right_top_corner", "probe_rect_pocket_center_start",
     "probe_ridge_x", "probe_ridge_y", "probe_round_boss", "probe_round_pocket_center_start",
     "probe_spindle_nose", "probe_top_back_edge_angle", "probe_top_front_edge_angle",
@@ -101,7 +101,7 @@ const PARAMS: &[Param] = &[
     s(3031, "WCO rotation", &["OFF", "ON"], "probe"),
     p(3032, "Calibration offset", "mm", "cal"),
     p(3033, "Ring gauge diameter", "mm", "cal"),
-    p(3034, "Cal block X width", "mm", "cal"),
+    p(3034, "Gauge pin diameter", "mm", "cal"),
     p(3035, "Cal block Y width", "mm", "cal"),
     s(3036, "Cal axis", &["X+Y", "X", "Y"], "cal"),
     p(3037, "Breakage tolerance", "mm", "cal"),
@@ -233,6 +233,9 @@ fn locals(kind: &str) -> &'static [Local] {
         "cyl" => &[Local { label: "Reference dia est.", mm: 30.0, inch: 1.25 }],
         "dia" | "runout" => &[Local { label: "Diameter est.", mm: 25.0, inch: 1.0 }],
         "defl" => &[Local { label: "Diameter est.", mm: 25.0, inch: 1.0 }, Local { label: "X span", mm: 50.0, inch: 2.0 }],
+        // Where the two touches go along the edge, from the start (+Y on a
+        // left/right edge, +X on a front/back one); dragged on the picture.
+        "skew" => &[Local { label: "Touch 1 along the edge", mm: -25.0, inch: -1.0 }, Local { label: "Touch 2 along the edge", mm: 25.0, inch: 1.0 }],
         _ => &[],
     }
 }
@@ -244,6 +247,42 @@ enum Flow {
     StockMeasured { token: u32, center: (f64, f64), size: (f64, f64) },
     TwoFirst { token: u32, axis: u8, dir: i32 },
     TwoReady { token: u32, width: f64 },
+    /// CAL › PROBE TIP calibrated; the stylus check measures the gauge's
+    /// centre again once the spindle is turned half a turn.
+    CalTurn { center: (f64, f64), pin: bool },
+}
+
+/// The three touch angles' starting places (degrees CCW from +X).
+pub const ANGLES: [f64; 3] = [90.0, 210.0, 330.0];
+/// The closest two touch points may come, in degrees.
+const MIN_APART: f64 = 20.0;
+/// Dragged angles snap to this many degrees.
+const SNAP: f64 = 5.0;
+/// The circle the three points are dragged around, in picture units:
+/// (center, radius) for a bore and a boss.
+const C3: (f64, f64) = (200.0, 150.0);
+fn r3(boss: bool) -> f64 {
+    if boss { 80.0 } else { 60.0 }
+}
+/// Where a touch at `a` degrees lands on the picture's circle.
+fn on_circle(a: f64, boss: bool) -> (f64, f64) {
+    let (r, t) = (r3(boss), a.to_radians());
+    (C3.0 + r * t.cos(), C3.1 - r * t.sin())
+}
+
+/// The widest gap between the angles, in degrees: over 240 means the
+/// three touches sit on less than a third of the circle.
+fn widest_gap(a: &[f64; 3]) -> f64 {
+    let mut v = a.map(|x| x.rem_euclid(360.0));
+    v.sort_by(f64::total_cmp);
+    let gaps = [v[1] - v[0], v[2] - v[1], 360.0 - v[2] + v[0]];
+    gaps.into_iter().fold(0.0, f64::max)
+}
+
+/// The angular distance between two angles, 0..=180.
+fn apart(a: f64, b: f64) -> f64 {
+    let d = (a - b).rem_euclid(360.0);
+    d.min(360.0 - d)
 }
 
 #[derive(Debug)]
@@ -284,7 +323,20 @@ pub struct Probe {
     start: char,
     both: bool,
     ridge: bool,
+    /// EDGE: SET ROTATION (skew) from two touches dragged along the edge.
+    skew: bool,
+    /// BORE / ROUND BOSS: three touches at `angles` instead of across X and Y.
+    three: bool,
+    angles: [f64; 3],
+    /// The point being dragged on the picture.
+    drag: Option<usize>,
+    /// CAL › PROBE TIP: on a gauge pin (outside) instead of a ring.
+    pin: bool,
+    /// CAL › PROBE TIP: then check the stylus's runout (turn the spindle).
+    stylus: bool,
     wcs: Option<usize>,
+    /// FIND writes nothing: the routine only reports (#3030 = 1).
+    measure_only: bool,
     runv: BTreeMap<u16, f64>,
     locv: BTreeMap<usize, f64>,
     defaults: BTreeMap<u16, f64>,
@@ -340,6 +392,9 @@ impl Probe {
                     edge("e-r", 300.0 - T / 2.0, 106.0, T, 88.0, "RIGHT EDGE"),
                     center(if self.axes == "XY" { "stock" } else { "two" }, 200.0, 150.0, &format!("{ctr} · FROM {}", side_name(self.start))),
                 ]
+                .into_iter()
+                .map(|t| if t.kind == "edge" && self.skew { Target { kind: "skew", label: t.label.replace("EDGE", "EDGE · SKEW"), ..t } } else { t })
+                .collect()
             }
             "pocket" => vec![
                 Target { kind: "icorner", ..corner("i-bl", 110.0, 80.0, "BACK LEFT INSIDE CORNER") },
@@ -349,8 +404,8 @@ impl Probe {
                 center("pocket", 200.0, 150.0, "POCKET CENTER"),
             ],
             "top" => vec![center("top", 200.0, 150.0, "TOP FACE · SETS Z")],
-            "round" => vec![center("boss", 200.0, 150.0, "BOSS CENTER")],
-            "bore" => vec![center("bore", 200.0, 150.0, "BORE CENTER")],
+            "round" => vec![center("boss", 200.0, 150.0, if self.three { "BOSS CENTER · 3 POINTS" } else { "BOSS CENTER" })],
+            "bore" => vec![center("bore", 200.0, 150.0, if self.three { "BORE CENTER · 3 POINTS" } else { "BORE CENTER" })],
             "slot" => {
                 let what = if self.ridge { "RIDGE" } else { "SLOT" };
                 vec![center("slot", 200.0, 150.0, &format!("{what} · ACROSS {}", if self.axes == "Y" { "Y" } else { "X" }))]
@@ -359,7 +414,7 @@ impl Probe {
             "dia" => vec![center("dia", 200.0, 150.0, "DIAMETER")],
             "runout" => vec![center("runout", 200.0, 150.0, "RUNOUT")],
             "defl" => vec![center("defl", 200.0, 150.0, "DEFLECTION")],
-            "ring" => vec![center("ring", 200.0, 150.0, "PROBE TIP")],
+            "ring" => vec![center("ring", 200.0, 150.0, if self.pin { "PROBE TIP · GAUGE PIN" } else { "PROBE TIP · RING GAUGE" })],
             "setter" => vec![center("setter", 200.0, 150.0, "TOOL LENGTH")],
             _ => vec![center("nose", 200.0, 150.0, "SPINDLE NOSE")],
         }
@@ -384,6 +439,7 @@ impl Probe {
             "corner" | "icorner" => vec![3023, 3019, 3018],
             "edge" if self.angle => vec![3024, 3023, 3019],
             "edge" => vec![3019, 3018],
+            "skew" => vec![3023],
             "stock" => vec![3019, 3018],
             "two" => vec![3019, 3018],
             "top" => vec![3020, 3021],
@@ -395,6 +451,7 @@ impl Probe {
             // Two operator inputs (locals) take the other slots; XY clearance is under MORE.
             "defl" => vec![3021],
             "setter" | "nose" => vec![3005, 3009],
+            "ring" if self.pin => vec![3034],
             "ring" => vec![3033],
             _ => vec![],
         }
@@ -405,7 +462,8 @@ impl Probe {
             "cyl" | "flat" | "dia" | "runout" | "defl" => vec![3019, 3021, 3016, 3015],
             "setter" | "nose" => vec![3004, 3005, 3006, 3007, 3009],
             "top" => vec![3020, 3021, 3016, 3015, 3017],
-            "ring" => vec![3033, 3016, 3015, 3017, 3023, 3020, 3021],
+            "ring" if self.pin => vec![3034, 3036, 3016, 3015, 3017, 3018, 3019, 3023, 3020, 3021, 3022],
+            "ring" => vec![3033, 3036, 3016, 3015, 3017, 3023, 3020, 3021],
             _ => vec![3023, 3019, 3021, 3018, 3020, 3022, 3016, 3015, 3017],
         }
     }
@@ -414,7 +472,12 @@ impl Probe {
     fn options(&self, sel: &Target) -> (&'static str, Vec<ProbeOpt>, &'static str, Vec<ProbeOpt>) {
         let it = |id: &str, label: &str, on: bool| ProbeOpt { id: id.into(), label: label.into(), on, enabled: true };
         match (self.shape, sel.kind) {
-            (_, "edge") if self.mode == "find" => ("EDGE ANGLE", vec![it("angle-off", "NO", !self.angle), it("angle-on", "MEASURE IT TOO", self.angle)], "", vec![]),
+            (_, "edge" | "skew") if self.mode == "find" => (
+                "EDGE ANGLE",
+                vec![it("angle-off", "NO", !self.angle && !self.skew), it("angle-on", "MEASURE", self.angle && !self.skew), it("angle-skew", "SET ROTATION", self.skew)],
+                "",
+                vec![],
+            ),
             ("block", "stock" | "two") => {
                 let one = if self.both { "" } else { side_axis(self.start) };
                 let axes = vec![it("both", "X AND Y", self.both), it("axis-X", "X ONLY", one == "X"), it("axis-Y", "Y ONLY", one == "Y")];
@@ -436,6 +499,13 @@ impl Probe {
                 vec![it("X", "X", self.axes != "Y"), it("Y", "Y", self.axes == "Y")],
             ),
             ("cyl", _) => ("FIND", vec![it("tgt-ctr", "CENTERLINE Y, Z", sel.id == "ctr"), it("tgt-flat", "A0 ON A FLAT", sel.id == "flat")], "", vec![]),
+            ("bore" | "round", _) => ("TOUCHES", vec![it("pts-4", "ACROSS X AND Y", !self.three), it("pts-3", "3 POINTS", self.three)], "", vec![]),
+            ("ring", _) => (
+                "GAUGE",
+                vec![it("gauge-ring", "RING", !self.pin), it("gauge-pin", "PIN", self.pin)],
+                "STYLUS RUNOUT",
+                vec![it("stylus-off", "SKIP", !self.stylus), it("stylus-on", "CHECK AFTER", self.stylus)],
+            ),
             _ => ("", vec![], "", vec![]),
         }
     }
@@ -448,8 +518,14 @@ impl Probe {
         }
     }
 
+    /// Where an operator input is kept: skew's two places along the edge
+    /// apart from the block's other inputs (Auto Stock's max span).
+    fn local_key(kind: &str, i: usize) -> usize {
+        if kind == "skew" { 100 + i } else { i }
+    }
+
     fn local(&self, kind: &str, i: usize) -> f64 {
-        self.locv.get(&i).copied().unwrap_or_else(|| locals(kind).get(i).map_or(0.0, |l| l.default()))
+        self.locv.get(&Self::local_key(kind, i)).copied().unwrap_or_else(|| locals(kind).get(i).map_or(0.0, |l| l.default()))
     }
 
     /// The macro call for the selected target, or why it can't run.
@@ -471,10 +547,13 @@ impl Probe {
                 let m = match t.id { "e-f" => "y_plus", "e-b" => "y_minus", "e-l" => "x_plus", _ => "x_minus" };
                 (format!("o<probe_{m}_wco> call"), None)
             }
+            "skew" => {
+                let (axis, side) = match t.id { "e-l" => (0, -1), "e-r" => (0, 1), "e-f" => (1, -1), _ => (1, 1) };
+                let u = units();
+                (format!("o<probe_edge_skew> call [{axis}] [{side}] [{}] [{}]", u.fmt(self.local("skew", 0)), u.fmt(self.local("skew", 1))), None)
+            }
             "top" => ("o<probe_z_minus_wco> call".into(), None),
-            "boss" => ("o<probe_round_boss> call".into(), None),
-            "pocket" => ("o<probe_rect_pocket_center_start> call".into(), None),
-            "bore" => ("o<probe_round_pocket_center_start> call".into(), None),
+            "boss" | "bore" | "pocket" => (self.plain_call(t).unwrap_or_default(), None),
             "slot" => {
                 let a = if self.axes == "Y" { "y" } else { "x" };
                 if self.ridge { (format!("o<probe_ridge_{a}> call"), None) } else { (format!("o<probe_valley_{a}_center_start> call"), None) }
@@ -504,7 +583,13 @@ impl Probe {
             "dia" => (format!("o<probe_a_measure_diameter> call [{}] [1]", units().fmt(self.local("dia", 0))), None),
             "runout" => (format!("o<probe_a_measure_runout> call [{}] [1]", units().fmt(self.local("runout", 0))), None),
             "defl" => (format!("o<probe_a_measure_deflection> call [{}] [{}] [1]", units().fmt(self.local("defl", 0)), units().fmt(self.local("defl", 1))), None),
-            "ring" => ("o<probe_cal_round_pocket> call".into(), None),
+            "ring" => match &self.flow {
+                Some(Flow::CalTurn { pin, .. }) => (format!("o<probe_cal_stylus> call [{}]", u8::from(*pin)), Some("cal-turn")),
+                _ => {
+                    let call = if self.pin { "o<probe_cal_boss> call" } else { "o<probe_cal_round_pocket> call" };
+                    (call.into(), self.stylus.then_some("cal-first"))
+                }
+            },
             "setter" => ("o<tool_touch_off> call".into(), None),
             "nose" => ("o<probe_spindle_nose> call".into(), None),
             k => return Err(format!("No routine for {k}")),
@@ -552,7 +637,8 @@ impl Probe {
                 return Err("Clear G52/G92 offsets before probing".into());
             }
             let w = self.target_wcs();
-            if (self.rotation)(w) != 0.0 {
+            // SET ROTATION clears the rotation itself before measuring.
+            if (self.rotation)(w) != 0.0 && !(t.kind == "skew" && self.writes()) {
                 return Err(format!("Probing needs an unrotated work system; {} is rotated", WCS[w]));
             }
             if self.pv(3031) != 0.0 {
@@ -596,6 +682,9 @@ impl Probe {
     fn job_op(&self, measure: bool) -> Result<(String, serde_json::Value), String> {
         let t = self.selected();
         let routine = self.job_routine(&t).ok_or("A job can run FIND routines that need no jogging part way (not TWO FACES, angles, rotary or calibration)")?;
+        if !measure && self.measure_only {
+            return Err("WRITE TO is NOTHING: pick a work offset for a step that sets one, or add a check".into());
+        }
         if measure && jobcore::probe::values_for(routine).is_empty() {
             return Err("A check measures a bore, boss, pocket, slot, ridge or top face".into());
         }
@@ -671,6 +760,8 @@ impl Probe {
                 format!("o<probe_{m}_wco> call")
             }
             "top" => "o<probe_z_minus_wco> call".into(),
+            "boss" if self.three => format!("o<probe_boss_3_point> call {}", self.angle_args()),
+            "bore" if self.three => format!("o<probe_bore_3_point> call {}", self.angle_args()),
             "boss" => "o<probe_round_boss> call".into(),
             "pocket" => "o<probe_rect_pocket_center_start> call".into(),
             "bore" => "o<probe_round_pocket_center_start> call".into(),
@@ -682,8 +773,115 @@ impl Probe {
         })
     }
 
+    /// Whether a run writes a work offset: FIND, unless WRITE TO is NOTHING.
+    fn writes(&self) -> bool {
+        self.mode == "find" && !self.measure_only
+    }
+
+    /// The three touch angles as macro arguments: `[90] [210] [330]`.
+    fn angle_args(&self) -> String {
+        self.angles.iter().map(|a| format!("[{}]", a.rem_euclid(360.0).round())).collect::<Vec<_>>().join(" ")
+    }
+
+    /// Whether the picture shows the three touch points to drag.
+    fn shows_points(&self) -> bool {
+        self.three && self.mode == "find" && matches!(self.shape, "bore" | "round")
+    }
+
+    /// The selected edge when SET ROTATION shows its two touches to drag.
+    fn skew_edge(&self) -> Option<&'static str> {
+        let t = self.selected();
+        (t.kind == "skew" && self.mode == "find" && self.shape == "block").then_some(t.id)
+    }
+
+    /// Picture units per machine unit along a skew edge: the half edge on
+    /// the picture (70) stands for 60 mm or 2.4 in. Farther touches are
+    /// typed and sit at the edge's end on the picture.
+    fn skew_scale() -> f64 {
+        70.0 / units().pick(60.0, 2.4)
+    }
+
+    /// Where a touch `d` along `edge` from the start sits on the picture
+    /// (held to the drawn edge).
+    fn skew_at(edge: &str, d: f64) -> (f64, f64) {
+        let k = d * Self::skew_scale();
+        match edge {
+            "e-l" => (100.0, (150.0 - k).clamp(72.0, 228.0)),
+            "e-r" => (300.0, (150.0 - k).clamp(72.0, 228.0)),
+            "e-f" => ((200.0 + k).clamp(102.0, 298.0), 230.0),
+            _ => ((200.0 + k).clamp(102.0, 298.0), 70.0),
+        }
+    }
+
+    /// The draggable points on the picture now, in picture units.
+    fn drag_points(&self) -> Vec<(f64, f64)> {
+        if self.shows_points() {
+            self.angles.iter().map(|a| on_circle(*a, self.shape == "round")).collect()
+        } else if let Some(e) = self.skew_edge() {
+            (0..2).map(|i| Self::skew_at(e, self.local("skew", i))).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// A drag on the picture (picture units): phase 0 pressed, 1 moved,
+    /// 2 released. Pressing near a point picks it up. Moving puts a 3-point
+    /// touch at the pointer's angle around the circle, in SNAP steps, unless
+    /// that comes closer than MIN_APART to another point; a skew touch at
+    /// the pointer's place along the edge (whole mm, or 0.05 in), kept at
+    /// least the XY clearance from the other. Returns whether anything
+    /// changed.
+    fn drag_to(&mut self, phase: i32, x: f64, y: f64) -> bool {
+        let pts = self.drag_points();
+        if pts.is_empty() || self.run.is_some() {
+            self.drag = None;
+            return false;
+        }
+        match phase {
+            0 => {
+                let near = pts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (px, py))| (i, (px - x).hypot(py - y)))
+                    .filter(|(_, d)| *d <= 48.0)
+                    .min_by(|a, b| a.1.total_cmp(&b.1));
+                self.drag = near.map(|(i, _)| i);
+                self.drag.is_some()
+            }
+            1 => {
+                let Some(i) = self.drag else { return false };
+                if let Some(e) = self.skew_edge() {
+                    let k = Self::skew_scale();
+                    let raw = match e {
+                        "e-l" | "e-r" => (150.0 - y.clamp(72.0, 228.0)) / k,
+                        _ => (x.clamp(102.0, 298.0) - 200.0) / k,
+                    };
+                    let step = units().pick(1.0, 0.05);
+                    let d = units().round((raw / step).round() * step);
+                    let other = self.local("skew", 1 - i);
+                    if d == self.local("skew", i) || (d - other).abs() < self.pv(3019).max(step) {
+                        return false;
+                    }
+                    self.locv.insert(Self::local_key("skew", i), d);
+                    return true;
+                }
+                if (x - C3.0).hypot(y - C3.1) < 12.0 {
+                    return false;
+                }
+                let a = ((C3.1 - y).atan2(x - C3.0).to_degrees() / SNAP).round() * SNAP;
+                let a = a.rem_euclid(360.0);
+                if a == self.angles[i] || (0..3).any(|j| j != i && apart(a, self.angles[j]) < MIN_APART) {
+                    return false;
+                }
+                self.angles[i] = a;
+                true
+            }
+            _ => self.drag.take().is_some(),
+        }
+    }
+
     fn target_wcs(&self) -> usize {
-        if self.mode == "find" { self.wcs.unwrap_or_else(|| self.active()) } else { self.active() }
+        if self.mode == "find" && !self.measure_only { self.wcs.unwrap_or_else(|| self.active()) } else { self.active() }
     }
 
     /// `#n=v` assignments, a few per line (LinuxCNC lines are short).
@@ -709,7 +907,7 @@ impl Probe {
         // FIND writes the work offset; MEASURE and CAL only report (the
         // ring calibration would otherwise move the active work zero).
         if Self::needs(t.kind) == Needs::Probe {
-            run.insert(3030, if self.mode == "find" { 0.0 } else { 1.0 });
+            run.insert(3030, if self.writes() { 0.0 } else { 1.0 });
         }
         run.retain(|n, v| self.defaults.get(n) != Some(v));
         // Defaults LinuxCNC does not hold yet (the quiet-time write has not
@@ -848,12 +1046,17 @@ impl Probe {
             Some("stock-measure") => {
                 if let Some((_, v)) = results.iter().find(|(n, _)| n == "auto_stock_panel.receive_result") {
                     if v.len() == 9 && v[0] as u32 == self.token {
-                        self.flow = Some(Flow::StockMeasured { token: self.token, center: (v[7], v[8]), size: (v[5], v[6]) });
                         lines.push(format!("Stock {} × {}", fmt3(v[5]), fmt3(v[6])));
-                        lines.push("Hold APPLY to set X0 Y0 at the center".into());
+                        if self.measure_only {
+                            lines.push(format!("Center X {} Y {}", fmt3(v[7]), fmt3(v[8])));
+                            lines.push("Measured only · nothing written".into());
+                        } else {
+                            self.flow = Some(Flow::StockMeasured { token: self.token, center: (v[7], v[8]), size: (v[5], v[6]) });
+                            lines.push("Hold APPLY to set X0 Y0 at the center".into());
+                        }
                     }
                 }
-                if self.flow.is_none() {
+                if lines.is_empty() {
                     lines.push("No result came back; nothing written".into());
                 }
             }
@@ -880,12 +1083,16 @@ impl Probe {
                 self.flow = None;
                 if let Some((_, v)) = results.iter().find(|(n, _)| n == "two_face_probe_panel.receive_result") {
                     if v.len() == 6 && v[1] as u32 == tok {
-                        self.flow = Some(Flow::TwoReady { token: tok, width: v[4] });
                         lines.push(format!("Width {}, center {}", fmt3(v[4]), fmt3(v[5])));
-                        lines.push("Hold APPLY to set zero at the center".into());
+                        if self.measure_only {
+                            lines.push("Measured only · nothing written".into());
+                        } else {
+                            self.flow = Some(Flow::TwoReady { token: tok, width: v[4] });
+                            lines.push("Hold APPLY to set zero at the center".into());
+                        }
                     }
                 }
-                if self.flow.is_none() {
+                if lines.is_empty() {
                     lines.push("No result came back".into());
                 }
             }
@@ -893,19 +1100,55 @@ impl Probe {
                 self.flow = None;
                 lines.push(format!("Center written to {}", WCS[self.target_wcs()]));
             }
-            _ => {
+            Some("cal-first") => {
                 for (name, v) in &results {
-                    if let Some(x) = v.first() {
+                    if let (Some(x), true) = (v.first(), name == "averaged_diam" || name.starts_with("calibration_offset")) {
                         lines.push(format!("{} {}", result_label(name), fmt3(*x)));
                     }
                 }
-                if self.mode == "find" && Self::needs(run.kind) == Needs::Probe {
+                if let (Some(x), Some(y)) = (num("x_center_probed"), num("y_center_probed")) {
+                    self.flow = Some(Flow::CalTurn { center: (x, y), pin: self.pin });
+                    lines.push("Now turn the spindle half a turn by hand (don't jog), then hold CHECK STYLUS".into());
+                } else {
+                    lines.push("No center came back for the stylus check".into());
+                }
+            }
+            Some("cal-turn") => {
+                let first = match &self.flow { Some(Flow::CalTurn { center, .. }) => Some(*center), _ => None };
+                self.flow = None;
+                match (first, num("x_center_probed"), num("y_center_probed")) {
+                    (Some((x0, y0)), Some(x), Some(y)) => {
+                        // A stylus e off the spindle's axis moves the
+                        // measured centre by 2e over half a turn.
+                        let e = (x - x0).hypot(y - y0) / 2.0;
+                        lines.push(format!("Stylus off center {} (runout {} TIR)", fmt3(e), fmt3(2.0 * e)));
+                        lines.push(if e <= crate::machine_info::get().mm(0.005) { "Well centered".into() } else { "True the stylus with its adjusting screws to bring this down".to_string() });
+                    }
+                    _ => lines.push("No center came back".into()),
+                }
+            }
+            _ => {
+                for (name, v) in &results {
+                    // The skew's two edge touches only make its angle.
+                    if run.kind == "skew" && name.ends_with("_probed_position") && !name.starts_with('z') {
+                        continue;
+                    }
+                    if let Some(x) = v.first() {
+                        // SET ROTATION applies the angle (unless measuring only).
+                        let label = if run.kind == "skew" && name == "edge_angle" { "Edge angle".to_string() } else { result_label(name) };
+                        lines.push(format!("{label} {}", fmt3(*x)));
+                    }
+                }
+                if self.writes() && run.kind == "skew" {
+                    lines.push(format!("Rotation written to {}; its X0 Y0 stay", WCS[self.target_wcs()]));
+                } else if self.writes() && Self::needs(run.kind) == Needs::Probe {
                     lines.push(format!("Written to {}", WCS[self.target_wcs()]));
+                } else if self.mode == "find" {
+                    lines.push("Measured only · nothing written".into());
                 }
                 if lines.is_empty() {
                     lines.push("Done".into());
                 }
-                let _ = num;
             }
         }
         self.result_text = lines.join("   ·   ");
@@ -980,15 +1223,18 @@ impl Probe {
         let sel = self.selected();
         live.set_pr_title(sel.label.clone().into());
         let on_picture = self.picks_on_picture();
-        live.set_pr_hint(
-            match sel.kind {
-                _ if on_picture => "TAP A BLUE SPOT TO CHOOSE WHERE",
-                "cyl" | "flat" | "dia" | "runout" | "defl" => "END VIEW · LOOKING ALONG X · TABLE BELOW",
-                "top" | "setter" | "nose" => "SIDE VIEW",
-                _ => "TOP VIEW",
-            }
-            .into(),
-        );
+        let gap = widest_gap(&self.angles);
+        let hint: String = match sel.kind {
+            "skew" => "START OVER THE TOP BY THE EDGE'S MIDDLE · DRAG THE TWO TOUCHES ALONG IT".into(),
+            _ if on_picture => "TAP A BLUE SPOT TO CHOOSE WHERE".into(),
+            // Three points on a short arc still fit, but less surely.
+            _ if self.shows_points() && gap > 240.0 => format!("THE POINTS SPAN ONLY {:.0}° · SPREAD THEM FOR A SURER FIT", 360.0 - gap),
+            _ if self.shows_points() => "DRAG THE THREE POINTS AROUND THE CIRCLE".into(),
+            "cyl" | "flat" | "dia" | "runout" | "defl" => "END VIEW · LOOKING ALONG X · TABLE BELOW".into(),
+            "top" | "setter" | "nose" => "SIDE VIEW".into(),
+            _ => "TOP VIEW".into(),
+        };
+        live.set_pr_hint(hint.into());
         // Picture: the spots are the only controls on it.
         let (outline, arrows, heads) = picture(self, &sel);
         live.set_pr_outline(outline.into());
@@ -998,10 +1244,15 @@ impl Probe {
         crate::probe_anim::play(
             ui,
             crate::probe_anim::script(&crate::probe_anim::Routine {
-                kind: sel.kind,
+                // A gauge pin is measured as a boss is.
+                kind: match sel.kind {
+                    "ring" if self.pin => "boss",
+                    "skew" => "edge",
+                    k => k,
+                },
                 segs: &moves,
                 at: (sel.x, sel.y),
-                angle: self.angle,
+                angle: self.angle || sel.kind == "skew",
                 ridge: self.ridge,
                 side: side_name(self.start),
             }),
@@ -1023,6 +1274,14 @@ impl Probe {
             Vec::new()
         };
         crate::models::sync(live.get_pr_spots(), spots, |m| live.set_pr_spots(m));
+        // The three touch points to drag, numbered in the order they run.
+        let points: Vec<ProbeSpot> = self
+            .drag_points()
+            .into_iter()
+            .enumerate()
+            .map(|(i, (x, y))| ProbeSpot { id: format!("{}", i + 1).into(), x: x as f32, y: y as f32, w: 0.0, h: 0.0, r: 22.0, on: self.drag == Some(i) })
+            .collect();
+        crate::models::sync(live.get_pr_points(), points, |m| live.set_pr_points(m));
         // Choices for the target: two labelled groups, always the same
         // buttons for a target (a choice that doesn't apply is disabled, not
         // removed), so nothing moves under the finger.
@@ -1052,7 +1311,7 @@ impl Probe {
                 label: l.label.into(),
                 value: fmt_value(0, self.local(sel.kind, i)).into(),
                 unit: units().name().into(),
-                changed: self.locv.contains_key(&i),
+                changed: self.locv.contains_key(&Self::local_key(sel.kind, i)),
                 def: fmt_value(0, l.default()).into(),
             });
         }
@@ -1101,9 +1360,12 @@ impl Probe {
             "corner" => "outside top corner (touches top Z first)".to_string(),
             "icorner" => "inside corner".into(),
             "edge" => format!("single edge{}", if self.angle { " + edge angle (touches top Z)" } else { "" }),
+            "skew" => "rotates the work system to the edge; probe X0 Y0 first".into(),
             "stock" => "Auto Stock: walks the outside, then APPLY".into(),
             "two" => "Two Faces: first face, opposite face, APPLY".into(),
             "top" => "Z down onto the top face; start above it".into(),
+            "boss" if self.three => "three touches around a round boss (top Z first)".into(),
+            "bore" if self.three => "three touches in a bore, start near its center".into(),
             "boss" => "round boss (touches top Z first)".into(),
             "pocket" => "rectangular pocket from its center".into(),
             "bore" => "round pocket from its center".into(),
@@ -1113,6 +1375,7 @@ impl Probe {
             "dia" => "measure diameter".into(),
             "runout" => "measure runout".into(),
             "defl" => "measure deflection".into(),
+            "ring" if self.pin => "tip calibration on a pin; start above its center".into(),
             "ring" => "probe tip calibration in a ring".into(),
             "setter" => "tool length on the setter".into(),
             _ => "spindle nose reference".into(),
@@ -1131,7 +1394,7 @@ impl Probe {
             .into(),
         );
         live.set_pr_show_wcs(self.mode == "find");
-        live.set_pr_wcs(WCS[self.target_wcs()].into());
+        live.set_pr_wcs(if self.measure_only { "NOTHING".into() } else { WCS[self.target_wcs()].into() });
         live.set_pr_result(if self.result_text.is_empty() { "No measurement yet.".into() } else { self.result_text.clone().into() });
         let needs = Self::needs(sel.kind);
         let tool = self.status.as_ref().map_or(-1, |s| s.tool_in_spindle);
@@ -1159,6 +1422,8 @@ impl Probe {
         let run_label = match (&self.flow, sel.kind) {
             (Some(Flow::StockMeasured { .. }), "stock") | (Some(Flow::TwoReady { .. }), "two") => "APPLY".to_string(),
             (Some(Flow::TwoFirst { .. }), "two") => "PROBE OPPOSITE FACE".into(),
+            (Some(Flow::CalTurn { .. }), "ring") => "CHECK STYLUS".into(),
+            _ if self.mode == "find" && self.measure_only => "MEASURE".into(),
             _ if self.mode == "find" => "PROBE".into(),
             _ if self.mode == "meas" => "MEASURE".into(),
             _ if needs != Needs::Probe => "MEASURE TOOL".into(),
@@ -1210,8 +1475,18 @@ impl Probe {
     /// A choice from the option rows under the picture.
     fn option(&mut self, o: &str) {
         match o {
-            "angle-on" => self.angle = true,
-            "angle-off" => self.angle = false,
+            "angle-on" => {
+                self.angle = true;
+                self.skew = false;
+            }
+            "angle-off" => {
+                self.angle = false;
+                self.skew = false;
+            }
+            "angle-skew" => {
+                self.angle = false;
+                self.skew = true;
+            }
             "both" => self.both = true,
             // One axis: keep the first side if it is on that axis.
             "axis-X" | "axis-Y" => {
@@ -1233,6 +1508,23 @@ impl Probe {
                     self.tgt = t.id;
                 }
             }
+            "pts-3" => self.three = true,
+            "pts-4" => self.three = false,
+            "gauge-ring" => self.pin = false,
+            "gauge-pin" => self.pin = true,
+            "stylus-on" => self.stylus = true,
+            "stylus-off" => self.stylus = false,
+            // angles:A,B,C sets the three touch angles (the harness; the
+            // screen drags them).
+            s if s.starts_with("angles:") => {
+                let v: Vec<f64> = s[7..].split(',').filter_map(|a| a.trim().parse().ok()).collect();
+                if let [a, b, c] = v[..] {
+                    let a3 = [a, b, c].map(|x: f64| x.rem_euclid(360.0));
+                    if apart(a3[0], a3[1]) >= MIN_APART && apart(a3[1], a3[2]) >= MIN_APART && apart(a3[0], a3[2]) >= MIN_APART {
+                        self.angles = a3;
+                    }
+                }
+            }
             "ridge" => self.ridge = true,
             "valley" => self.ridge = false,
             "X" => self.axes = "X",
@@ -1247,7 +1539,9 @@ impl Probe {
         // To the machine's decimals (3 in mm, 4 in inches).
         let v = units().round(v);
         if let Some(i) = id.strip_prefix('L').and_then(|i| i.parse::<usize>().ok()) {
-            self.locv.insert(i, v.max(0.0));
+            // Places along an edge are either side of the start.
+            let kind = self.selected().kind;
+            self.locv.insert(Self::local_key(kind, i), if kind == "skew" { v } else { v.max(0.0) });
             return;
         }
         let Ok(n) = id.parse::<u16>() else { return };
@@ -1364,6 +1658,8 @@ fn result_label(name: &str) -> String {
         "edge_angle" => "Edge angle (not applied)",
         "edge_delta" => "Edge delta",
         "z_minus_probed_position" => "Z",
+        "x_minus_probed_position" | "x_plus_probed_position" => "X edge",
+        "y_minus_probed_position" | "y_plus_probed_position" => "Y edge",
         "measure_diameter_value" => "Diameter",
         "measure_diameter_spread_value" => "Spread",
         "measure_runout_tir_value" => "TIR",
@@ -1411,9 +1707,18 @@ fn picture(p: &Probe, sel: &Target) -> (String, String, String) {
             let marks = "M 200 80 L 200 88 M 200 242 L 200 250 M 108 165 L 122 165 M 278 165 L 292 165 ";
             if sel.kind == "flat" { marks.to_string() } else { circle(200.0, 165.0, 70.0) + marks }
         }
+        "ring" if p.pin => circle(200.0, 150.0, 80.0),
         "ring" => circle(200.0, 150.0, 100.0) + &circle(200.0, 150.0, 66.0),
         "setter" => rect(160.0, 200.0, 80.0, 40.0),
         _ => rect(160.0, 200.0, 80.0, 40.0) + &rect(170.0, 60.0, 60.0, 70.0),
+    };
+    // SET ROTATION: where to start, by the edge's middle over the top.
+    let outline = match (sel.kind, sel.id) {
+        ("skew", id) => {
+            let (x, y) = match id { "e-l" => (124.0, 150.0), "e-r" => (276.0, 150.0), "e-f" => (200.0, 206.0), _ => (200.0, 94.0) };
+            outline + &circle(x, y, 7.0) + &format!("M {} {y} L {} {y} M {x} {} L {x} {} ", x - 14.0, x + 14.0, y - 14.0, y + 14.0)
+        }
+        _ => outline,
     };
     let mut lines = String::new();
     let mut heads = String::new();
@@ -1473,6 +1778,16 @@ fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
             vec![[x + dx * 60.0, y - dy * 30.0, x, y - dy * 30.0], [x - dx * 30.0, y + dy * 60.0, x - dx * 30.0, y]]
         };
     }
+    if k == "skew" {
+        // From outside the edge onto each dragged touch.
+        let out = match t.id { "e-l" => (-60.0, 0.0), "e-r" => (60.0, 0.0), "e-f" => (0.0, 60.0), _ => (0.0, -60.0) };
+        return (0..2)
+            .map(|i| {
+                let (x, y) = Probe::skew_at(t.id, p.local("skew", i));
+                [x + out.0, y + out.1, x, y]
+            })
+            .collect();
+    }
     if k == "edge" {
         // From outside the block to its edge line (70/230, 100/300); with
         // the angle, a second touch further along the edge.
@@ -1499,6 +1814,19 @@ fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
             let opp = match p.start { 'F' => 'B', 'B' => 'F', 'L' => 'R', _ => 'L' };
             vec![stock(p.start), stock(opp)]
         }
+        "boss" | "bore" if p.three => {
+            let boss = k == "boss";
+            p.angles
+                .iter()
+                .map(|a| {
+                    let (x, y) = on_circle(*a, boss);
+                    let (sx, sy) = if boss { on_circle(*a, true) } else { C3 };
+                    // A boss is touched from outside, along the radius.
+                    let (sx, sy) = if boss { (C3.0 + (sx - C3.0) * 1.6, C3.1 + (sy - C3.1) * 1.6) } else { (sx, sy) };
+                    [sx, sy, x, y]
+                })
+                .collect()
+        }
         "boss" => vec![[60.0, 150.0, 120.0, 150.0], [340.0, 150.0, 280.0, 150.0], [200.0, 30.0, 200.0, 70.0], [200.0, 270.0, 200.0, 230.0]],
         "pocket" => vec![[200.0, 150.0, 290.0, 150.0], [200.0, 150.0, 110.0, 150.0], [200.0, 150.0, 200.0, 80.0], [200.0, 150.0, 200.0, 220.0]],
         "bore" => vec![[200.0, 150.0, 260.0, 150.0], [200.0, 150.0, 140.0, 150.0], [200.0, 150.0, 200.0, 90.0], [200.0, 150.0, 200.0, 210.0]],
@@ -1512,6 +1840,7 @@ fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
         "runout" => vec![[200.0, 40.0, 200.0, 95.0]],
         "top" => vec![[200.0, 50.0, 200.0, 170.0]],
         "flat" => vec![[170.0, 40.0, 170.0, crate::probe_anim::flat_y(170.0)], [230.0, 40.0, 230.0, crate::probe_anim::flat_y(230.0)]],
+        "ring" if p.pin => vec![[60.0, 150.0, 120.0, 150.0], [340.0, 150.0, 280.0, 150.0], [200.0, 30.0, 200.0, 70.0], [200.0, 270.0, 200.0, 230.0]],
         "ring" => vec![[200.0, 150.0, 136.0, 150.0], [200.0, 150.0, 264.0, 150.0], [200.0, 150.0, 200.0, 86.0]],
         "setter" => vec![[200.0, 40.0, 200.0, 196.0]],
         "nose" => vec![[200.0, 136.0, 200.0, 196.0]],
@@ -1602,7 +1931,14 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         start: 'F',
         both: true,
         ridge: true,
+        skew: false,
+        three: false,
+        angles: ANGLES,
+        drag: None,
+        pin: false,
+        stylus: false,
         wcs: None,
+        measure_only: false,
         runv: BTreeMap::new(),
         locv: BTreeMap::new(),
         defaults,
@@ -1681,7 +2017,8 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         let mut p = p.borrow_mut();
         let u = units();
         let step = id.parse::<u16>().map_or(u.pick(0.5, 0.02), |n| step_of(n, u));
-        let v = (p.get_value(&id) + step * dir as f64).max(0.0);
+        let v = p.get_value(&id) + step * dir as f64;
+        let v = if p.selected().kind == "skew" && id.starts_with('L') { v } else { v.max(0.0) };
         p.set_value(&id, v);
         p.refresh();
     });
@@ -1689,7 +2026,8 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
     actions.on_probe_reset(move |id| {
         let mut p = p.borrow_mut();
         if let Some(i) = id.strip_prefix('L').and_then(|i| i.parse::<usize>().ok()) {
-            p.locv.remove(&i);
+            let k = Probe::local_key(p.selected().kind, i);
+            p.locv.remove(&k);
         } else if let Ok(n) = id.parse::<u16>() {
             p.runv.remove(&n);
         }
@@ -1702,7 +2040,12 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
     let p = probe.clone();
     actions.on_probe_wcs(move |code| {
         let mut p = p.borrow_mut();
-        p.wcs = WCS.iter().position(|c| *c == code.as_str());
+        // NOTHING: measure only.
+        p.measure_only = code.as_str() == "NOTHING";
+        if !p.measure_only {
+            p.wcs = WCS.iter().position(|c| *c == code.as_str());
+        }
+        p.flow = None;
         p.refresh();
     });
     let p = probe.clone();
@@ -1723,6 +2066,13 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         p.refresh();
     });
     actions.on_probe_stop(on(Box::new(|p| p.stop())));
+    let p = probe.clone();
+    actions.on_probe_drag(move |phase, x, y| {
+        let mut p = p.borrow_mut();
+        if p.drag_to(phase, x as f64, y as f64) {
+            p.refresh();
+        }
+    });
     probe.borrow().refresh();
     probe
 }
@@ -1838,7 +2188,14 @@ mod tests {
             start: 'F',
             both: true,
             ridge: true,
+            skew: false,
+            three: false,
+            angles: ANGLES,
+            drag: None,
+            pin: false,
+            stylus: false,
             wcs: None,
+            measure_only: false,
             runv: BTreeMap::new(),
             locv: BTreeMap::new(),
             defaults: BTreeMap::new(),
@@ -1953,7 +2310,7 @@ mod tests {
         for (mode, shapes) in SHAPES {
             for (shape, _) in *shapes {
                 pick(&mut p, mode, shape);
-                let combos: [&[&str]; 8] = [&[], &["angle-on"], &["axis-X"], &["axis-Y"], &["valley"], &["Y"], &["valley", "Y"], &["tgt-flat"]];
+                let combos: [&[&str]; 11] = [&[], &["angle-on"], &["angle-skew"], &["axis-X"], &["axis-Y"], &["valley"], &["Y"], &["valley", "Y"], &["tgt-flat"], &["pts-3"], &["gauge-pin"]];
                 for opts in combos {
                     for o in opts {
                         p.option(o);
@@ -1967,9 +2324,18 @@ mod tests {
                         assert!(o1.len() <= 4 && o2.len() <= 4);
                         macros.insert(call_now(&mut p).split_whitespace().next().unwrap().to_string());
                     }
+                    if p.shape == "ring" {
+                        // The stylus check is the second run of a calibration.
+                        p.flow = Some(Flow::CalTurn { center: (0.0, 0.0), pin: p.pin });
+                        macros.insert(call_now(&mut p).split_whitespace().next().unwrap().to_string());
+                        p.flow = None;
+                    }
                     p.angle = false;
                     p.both = true;
                     p.ridge = true;
+                    p.three = false;
+                    p.pin = false;
+                    p.skew = false;
                     p.axes = "XY";
                     p.settle();
                 }
@@ -1977,6 +2343,111 @@ mod tests {
         }
         let want: Vec<String> = MACROS.iter().map(|m| format!("o<{m}>")).collect();
         assert_eq!(macros.into_iter().collect::<Vec<_>>(), want);
+    }
+
+    #[test]
+    fn three_points_call_drag_and_job() {
+        let mut p = probe();
+        pick(&mut p, "find", "bore");
+        p.option("pts-3");
+        assert_eq!(call_now(&mut p), "o<probe_bore_3_point> call [90] [210] [330]");
+        p.option("angles:45,160,280");
+        assert_eq!(call_now(&mut p), "o<probe_bore_3_point> call [45] [160] [280]");
+        // Too close together: refused, the angles stay.
+        p.option("angles:45,50,280");
+        assert_eq!(p.angles, [45.0, 160.0, 280.0]);
+        // Drag point 1 (at 45°) to straight up (90°): press on it, move.
+        let (x, y) = on_circle(45.0, false);
+        assert!(p.drag_to(0, x + 3.0, y - 2.0));
+        assert_eq!(p.drag, Some(0));
+        let (ux, uy) = on_circle(91.0, false);
+        assert!(p.drag_to(1, ux, uy));
+        assert_eq!(p.angles[0], 90.0);
+        // Onto point 2 (160°): it stays.
+        let (vx, vy) = on_circle(150.0, false);
+        assert!(!p.drag_to(1, vx, vy));
+        assert_eq!(p.angles[0], 90.0);
+        assert!(p.drag_to(2, 0.0, 0.0));
+        assert_eq!(p.drag, None);
+        // A press away from every point picks nothing up.
+        assert!(!p.drag_to(0, 200.0, 150.0));
+        // The job runs the same call; a check reads the diameter.
+        let t = p.selected();
+        assert_eq!(p.plain_call(&t).unwrap(), "o<probe_bore_3_point> call [90] [160] [280]");
+        assert_eq!(p.job_routine(&t), Some("bore"));
+        pick(&mut p, "find", "round");
+        assert_eq!(call_now(&mut p), "o<probe_boss_3_point> call [90] [160] [280]");
+        p.option("pts-4");
+        assert_eq!(call_now(&mut p), "o<probe_round_boss> call");
+    }
+
+    #[test]
+    fn skew_call_and_drag() {
+        let mut p = probe();
+        p.tgt = "e-l";
+        p.option("angle-skew");
+        assert_eq!(p.selected().kind, "skew");
+        assert_eq!(call_now(&mut p), "o<probe_edge_skew> call [0] [-1] [-25.000] [25.000]");
+        // Drag touch 2 up the left edge to +50 mm (whole mm).
+        let (x, y) = Probe::skew_at("e-l", 25.0);
+        assert!(p.drag_to(0, x, y));
+        assert!(p.drag_to(1, x + 5.0, 150.0 - 50.3 * Probe::skew_scale()));
+        assert_eq!(p.local("skew", 1), 50.0);
+        // Onto touch 1 (closer than the XY clearance): refused.
+        p.defaults.insert(3019, 5.0);
+        assert!(!p.drag_to(1, x, 150.0 + 23.0 * Probe::skew_scale()));
+        p.drag_to(2, 0.0, 0.0);
+        p.tgt = "e-f";
+        assert_eq!(call_now(&mut p), "o<probe_edge_skew> call [1] [-1] [-25.000] [50.000]");
+        // Auto Stock's max span is its own value, not the skew's.
+        p.tgt = "ctr";
+        assert_eq!(p.local("stock", 0), 150.0);
+        // Not a job step (a job can't set a rotation).
+        p.tgt = "e-l";
+        assert!(p.job_routine(&p.selected()).is_none());
+        p.option("angle-off");
+        assert_eq!(call_now(&mut p), "o<probe_x_plus_wco> call");
+    }
+
+    #[test]
+    fn measure_only_writes_nothing() {
+        let mut p = probe();
+        p.wcs = Some(1);
+        assert!(p.writes());
+        p.measure_only = true;
+        assert!(!p.writes());
+        // Nothing to switch to: the run stays in the active system.
+        assert_eq!(p.target_wcs(), 0);
+        assert!(p.job_op(false).unwrap_err().contains("NOTHING"));
+        p.mode = "meas";
+        p.measure_only = false;
+        assert!(!p.writes());
+    }
+
+    #[test]
+    fn short_arcs_are_spotted() {
+        assert_eq!(widest_gap(&[90.0, 210.0, 330.0]), 120.0);
+        assert_eq!(widest_gap(&[180.0, 240.0, 300.0]), 240.0);
+        assert_eq!(widest_gap(&[350.0, 10.0, 30.0]), 320.0);
+        assert_eq!(apart(350.0, 10.0), 20.0);
+    }
+
+    #[test]
+    fn calibration_choices() {
+        let mut p = probe();
+        pick(&mut p, "cal", "ring");
+        assert_eq!(call_now(&mut p), "o<probe_cal_round_pocket> call");
+        p.option("gauge-pin");
+        assert_eq!(call_now(&mut p), "o<probe_cal_boss> call");
+        assert_eq!(p.key_params("ring"), vec![3034]);
+        p.option("stylus-on");
+        let t = p.selected();
+        assert_eq!(p.call(&t).unwrap().1, Some("cal-first"));
+        p.flow = Some(Flow::CalTurn { center: (1.0, 2.0), pin: true });
+        assert_eq!(p.call(&t).unwrap(), ("o<probe_cal_stylus> call [1]".to_string(), Some("cal-turn")));
+        // Changing a choice drops the half-done check.
+        p.option("gauge-ring");
+        assert!(p.flow.is_none());
     }
 
     #[test]

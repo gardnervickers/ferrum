@@ -1,0 +1,38 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; The circle through three points: o<ferrum_circle3> call [x1] [y1] [x2]
+; [y2] [x3] [y3]. Returns the centre in #<_ferrum_cx>, #<_ferrum_cy> and
+; the radius in #<_ferrum_cr>. Aborts when the points are too close to a
+; straight line for a usable circle (radius over 50 times the longest
+; distance between them, or coincident points).
+o<ferrum_circle3> sub
+#<x1> = #1
+#<y1> = #2
+#<x2> = #3
+#<y2> = #4
+#<x3> = #5
+#<y3> = #6
+#<d> = [2 * [#<x1> * [#<y2> - #<y3>] + #<x2> * [#<y3> - #<y1>] + #<x3> * [#<y1> - #<y2>]]]
+#<c12> = SQRT[[#<x2> - #<x1>] ** 2 + [#<y2> - #<y1>] ** 2]
+#<c23> = SQRT[[#<x3> - #<x2>] ** 2 + [#<y3> - #<y2>] ** 2]
+#<c31> = SQRT[[#<x1> - #<x3>] ** 2 + [#<y1> - #<y3>] ** 2]
+#<span> = #<c12>
+o100 if [#<c23> GT #<span>]
+    #<span> = #<c23>
+o100 endif
+o110 if [#<c31> GT #<span>]
+    #<span> = #<c31>
+o110 endif
+o120 if [[#<span> LE 0.000001] OR [ABS[#<d>] LE [#<span> * #<span> * 0.000001]]]
+    (ABORT, The three touches lie on a straight line: spread the points further around the circle)
+o120 endif
+#<s1> = [#<x1> * #<x1> + #<y1> * #<y1>]
+#<s2> = [#<x2> * #<x2> + #<y2> * #<y2>]
+#<s3> = [#<x3> * #<x3> + #<y3> * #<y3>]
+#<_ferrum_cx> = [[#<s1> * [#<y2> - #<y3>] + #<s2> * [#<y3> - #<y1>] + #<s3> * [#<y1> - #<y2>]] / #<d>]
+#<_ferrum_cy> = [[#<s1> * [#<x3> - #<x2>] + #<s2> * [#<x1> - #<x3>] + #<s3> * [#<x2> - #<x1>]] / #<d>]
+#<_ferrum_cr> = SQRT[[#<x1> - #<_ferrum_cx>] ** 2 + [#<y1> - #<_ferrum_cy>] ** 2]
+o130 if [#<_ferrum_cr> GT [50 * #<span>]]
+    (ABORT, The three touches lie almost on a straight line: spread the points further around the circle)
+o130 endif
+o<ferrum_circle3> endsub
+M2

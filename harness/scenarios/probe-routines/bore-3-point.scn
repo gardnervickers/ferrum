@@ -1,0 +1,30 @@
+title FIND bore from 3 touches: points dragged clear of a "clamp", diameter and G54 X Y at the centre
+needs probe-basic probe-geometry
+# The sim bore D${bore_d} at (${bore_x},${bore_y}). Three touches at 45,
+# 160 and 280 degrees (none on the axes, uneven spacing); start 3 off the
+# middle, so a centre from the start would be wrong.
+include ../common/probe-start.scn
+do probe-shape "bore"
+do probe-opt "pts-3"
+do probe-opt "angles:45,160,280"
+wait prop.pr-title == "BORE CENTER · 3 POINTS" within 5
+do probe-wcs "G54"
+do edit "prun-3025"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "3"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X[${bore_x} + 2] Y[${bore_y} - 2]
+mdi G53 G1 Z${plate_depth_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Diameter} ~= ${bore_d} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${bore_x} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${bore_y} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+# It ends at the centre.
+expect stat.position[0] ~= ${bore_x} +- ${geom_tol}
+expect stat.position[1] ~= ${bore_y} +- ${geom_tol}
+mdi G53 G0 Z${travel_z}
+shot bore-3-point-done

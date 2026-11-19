@@ -1,0 +1,100 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND skew: o<probe_edge_skew> call [axis] [side] [d1] [d2]. Measures how
+; far an edge of the part is turned from the machine's axes from two
+; touches at chosen places along it, and with #3030 = 0 sets the active
+; work system's rotation to match, so its X (or Y) runs along the edge.
+; Nothing else is written: the rotation turns about the work origin as it
+; is, so probe the corner (X0 Y0) first and the skew after.
+; [axis] 0 for the left/right edge (touches along X, the edge runs in Y),
+; 1 for the front/back edge (touches along Y, the edge runs in X); [side]
+; -1 for left/front, +1 for right/back. [d1] and [d2] are where the two
+; touches go along the edge, measured from the start in the direction of
+; +Y (left/right) or +X (front/back), in machine units, at least #3019
+; apart. The probe starts above the top, less than step-off #3023 in from
+; the edge.
+;   1. With #3030 = 0 the rotation is cleared first, so the angle is
+;      measured in machine-aligned axes.
+;   2. Top touch at the start -> top (z_minus_probed_position #1009).
+;   3. Guarded move #3023 off the edge, guarded plunge #3021 + tip
+;      diameter #5410 + #3022, guarded move to [d1]; edge touch towards
+;      the part. Guarded move to [d2]; edge touch.
+;   4. angle = the edge's turn from the axis, degrees, counter-clockwise
+;      positive seen from above. Reports edge_delta #1011 (how far the
+;      edge moves across, second touch minus first) and edge_angle #1012.
+;   5. Guarded rise; guarded move back over the start.
+;   6. With #3030 = 0: G10 L2 R<angle> on the active work system.
+o<probe_edge_skew> sub
+o10 if [#<_task> EQ 0]
+    o<probe_edge_skew> return
+o10 endif
+#<axis> = #1
+#<side> = #2
+#<d1> = #3
+#<d2> = #4
+o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
+    (ABORT, Skew axis must be 0 or 1)
+o100 endif
+o110 if [ABS[#<side>] NE 1]
+    (ABORT, Skew side must be 1 or -1)
+o110 endif
+o120 if [#3023 LE 0]
+    (ABORT, Probe step-off width must be positive)
+o120 endif
+o130 if [ABS[#<d2> - #<d1>] LT #3019]
+    (ABORT, Put the two touches further apart along the edge than the XY clearance)
+o130 endif
+#<rotate> = [#3030 EQ 0]
+o<ferrum_probe_ready> call [#<rotate>]
+M73
+M50 P0
+G90 G94
+o140 if [#<rotate>]
+    G10 L2 P0 R0
+o140 endif
+
+; u across the edge (probing axis), v along it.
+#<ux> = [#<axis> EQ 0]
+#<uy> = [#<axis> EQ 1]
+#<z_stack> = [#3021 + #5410 + #3022]
+#<u_start> = #[5420 + #<axis>]
+#<v_start> = #[5421 - #<axis>]
+
+o<ferrum_top> call [#3020]
+#<top> = #<_ferrum_top>
+
+o<ferrum_guarded_move> call [#<ux> * #<side> * #3023] [#<uy> * #<side> * #3023] [0]
+o<ferrum_guarded_move> call [0] [0] [0 - #<z_stack>]
+o<ferrum_guarded_move> call [#<uy> * #<d1>] [#<ux> * #<d1>] [0]
+o<ferrum_edge> call [#<axis>] [0 - #<side>] [#3018]
+#<e1> = #<_ferrum_edge>
+o<ferrum_guarded_move> call [#<uy> * [#<v_start> + #<d2> - #5420]] [#<ux> * [#<v_start> + #<d2> - #5421]] [0]
+o<ferrum_edge> call [#<axis>] [0 - #<side>] [#3018]
+#<e2> = #<_ferrum_edge>
+
+; Left/right: a part turned counter-clockwise has its edge's X fall as Y
+; rises. Front/back: its edge's Y rises with X.
+#<delta> = [#<e2> - #<e1>]
+o150 if [#<axis> EQ 0]
+    #<angle> = [ATAN[0 - #<delta>] / [#<d2> - #<d1>]]
+o150 else
+    #<angle> = [ATAN[#<delta>] / [#<d2> - #<d1>]]
+o150 endif
+; ATAN[y]/[x] is atan2: a negative run gives the angle beyond 90 degrees.
+o160 if [#<angle> GT 90]
+    #<angle> = [#<angle> - 180]
+o160 elseif [#<angle> LT -90]
+    #<angle> = [#<angle> + 180]
+o160 endif
+#1011 = #<delta>
+#1012 = #<angle>
+(DEBUG, EVAL[vcp.getWidget{"edge_delta"}.setValue{#<delta>}])
+(DEBUG, EVAL[vcp.getWidget{"edge_angle"}.setValue{#<angle>}])
+
+o<ferrum_guarded_move> call [0] [0] [#<z_stack>]
+o<ferrum_guarded_move> call [#<ux> * [#<u_start> - #5420] + #<uy> * [#<v_start> - #5420]] [#<uy> * [#<u_start> - #5421] + #<ux> * [#<v_start> - #5421]] [0]
+o200 if [#<rotate>]
+    G10 L2 P0 R#<angle>
+o200 endif
+G90
+o<probe_edge_skew> endsub
+M2

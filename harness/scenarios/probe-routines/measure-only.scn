@@ -1,0 +1,34 @@
+title FIND with WRITE TO NOTHING: the bore and a corner report, and no work offset changes
+needs probe-basic probe-geometry
+include ../common/probe-start.scn
+do probe-shape "bore"
+do probe-wcs "NOTHING"
+wait prop.pr-wcs == "NOTHING" within 5
+wait prop.pr-run-label == "MEASURE" within 5
+do edit "prun-3025"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "3"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${bore_x} Y${bore_y}
+mdi G53 G1 Z${plate_depth_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Diameter} ~= ${bore_d} +- ${geom_tol}
+expect prop.pr-result contains "nothing written"
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+mdi G53 G0 Z${travel_z}
+# The stock block's front left corner (touches top Z too).
+do probe-shape "block"
+do probe-target "c-fl"
+mdi G53 G0 X${corner_l_x} Y${corner_f_y}
+mdi G53 G1 Z${stock_above_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result contains "nothing written"
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot measure-only-done

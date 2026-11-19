@@ -1,0 +1,27 @@
+title FIND round boss from 3 touches on one side (an arc): diameter, centre and top
+needs probe-basic probe-geometry
+# The sim boss D${boss_d} at (${boss_x},${boss_y}), top ${feature_top}.
+# Touches at 180, 240 and 300 degrees only (the left and front of it, as
+# if the back were clamped): an arc of 120 degrees still gives the circle.
+include ../common/probe-start.scn
+do probe-shape "round"
+do probe-opt "pts-3"
+do probe-opt "angles:180,240,300"
+wait prop.pr-title == "BOSS CENTER · 3 POINTS" within 5
+do probe-wcs "G54"
+do edit "prun-3025"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "3"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X[${boss_x} - 1] Y[${boss_y} + 1.5]
+mdi G53 G1 Z${feature_above_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Diameter} ~= ${boss_d} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${boss_x} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${boss_y} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${feature_top} +- ${geom_tol}
+mdi G53 G0 Z${travel_z}
+shot boss-3-point-done

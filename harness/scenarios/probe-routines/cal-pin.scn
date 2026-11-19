@@ -1,0 +1,31 @@
+title CAL probe tip on a gauge pin (the sim boss): #3032 comes back as the probe's pretravel
+needs probe-basic probe-geometry
+# The sim's round boss D${boss_d} stands in for a gauge pin. Start over its
+# middle, the tip 5 above it; #3034 (gauge pin diameter) typed in.
+include ../common/probe-start.scn
+# A wrong offset first, so a pass means the routine worked it out.
+mdi #3032=0.5
+do probe-mode "cal"
+do probe-shape "ring"
+do probe-opt "gauge-pin"
+wait prop.pr-title == "PROBE TIP · GAUGE PIN" within 5
+do edit "prun-3034"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "3"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${boss_x} Y${boss_y}
+mdi G53 G1 Z${feature_above_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Calibration offset (saved)} ~= ${probe_pretravel} +- ${cal_tol}
+mdi (DEBUG,P3032=#3032)
+wait prop.messages contains "P3032=" within 5
+expect prop.messages{P3032=} ~= ${probe_pretravel} +- ${cal_tol}
+# CAL runs report only: G54 is untouched.
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot cal-pin-done
