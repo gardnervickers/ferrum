@@ -16,4 +16,6 @@ idle 120
 expect stat.position[0] ~= ${safe_x}
 expect stat.position[1] ~= ${safe_y}
 expect prop.running == false
+expect prop.plot-load == ""                         # no load module: no legend, no record
+expect prop.plot-load-peak == ""
 shot finished

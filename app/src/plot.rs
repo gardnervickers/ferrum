@@ -864,6 +864,13 @@ pub fn load_now(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
 }
 
 /// Run `f` on the plot, if the Run screen's backplot is wired.
+/// The loaded program's path ("" when none).
+pub fn file() -> String {
+    let mut f = String::new();
+    with(|p| f = p.borrow().file.clone());
+    f
+}
+
 pub fn with(f: impl FnOnce(&Rc<RefCell<Plot>>)) {
     if let Some(p) = PLOT.with(|p| p.borrow().clone()) {
         f(&p);

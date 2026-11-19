@@ -1,0 +1,31 @@
+title Cutting load: the trail is coloured by it, the run's peak is kept and leads to its line
+needs stock
+cfg-edit ferrum.ini MODULES = run job manual probe tools offsets conv files util => MODULES = run job manual probe tools offsets conv files util load
+include ../common/ready.scn
+include ../common/work-zero.scn
+expect prop.plot-load-peak == ""
+screen files
+tap files name h_time.ngc files-tap
+do files-load
+wait stat.file contains h_time.ngc within 10
+screen run
+wait prop.plot-summary contains " OP" within 30     # preview and estimate done
+expect prop.plot-load == 0%                         # load module fitted, pin at rest
+do cycle-start
+wait stat.interp_state != 1 within 10
+hal ferrum.load.value 0.3
+sleep 3
+expect prop.plot-load == 30%
+hal ferrum.load.value 0.92                          # a hot spot
+sleep 1.5
+hal ferrum.load.value 0.45
+sleep 2
+shot running
+idle 180
+hal ferrum.load.value 0
+wait prop.plot-load-peak contains PEAK 92% within 5
+expect prop.plot-load-peak contains LINE
+shot finished
+do plot-load-peak                                   # tap: its line is picked on the G-code list
+expect prop.gcode-selected > 6
+shot peak-line

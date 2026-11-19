@@ -214,6 +214,14 @@ impl Job {
         self.snap["ops"].as_array().cloned().unwrap_or_default()
     }
 
+    /// The job step running now, by name.
+    pub fn current_op(&self) -> Option<String> {
+        if !self.running() {
+            return None;
+        }
+        self.ops().into_iter().find(|o| o["state"] == "current").and_then(|o| o["name"].as_str().map(String::from))
+    }
+
     fn running(&self) -> bool {
         self.snap["running"].as_bool().unwrap_or(false)
     }

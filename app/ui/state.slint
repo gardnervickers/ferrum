@@ -151,6 +151,9 @@ export global Live {
     // Cutting load now, e.g. "62%"; empty when nothing measures it (the
     // trail is then drawn plain).
     in property <string> plot-load;
+    // After a run with a load signal: its peak and where, e.g.
+    // "PEAK 92%  ·  LINE 212  ·  T3"; empty otherwise.
+    in property <string> plot-load-peak;
     in property <[CubeFace]> cube-faces;
     // Outline of the cube cells a tap would pick, or empty.
     in property <string> cube-hot;
@@ -503,6 +506,8 @@ export global Actions {
     callback plot-resize(width: float, height: float);
     callback plot-view(view: string);
     callback plot-clear-trail();
+    // Tap on the load peak: pick its line on the G-code list.
+    callback plot-load-peak();
     // Pan and zoom points as fractions of the plot's width and height, so a
     // browser of any size moves the mill's image by what the finger did.
     callback plot-pan(dx: float, dy: float, seq: int);

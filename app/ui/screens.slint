@@ -421,6 +421,17 @@ component ProgramCard inherits Card {
                     }
                 }
             }
+            // The last run's peak load; a tap picks its line on the G-code list.
+            if Live.program != "" && Live.plot-load-peak != "": Btn {
+                x: 96px; y: 70px;
+                width: 300px;
+                height: Theme.h-sm;
+                font-size: Theme.t-body;
+                family: Theme.body;
+                cap: "LAST RUN";
+                text: Live.plot-load-peak;
+                clicked => { Actions.plot-load-peak(); }
+            }
             // View cube: drag to orbit, tap a face, edge or corner to look
             // from there.
             cube := Rectangle {

@@ -178,7 +178,7 @@ the names listed in `[hal]` are connected on top.
 | toolchange | `spindle_on` | `spindle.0.on` | RESUME waits for the spindle to be off |
 | interlock | `motion_held` | `motion.feed-inhibit` | why motion is held |
 | interlock | `probe_fault`, `drives_not_ready` | none | the reasons |
-| load | `load` | none | cutting load, 0 to 1, colours the backplot trail |
+| load | `load` | none | cutting load, 0 to 1: colours the backplot trail, and each run's load is recorded (see below) |
 | watchdog | `screen_watchdog_trip` | none: gate `iocontrol.0.emc-enable-in` | an unconnected bit input driven TRUE when the screen has not drawn for 1 s (e.g. `estop-latch.0.fault-in`); it must latch |
 
 The watchdog module is always on (see ARCHITECTURE.md, "A frozen screen
@@ -187,3 +187,25 @@ stops the machine"). Without `ferrum/hal/watchdog.hal` or
 `iocontrol.0.user-request-enable`, and an `and2` in front of
 `iocontrol.0.emc-enable-in`, so a frozen, hung or crashed screen E-stops the
 machine until the operator resets E-stop.
+
+## Cutting load records
+
+With the `load` module on and its pin wired, every program run in AUTO is
+recorded: the load is sampled five times a second and summed per program
+line, per tool and per JOB step. When the run ends, the RUN backplot shows
+its peak (`PEAK 92% · LINE 212 · T3`; tap it to pick that line on the
+G-code list) and the record is saved as JSON in
+`~/.local/state/ferrum/loads/` (`<date>-<time>-<program>.json`, the newest
+200 kept; the simulator's go to `~/.cache/ferrum/sim-loads/`). Without the
+module, or with the pin missing on the machine, nothing is recorded or
+shown.
+
+A record (`"format": "ferrum-load", "version": 1`) has the program path,
+when it started, the machine units (`mm` or `in`; feeds are units per
+minute), `last_line` (the last line that ran, to tell a full run from one
+stopped part way), `peak` (load, line, tool, JOB step), and `overall`,
+`tools[]`, `ops[]` and `hot_lines[]` (the 100 lines with the highest
+peaks, with their G-code), each with `peak` and `mean` load (0 to 1),
+`seconds`, `hot_seconds` (at or over 80 %) and the mean `feed` and `rpm`
+while sampled. A feeds calculator can read these to see where a job
+worked the spindle hardest.

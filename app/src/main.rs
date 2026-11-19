@@ -12,6 +12,7 @@ mod files;
 mod headless;
 mod history;
 mod job;
+mod loadlog;
 mod machine_info;
 mod checks;
 mod halmap;
@@ -1127,6 +1128,8 @@ async fn run(
     // The simulator keeps its own timeline, beside its own tool table.
     let history_path = if args.sim { Some(job::cache_dir().join("sim-history.jsonl")) } else { settings::Settings::dir().map(|d| d.join("history.jsonl")) };
     history::wire(&ui, history_path, restore_fn(&offsets, &tools));
+    // Load records: the simulator's go to the cache, apart from the machine's.
+    LOADS.with(|l| l.borrow_mut().set_dir(if args.sim { Some(job::cache_dir().join("sim-loads")) } else { loadlog::dir() }));
     let rot = offsets.clone();
     OFFSETS.with(|o| *o.borrow_mut() = Some(offsets));
     let probe = probe::wire(&ui, &handle, &cfg, tc_io.clone(), args.sim, Box::new(move |w| offsets::rotation(&rot, w)));
@@ -1228,6 +1231,10 @@ async fn run(
             }
             let load = modules.iter().find_map(|m| m.load(st.status.as_ref()));
             plot::with(|p| plot::set_load(&ui, p, load));
+            LOADS.with(|l| {
+                let op = || JOB.with(|j| j.borrow().clone()).and_then(|j| j.borrow().current_op());
+                l.borrow_mut().tick(&ui, st.status.as_ref(), &plot::file(), load, op);
+            });
             let live = ui.global::<Live>();
             let block: SharedString = modules.iter().find_map(|m| m.motion_block()).unwrap_or_default().into();
             if live.get_motion_block() != block {
@@ -1697,6 +1704,21 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                     plot::tool_moved(&plot, [-30.0 + 160.0 * t, 15.0 + 25.0 * (t * 9.0).sin(), 0.0, 0.0]);
                 }
             }
+            "load-peak" => {
+                // The same cut, then the run's peak as a finished run shows it.
+                let mut rec = loadlog::Recorder::default();
+                rec.start(&plot::file(), String::new());
+                for i in 0..=120 {
+                    let t = i as f64 / 120.0;
+                    let load = (t * std::f64::consts::PI * 3.0).sin().abs() * (0.35 + 0.65 * t);
+                    plot::set_load(&ui, &plot, Some(load));
+                    plot::tool_moved(&plot, [-30.0 + 160.0 * t, 15.0 + 25.0 * (t * 9.0).sin(), 0.0, 0.0]);
+                    rec.sample(loadlog::Sample { line: 20 + i, tool: 3, op: None, load: load as f32, feed: 600.0, rpm: 3000.0, dt: 0.2 });
+                }
+                if let Some(r) = rec.finish("mm", |_| String::new()) {
+                    LOADS.with(|l| l.borrow_mut().show_peak(&ui, &plot::file(), &r));
+                }
+            }
             "pick" => actions.invoke_job_add_step(),
             t if t.starts_with("conv-sec-") => actions.invoke_conv_section(t[9..].into()),
             t if t.starts_with("conv-") => actions.invoke_conv_type(t[5..].into()),
@@ -1748,6 +1770,8 @@ thread_local! {
     static UTIL: RefCell<Option<Rc<RefCell<util::Util>>>> = const { RefCell::new(None) };
     static JOB: RefCell<Option<Rc<RefCell<job::Job>>>> = const { RefCell::new(None) };
     static SETUP: RefCell<Option<Rc<RefCell<setup::Setup>>>> = const { RefCell::new(None) };
+    /// The cutting load record (loadlog.rs).
+    static LOADS: RefCell<loadlog::Tracker> = RefCell::new(loadlog::Tracker::new(None));
     /// The status handler lives on the UI thread; the machine thread only
     /// posts events to it.
     static UI_EVENT: RefCell<Option<UiEventFn>> = RefCell::new(None);

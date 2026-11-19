@@ -67,6 +67,13 @@ pub fn next_m6<'a>(lines: impl Iterator<Item = &'a str>, start: usize) -> Option
 pub fn wire(ui: &MainWindow) {
     let actions = ui.global::<Actions>();
     let weak = ui.as_weak();
+    actions.on_plot_load_peak(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        if let Some(line) = crate::LOADS.with(|l| l.borrow().peak_line()) {
+            ui.global::<Live>().set_gcode_selected(line - 1);
+        }
+    });
+    let weak = ui.as_weak();
     actions.on_gcode_next_m6(move || {
         let Some(ui) = weak.upgrade() else { return };
         let live = ui.global::<Live>();
