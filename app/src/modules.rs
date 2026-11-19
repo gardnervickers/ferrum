@@ -749,8 +749,9 @@ mod tests {
         let cfg = Config::load(&d.join("m.ini")).unwrap();
         let (mods, problems) = build(&cfg, &crate::checks::NoHal);
         let ids: Vec<_> = mods.iter().map(|m| m.id()).collect();
-        // Nothing answers M6, so the tool change dialog comes too.
-        assert_eq!(ids, ["run", "manual", "toolchange", "setup"]);
+        // Nothing answers M6, so the tool change dialog comes too; the
+        // screen watchdog is always there.
+        assert_eq!(ids, ["run", "manual", "toolchange", "setup", "watchdog"]);
         assert_eq!(problems.len(), 1);
         std::fs::remove_dir_all(d).ok();
     }
