@@ -2,20 +2,23 @@
 // and the cycle bar (feed hold, stop, cycle start) stay usable.
 import { Theme } from "theme.slint";
 import { Live, Actions, MsgRow } from "state.slint";
-import { Btn, Label, H3, Note, Pill } from "widgets.slint";
+import { Btn, EqBtn, Label, Caption, H3, Note, Pill } from "widgets.slint";
 
 // An overlay arrives once: the scrim darkens and the dialog rises into
 // place (Theme.enter). It closes at once: a closing dialog must never be
 // read as still asking for something, nor take a tap.
-component Scrim inherits Rectangle {
+export component Scrim inherits Rectangle {
     // Starts clear and darkens (see Arrive in widgets.slint for why init).
-    background: #05070800;
+    background: Theme.scrim.with-alpha(0);
     init => { self.background = Theme.scrim; }
     animate background { duration: Theme.enter; }
     TouchArea { }  // swallow taps behind the dialog
 }
 
-component Dialog inherits Rectangle {
+// Every dialog is this plate, with a DialogTitle at the top and its
+// buttons in a row at the foot: the one that backs out (CANCEL) on the
+// left, the one that goes on (ENTER, DONE, CLOSE) on the right.
+export component Dialog inherits Rectangle {
     // Centred in the scrim; it starts a little low and rises into place.
     opacity: 0;
     property <length> lift: 24px;
@@ -34,14 +37,22 @@ component Dialog inherits Rectangle {
     }
 }
 
+export component DialogTitle inherits Text {
+    font-family: Theme.display;
+    font-size: Theme.t-title;
+    letter-spacing: 2px;
+    color: Theme.ink;
+    overflow: elide;
+}
+
 component KeypadKey inherits Btn {
     in property <string> key;
-    height: 84px;
+    height: Theme.h-big;
     text: key;
     family: Theme.body;
-    font-size: key == "CLR" ? 28px : key == "×" ? 50px : 38px;
-    // Operators read as a separate column.
-    on: key == "÷" || key == "×" || key == "−" || key == "+";
+    font-size: key == "CLR" ? Theme.t-value : key == "×" ? 50px : Theme.t-title;
+    // Operators read as a separate column by their ink; nothing is "chosen".
+    accent: key == "÷" || key == "×" || key == "−" || key == "+";
     clicked => { Actions.keypad-key(key); }
 }
 
@@ -67,9 +78,9 @@ export component Keypad inherits Scrim {
         width: 600px;
         height: 700px;
         VerticalLayout {
-            padding: 20px;
-            spacing: 14px;
-            Text { text: Live.keypad-label; font-family: Theme.display; font-size: 38px; letter-spacing: 2px; color: Theme.ink; }
+            padding: Theme.dlg-pad;
+            spacing: Theme.dlg-row;
+            DialogTitle { text: Live.keypad-label; }
             Rectangle {
                 height: 76px;
                 background: Theme.well;
@@ -103,7 +114,7 @@ export component Keypad inherits Scrim {
                 text: Live.keypad-result;
                 font-family: Theme.body;
                 font-weight: Live.keypad-error ? 600 : 500;
-                font-size: 30px;
+                font-size: Theme.t-big;
                 color: Live.keypad-error ? Theme.bad : Theme.muted;
             }
             GridLayout {
@@ -114,9 +125,9 @@ export component Keypad inherits Scrim {
                 Row { for k in ["±", "0", ".", "+", ")"]: KeypadKey { key: k; } }
             }
             HorizontalLayout {
-                spacing: 20px;
-                Btn { text: "CANCEL"; clicked => { Actions.keypad-done(false); } }
-                Btn { text: "ENTER"; clicked => { Actions.keypad-done(true); } }
+                spacing: 12px;
+                EqBtn { height: Theme.h-choice; text: "CANCEL"; clicked => { Actions.keypad-done(false); } }
+                EqBtn { height: Theme.h-choice; text: "ENTER"; clicked => { Actions.keypad-done(true); } }
             }
         }
     }
@@ -129,7 +140,7 @@ component TextKey inherits Btn {
     height: 76px;
     text: label;
     family: Theme.body;
-    font-size: label.character-count > 1 ? 24px : 34px;
+    font-size: label.character-count > 1 ? Theme.t-btn : Theme.t-big;
     clicked => { Actions.text-key(key); }
 }
 
@@ -162,9 +173,9 @@ export component TextKeyboard inherits Scrim {
         width: min(1100px, root.width - 32px);
         height: 720px;
         VerticalLayout {
-            padding: 20px;
-            spacing: 12px;
-            Text { text: Live.text-label; font-family: Theme.display; font-size: 38px; letter-spacing: 2px; color: Theme.ink; }
+            padding: Theme.dlg-pad;
+            spacing: Theme.dlg-row;
+            DialogTitle { text: Live.text-label; }
             Rectangle {
                 height: 72px;
                 background: Theme.well;
@@ -178,7 +189,7 @@ export component TextKeyboard inherits Scrim {
                     width: max(parent.width - 32px, self.preferred-width);
                     vertical-alignment: center;
                     text: Live.text-value + "▏";
-                    font-family: Theme.body; font-weight: 500; font-size: 36px; color: Theme.ink;
+                    font-family: Theme.body; font-weight: 500; font-size: Theme.t-title; color: Theme.ink;
                 }
             }
             // Fixed height, so the keys don't move when it appears.
@@ -187,7 +198,7 @@ export component TextKeyboard inherits Scrim {
                 vertical-alignment: center;
                 overflow: elide;
                 text: Live.text-error;
-                font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.bad;
+                font-family: Theme.body; font-weight: 600; font-size: Theme.t-btn; color: Theme.bad;
             }
             GridLayout {
                 spacing: 8px;
@@ -204,9 +215,10 @@ export component TextKeyboard inherits Scrim {
                 TextKey { key: "CLR"; width: 150px; }
             }
             HorizontalLayout {
-                spacing: 20px;
-                Btn { height: 64px; text: "CANCEL"; clicked => { Actions.text-done(false); } }
-                Btn { height: 64px; text: "ENTER"; kind: "go"; clicked => { Actions.text-done(true); } }
+                spacing: 12px;
+                EqBtn { height: Theme.h-choice; text: "CANCEL"; clicked => { Actions.text-done(false); } }
+                // Plain, as on the keypad: ENTER is not a machine action.
+                EqBtn { height: Theme.h-choice; text: "ENTER"; clicked => { Actions.text-done(true); } }
             }
         }
     }
@@ -217,10 +229,10 @@ export component MessageDrawer inherits Scrim {
         width: 1100px;
         height: 760px;
         VerticalLayout {
-            padding: 20px;
-            spacing: 14px;
+            padding: Theme.dlg-pad;
+            spacing: Theme.dlg-row;
             HorizontalLayout {
-                Text { text: "MESSAGES"; font-family: Theme.display; font-size: 38px; letter-spacing: 2px; color: Theme.ink; horizontal-stretch: 1; }
+                DialogTitle { text: "MESSAGES"; horizontal-stretch: 1; }
                 Note { vertical-alignment: center; text: "Errors, (MSG), (DEBUG) and (PRINT) output, newest first"; }
             }
             Rectangle {
@@ -236,13 +248,13 @@ export component MessageDrawer inherits Scrim {
                         alignment: start;
                         for m in Live.messages: HorizontalLayout {
                             spacing: 14px;
-                            Text { width: 90px; text: m.time; font-family: Theme.body; font-size: 20px; color: Theme.dim; }
+                            Text { width: 90px; text: m.time; font-family: Theme.body; font-size: Theme.t-body; color: Theme.dim; }
                             Text {
                                 horizontal-stretch: 1;
                                 text: m.text;
                                 wrap: word-wrap;
                                 font-family: Theme.body;
-                                font-size: 22px;
+                                font-size: Theme.t-ctl;
                                 color: m.kind == "error" ? Theme.bad : m.kind == "display" ? Theme.info : Theme.ink;
                             }
                         }
@@ -251,10 +263,10 @@ export component MessageDrawer inherits Scrim {
                 }
             }
             HorizontalLayout {
-                spacing: 20px;
-                Btn { width: 240px; text: "CLEAR"; clicked => { Actions.clear-messages(); } }
+                spacing: 12px;
+                Btn { width: 260px; height: Theme.h-choice; text: "CLEAR"; clicked => { Actions.clear-messages(); } }
                 Rectangle { horizontal-stretch: 1; }
-                Btn { width: 240px; text: "CLOSE"; clicked => { Live.drawer-open = false; } }
+                Btn { width: 260px; height: Theme.h-choice; text: "CLOSE"; clicked => { Live.drawer-open = false; } }
             }
         }
     }
@@ -273,9 +285,9 @@ component ToolCard inherits Rectangle {
     VerticalLayout {
         padding: 16px;
         spacing: 4px;
-        Label { height: 24px; text: title; }
-        Text { height: 56px; text: tool; font-family: Theme.body; font-weight: 600; font-size: 48px; color: Theme.ink; }
-        Text { height: 50px; text: desc; wrap: word-wrap; overflow: elide; font-family: Theme.body; font-size: 19px; color: Theme.muted; }
+        Caption { height: 24px; text: title; }
+        Text { height: 56px; text: tool; font-family: Theme.body; font-weight: 600; font-size: 46px; color: Theme.ink; }
+        Text { height: 50px; text: desc; wrap: word-wrap; overflow: elide; font-family: Theme.body; font-size: Theme.t-body; color: Theme.muted; }
     }
 }
 
@@ -286,19 +298,19 @@ export component ToolChange inherits Scrim {
         // Without a drawbar (the plain dialog) its rows and the note go.
         height: Live.tc-has-drawbar ? 820px : 620px;
         VerticalLayout {
-            padding: 22px;
-            spacing: 14px;
+            padding: Theme.dlg-pad;
+            spacing: Theme.dlg-row;
             HorizontalLayout {
                 spacing: 12px;
-                Text { vertical-alignment: center; text: "TOOL CHANGE"; font-family: Theme.display; font-size: 40px; letter-spacing: 2px; color: Theme.ink; }
+                DialogTitle { vertical-alignment: center; text: "TOOL CHANGE"; }
                 Rectangle { horizontal-stretch: 1; }
                 if Live.tc-has-drawbar: Pill { text: Live.tc-nose; kind: Live.tc-nose-kind; }
             }
             HorizontalLayout {
                 spacing: 14px;
                 height: 170px;
-                ToolCard { width: 421px; title: "REMOVE"; tool: Live.tc-from; desc: Live.tc-from-desc; }
-                ToolCard { width: 421px; title: "INSERT"; tool: Live.tc-tool; desc: Live.tc-tool-desc; highlight: true; }
+                ToolCard { title: "REMOVE"; tool: Live.tc-from; desc: Live.tc-from-desc; }
+                ToolCard { title: "INSERT"; tool: Live.tc-tool; desc: Live.tc-tool-desc; highlight: true; }
             }
             if Live.tc-has-drawbar: HorizontalLayout {
                 spacing: 12px;
@@ -308,15 +320,16 @@ export component ToolChange inherits Scrim {
             }
             if Live.tc-has-drawbar: HorizontalLayout {
                 spacing: 30px;
-                Btn { preferred-width: 0; horizontal-stretch: 1; height: 84px; text: "RELEASE TOOL"; hold: true; enabled: Live.tc-can-extend; clicked => { Actions.tc-drawbar(true); } }
-                Btn { preferred-width: 0; horizontal-stretch: 1; height: 84px; text: "CLAMP TOOL"; enabled: Live.tc-can-retract; clicked => { Actions.tc-drawbar(false); } }
+                EqBtn { height: Theme.h-big; text: "RELEASE TOOL"; hold: true; enabled: Live.tc-can-extend; clicked => { Actions.tc-drawbar(true); } }
+                EqBtn { height: Theme.h-big; text: "CLAMP TOOL"; enabled: Live.tc-can-retract; clicked => { Actions.tc-drawbar(false); } }
             }
             // Slot kept when empty so the dialog never reflows.
             Rectangle {
                 height: 48px;
                 border-radius: Theme.radius-ctl;
                 background: Live.tc-scratch != "" ? Theme.warn-soft : transparent;
-                Text { text: Live.tc-scratch; font-family: Theme.display; font-size: 22px; letter-spacing: 1px; color: Theme.warn; }
+                // A sentence: Barlow, left-aligned like the rest of the dialog.
+                Text { x: 14px; width: parent.width - 28px; vertical-alignment: center; overflow: elide; text: Live.tc-scratch; font-family: Theme.body; font-weight: 500; font-size: Theme.t-ctl; color: Theme.warn; }
             }
             Rectangle {
                 height: 72px;
@@ -337,17 +350,18 @@ export component ToolChange inherits Scrim {
                         background: Live.tc-seated ? Theme.go : transparent;
                         if Live.tc-seated: Path { width: 28px; height: 28px; viewbox-width: 24; viewbox-height: 24; commands: "M4 12l5 5L20 6"; stroke: Theme.ink; stroke-width: 4px; fill: transparent; }
                     }
-                    Text { vertical-alignment: center; text: Live.tc-has-drawbar ? "Tool is seated and the drawbar is clamped" : "Tool is in and secure"; font-family: Theme.body; font-size: 26px; color: Theme.ink; }
+                    Text { vertical-alignment: center; text: Live.tc-has-drawbar ? "Tool is seated and the drawbar is clamped" : "Tool is in and secure"; font-family: Theme.body; font-weight: 500; font-size: Theme.t-btn; color: Theme.ink; }
                 }
                 TouchArea { clicked => { Actions.tc-seated-toggle(); } }
             }
-            Text { height: 56px; text: Live.tc-message; wrap: word-wrap; overflow: elide; font-family: Theme.display; font-size: 22px; letter-spacing: 1px; color: Theme.muted; }
+            Text { height: 56px; text: Live.tc-message; wrap: word-wrap; overflow: elide; font-family: Theme.body; font-size: Theme.t-ctl; color: Theme.muted; }
             Rectangle { vertical-stretch: 1; }
             HorizontalLayout {
                 spacing: 30px;
-                if Live.tc-has-drawbar: Btn { height: 84px; text: "RESUME + TOUCH OFF"; enabled: Live.tc-can-touch-off; clicked => { Actions.tc-resume(true); } }
-                Btn { height: 84px; text: "ABORT"; kind: "stop"; clicked => { Actions.tc-abort(); } }
-                Btn { height: 84px; text: "RESUME"; kind: "go"; enabled: Live.tc-can-resume; clicked => { Actions.tc-resume(false); } }
+                // ABORT stands apart from the two that go on.
+                if Live.tc-has-drawbar: EqBtn { height: Theme.h-big; text: "RESUME + TOUCH OFF"; enabled: Live.tc-can-touch-off; clicked => { Actions.tc-resume(true); } }
+                EqBtn { height: Theme.h-big; text: "ABORT"; kind: "stop"; clicked => { Actions.tc-abort(); } }
+                EqBtn { height: Theme.h-big; text: "RESUME"; kind: "go"; enabled: Live.tc-can-resume; clicked => { Actions.tc-resume(false); } }
             }
             if Live.tc-has-drawbar: Note { text: Live.tc-touch-off-tip + ". Touch off runs after the change, from the M6 remap. The spindle cannot start while the drawbar is extended."; wrap: word-wrap; height: 52px; }
         }
@@ -358,25 +372,25 @@ export component ToolChange inherits Scrim {
 export component Picker inherits Scrim {
     Dialog {
         width: 760px;
-        height: min(820px, 176px + Live.pick-items.length * 76px);
+        height: min(820px, 176px + Live.pick-items.length * 72px);
         VerticalLayout {
-            padding: 20px;
-            spacing: 14px;
-            Text { text: Live.pick-title; font-family: Theme.display; font-size: 38px; letter-spacing: 2px; color: Theme.ink; }
+            padding: Theme.dlg-pad;
+            spacing: Theme.dlg-row;
+            DialogTitle { text: Live.pick-title; }
             Rectangle {
                 vertical-stretch: 1;
                 clip: true;
                 Flickable {
                     content-height: items.preferred-height;
                     // Open with the current choice in view.
-                    init => { self.content-y = -max(0px, min(Live.pick-current * 76px - 200px, items.preferred-height - self.height)); }
+                    init => { self.content-y = -max(0px, min(Live.pick-current * 72px - 200px, items.preferred-height - self.height)); }
                     items := VerticalLayout {
                         spacing: 8px;
-                        for it[i] in Live.pick-items: Btn { height: 68px; text: it; family: Theme.body; font-size: 28px; on: i == Live.pick-current; clicked => { Actions.pick(i); } }
+                        for it[i] in Live.pick-items: Btn { height: Theme.h-choice; text: it; family: Theme.body; font-size: Theme.t-value; on: i == Live.pick-current; clicked => { Actions.pick(i); } }
                     }
                 }
             }
-            Btn { height: 64px; text: "CANCEL"; clicked => { Actions.pick(-1); } }
+            Btn { height: Theme.h-choice; text: "CANCEL"; clicked => { Actions.pick(-1); } }
         }
     }
 }

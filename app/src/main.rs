@@ -1389,12 +1389,19 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     }
     set_nav(&ui, modules, args.screen.as_deref());
     let mut sim = machine::Sim::new();
-    for c in [
-        Command::SetState(TaskState::EstopReset),
-        Command::SetState(TaskState::On),
-        Command::Home(JointSel::All),
-        Command::ProgramOpen(args.open.clone().unwrap_or_else(|| sample_dir().join("bracket-sample.ngc"))),
-    ] {
+    let has = |k: &str| args.show.iter().any(|w| w == k);
+    let mut pre: Vec<Command> = Vec::new();
+    if !has("estop") {
+        pre.push(Command::SetState(TaskState::EstopReset));
+        if !has("off") {
+            pre.push(Command::SetState(TaskState::On));
+            if !has("unhomed") {
+                pre.push(Command::Home(JointSel::All));
+            }
+        }
+    }
+    pre.push(Command::ProgramOpen(args.open.clone().unwrap_or_else(|| sample_dir().join("bracket-sample.ngc"))));
+    for c in pre {
         let _ = sim.send(&c);
     }
     let s = machine::Status::from(sim.poll().map_err(|e| slint::PlatformError::Other(e.to_string()))?.clone());
@@ -1442,9 +1449,61 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     let (j, _job_timer) = job::wire(&ui, &handle, cfg, true, true);
     job::apply_status(&j, &s);
     let conv = conv::wire(&ui, j.clone(), settings::Settings::memory());
+    PROBE.with(|p| *p.borrow_mut() = Some(probe.clone()));
+    wire_job_probing(&ui, &j);
+    let _setup = {
+        let ids: Vec<String> = modules.iter().map(|m| m.id().to_string()).collect();
+        let notes: Vec<String> = Vec::new();
+        let hal = checks::NoHal;
+        let rows = checks::run(&checks::Inputs { cfg, mc: machine_cfg::get(), mi: machine_info::get(), notes: &notes, modules: &ids, hal: &hal });
+        let mut asked = machine_cfg::get().clone();
+        asked.toolchange.style = None;
+        let detected = checks::toolchange_style(&asked, &ids, &hal).0;
+        setup::wire(&ui, cfg, rows, ids, detected, None, Some(probe.clone()), args.show.iter().any(|w| w == "setup-first"))
+    };
     let actions = ui.global::<Actions>();
     for what in &args.show {
         match what.as_str() {
+            "estop" | "off" | "unhomed" | "setup-first" => {}
+            "tc" => {
+                live.set_tc_from("T23".into());
+                live.set_tc_from_desc("6.35 flat end mill".into());
+                live.set_tc_tool("T14".into());
+                live.set_tc_tool_desc("50 mm face mill".into());
+                live.set_tc_drawbar("RETRACTED".into());
+                live.set_tc_nose("NOSE REF OK".into());
+                live.set_tc_nose_kind("good".into());
+                live.set_tc_message("Release the tool, insert T14, clamp, then confirm it is seated.".into());
+                live.set_tc_touch_off_tip("T14 has no length yet".into());
+                live.set_tc_can_extend(true);
+                live.set_tc_open(true);
+            }
+            "tc-seated" => { live.set_tc_seated(true); live.set_tc_can_resume(true); live.set_tc_can_touch_off(true); live.set_tc_scratch("T200 IS A SCRATCH TOOL: ITS LENGTH IS MEASURED AFTER THE CHANGE".into()); }
+            "status-open" => { live.set_status_x(572.0); live.set_status_open(true); }
+            w if w.starts_with("toast:") => live.set_toast(w[6..].into()),
+            w if w.starts_with("toast-info:") => { live.set_toast(w[11..].into()); live.set_toast_info(true); }
+            w if w.starts_with("setup-step:") => actions.invoke_setup_go(w[11..].parse().unwrap_or(0)),
+            "paused" => { live.set_running(true); live.set_paused(true); live.set_can_start(true); }
+            "job-ops" => {
+                actions.invoke_conv_add();
+                actions.invoke_conv_type("xy".into());
+                actions.invoke_conv_add();
+                actions.invoke_probe_shape("bore".into());
+                actions.invoke_probe_add_job(true);
+                actions.invoke_probe_add_job(false);
+            }
+            w if w.starts_with("job-sel:") => actions.invoke_job_select(w[8..].parse().unwrap_or(0)),
+            w if w.starts_with("tools-sel:") => actions.invoke_tools_select(w[10..].parse().unwrap_or(0)),
+            w if w.starts_with("override:") => live.set_feed_pct(w[9..].parse().unwrap_or(100)),
+            w if w.starts_with("msg:") => live.set_message(w[4..].into()),
+            "msg-error" => live.set_message_error(true),
+            w if w.starts_with("blocked:") => live.set_probe_blocked(w[8..].into()),
+            "cube-hot" => live.set_cube_hot("M 10 10 L 90 10 L 90 90 Z".into()),
+            "wu-secure" => actions.invoke_wu_secure(),
+            "pf-eot" => actions.invoke_pf_mode_set("eot".into()),
+            w if w.starts_with("sel-line:") => live.set_gcode_selected(w[9..].parse().unwrap_or(0)),
+            "single" => live.set_single_block(true),
+            "mist" => live.set_mist(true),
             // The splash: let its entrance play out first.
             w if w.starts_with("boot") => {
                 boot::demo(&ui, w);

@@ -9,19 +9,25 @@ component HistoryLine inherits Rectangle {
     in property <bool> on;
     callback tapped();
     height: 64px;
-    background: on ? Theme.sel-soft : ht.pressed ? Theme.raised : transparent;
-    animate background { duration: Theme.quick; }
-    if on: Rectangle { x: 0; width: 4px; background: Theme.sel; }
+    // The chosen change: a tint with the accent edge, as in every list.
+    Rectangle {
+        x: 4px; y: 2px; width: parent.width - 8px; height: parent.height - 5px;
+        border-radius: Theme.radius-sm;
+        background: on ? Theme.sel-soft : ht.pressed ? Theme.raised : transparent;
+        border-width: on ? 2px : 0;
+        border-color: Theme.sel;
+        animate background { duration: Theme.quick; }
+    }
     Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
     ht := TouchArea { clicked => { root.tapped(); } }
     HorizontalLayout {
         padding-left: 18px;
         padding-right: 18px;
         spacing: 16px;
-        Text { width: 150px; vertical-alignment: center; text: r.when; font-family: Theme.body; font-size: 21px; color: Theme.muted; }
-        Text { width: 84px; vertical-alignment: center; text: r.what; font-family: Theme.display; font-size: 26px; letter-spacing: 1px; color: r.tool ? Theme.info : Theme.ink; }
-        Text { horizontal-stretch: 1; vertical-alignment: center; text: r.change; font-family: Theme.body; font-weight: 500; font-size: 22px; color: Theme.ink; overflow: elide; }
-        Text { width: 300px; vertical-alignment: center; horizontal-alignment: right; text: r.cause; font-family: Theme.body; font-size: 20px; color: Theme.muted; overflow: elide; }
+        Text { width: 150px; vertical-alignment: center; text: r.when; font-family: Theme.body; font-size: Theme.t-body; color: Theme.muted; }
+        Text { width: 84px; vertical-alignment: center; text: r.what; font-family: Theme.display; font-size: Theme.t-value; letter-spacing: 1px; color: r.tool ? Theme.info : Theme.ink; }
+        Text { horizontal-stretch: 1; vertical-alignment: center; text: r.change; font-family: Theme.body; font-weight: 500; font-size: Theme.t-ctl; color: Theme.ink; overflow: elide; }
+        Text { width: 300px; vertical-alignment: center; horizontal-alignment: right; text: r.cause; font-family: Theme.body; font-size: Theme.t-body; color: Theme.muted; overflow: elide; }
     }
 }
 
@@ -39,9 +45,10 @@ component Cell inherits Rectangle {
         width: parent.width - 12px;
         height: parent.height - 12px;
         border-radius: Theme.radius-ctl;
-        background: ta.pressed && root.enabled ? Theme.raised : #ffffff08;
+        // The same well and edge as every tap-to-edit value.
+        background: ta.pressed && root.enabled ? Theme.raised : Theme.well;
         border-width: 1px;
-        border-color: ta.pressed && root.enabled ? Theme.sel : #ffffff14;
+        border-color: ta.pressed && root.enabled ? Theme.sel : Theme.raised-border;
         Text {
             x: 0;
             width: parent.width - 14px;
@@ -49,7 +56,8 @@ component Cell inherits Rectangle {
             vertical-alignment: center;
             text: root.text;
             font-family: Theme.body;
-            font-size: 26px;
+            font-weight: 600;
+            font-size: Theme.t-value;
             color: dim ? Theme.dim : Theme.ink;
         }
     }
@@ -59,26 +67,26 @@ component Cell inherits Rectangle {
 export component OffsetsScreen inherits Rectangle {
     property <bool> locked: Live.manual-locked || !Live.power;
     VerticalLayout {
-        padding: 14px;
-        spacing: 14px;
+        padding: Theme.gap;
+        spacing: Theme.gap;
         Card {
             vertical-stretch: 1;
             VerticalLayout {
-                padding: 14px;
-                spacing: 12px;
+                padding: Theme.pad;
+                spacing: Theme.row;
                 HorizontalLayout {
-                    height: 44px;
+                    height: Theme.h-sm;
                     spacing: 12px;
                     H3 { vertical-alignment: center; text: "WORK OFFSETS"; }
                     HorizontalLayout {
                         width: 320px;
                         spacing: 0px;
-                        Seg { first: true; height: 44px; font-size: 20px; text: "TABLE"; on: Live.offsets-view != "timeline"; clicked => { Live.offsets-view = "table"; } }
-                        Seg { last: true; height: 44px; font-size: 20px; text: "TIMELINE"; on: Live.offsets-view == "timeline"; clicked => { Live.offsets-view = "timeline"; } }
+                        Seg { first: true; height: Theme.h-sm; font-size: Theme.t-body; text: "TABLE"; on: Live.offsets-view != "timeline"; clicked => { Live.offsets-view = "table"; } }
+                        Seg { last: true; height: Theme.h-sm; font-size: Theme.t-body; text: "TIMELINE"; on: Live.offsets-view == "timeline"; clicked => { Live.offsets-view = "timeline"; } }
                     }
                     Rectangle { horizontal-stretch: 1; }
                     if Live.offsets-g92 != "": Pill { text: Live.offsets-g92 + " ACTIVE"; kind: "warn"; }
-                    if Live.offsets-g92 != "": Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; height: 44px; font-size: 20px; text: "CLEAR G92"; enabled: !locked; clicked => { Actions.offsets-clear-g92(); } }
+                    if Live.offsets-g92 != "": Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; height: Theme.h-sm; font-size: Theme.t-body; text: "CLEAR G92"; enabled: !locked; clicked => { Actions.offsets-clear-g92(); } }
                     Label { width: 420px; horizontal-alignment: right; vertical-alignment: center; text: Live.offsets-view == "timeline" ? "NEWEST FIRST · TAP A CHANGE TO SELECT IT" : "TAP A ROW · TAP A VALUE TO EDIT"; }
                 }
                 if Live.offsets-view == "timeline": Rectangle {
@@ -94,10 +102,10 @@ export component OffsetsScreen inherits Rectangle {
                     if Live.history.length == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: "No changes yet. Every change to a work offset or a tool's length and diameter is listed here."; }
                 }
                 if Live.offsets-view == "timeline": HorizontalLayout {
-                    height: 64px;
-                    spacing: 12px;
+                    height: Theme.h-ctl;
+                    spacing: 10px;
                     Note { horizontal-stretch: 1; vertical-alignment: center; text: Live.history-restore-note; }
-                    Btn { max-width: 300px; preferred-width: 300px; min-width: 180px; horizontal-stretch: 1; text: Live.history-restore-label; sub: "HOLD"; hold: true; enabled: !locked && Live.history-selected >= 0; clicked => { Actions.history-restore(); } }
+                    Btn { max-width: 300px; preferred-width: 300px; min-width: 180px; horizontal-stretch: 1; text: Live.history-restore-label; hold: true; enabled: !locked && Live.history-selected >= 0; clicked => { Actions.history-restore(); } }
                 }
                 if Live.offsets-view != "timeline": HorizontalLayout {
                     padding-left: 12px;
@@ -129,7 +137,7 @@ export component OffsetsScreen inherits Rectangle {
                                 HorizontalLayout {
                                     width: 220px;
                                     spacing: 12px;
-                                    Text { vertical-alignment: center; text: o.wcs; font-family: Theme.display; font-size: 28px; color: Theme.ink; }
+                                    Text { vertical-alignment: center; text: o.wcs; font-family: Theme.display; font-size: Theme.t-value; color: Theme.ink; }
                                     if o.active: VerticalLayout { alignment: center; Pill { text: "ACTIVE"; kind: "good"; } }
                                 }
                                 Cell { text: o.x; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-x"); } }
@@ -142,17 +150,19 @@ export component OffsetsScreen inherits Rectangle {
                     }
                 }
                 if Live.offsets-view != "timeline": HorizontalLayout {
-                    spacing: 12px;
+                    height: Theme.h-ctl;
+                    spacing: 10px;
                     Btn { max-width: 240px; preferred-width: 240px; min-width: 144px; horizontal-stretch: 1; text: "MAKE " + Live.offsets-sel-label + " ACTIVE"; enabled: !locked && !Live.offsets[Live.offsets-selected].active; clicked => { Actions.offsets-activate(); } }
                     Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO X HERE"; enabled: !locked; clicked => { Actions.offsets-zero(0); } }
                     Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Y HERE"; enabled: !locked; clicked => { Actions.offsets-zero(1); } }
                     Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Z HERE"; enabled: !locked; clicked => { Actions.offsets-zero(2); } }
-                    Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; text: "CLEAR " + Live.offsets-sel-label; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear(); } }
+                    Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; text: "CLEAR " + Live.offsets-sel-label; hold: true; enabled: !locked; clicked => { Actions.offsets-clear(); } }
                     Rectangle { horizontal-stretch: 1; }
-                    Btn { max-width: 190px; preferred-width: 190px; min-width: 114px; horizontal-stretch: 1; text: "CLEAR ALL"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear-all(); } }
+                    Btn { max-width: 190px; preferred-width: 190px; min-width: 114px; horizontal-stretch: 1; text: "CLEAR ALL"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear-all(); } }
                 }
+                // How the table is kept, inside the card with the rest.
+                Note { font-size: Theme.t-small; color: Theme.dim; text: "Changes go through MDI (G10 L2 / L20, G5x, G92.1). The active row is live from LinuxCNC; inactive rows come from the parameter file at startup and from edits made here."; }
             }
         }
-        Note { text: "Changes go through MDI (G10 L2 / L20, G5x, G92.1). The active row is live from LinuxCNC; inactive rows come from the parameter file at startup and from edits made here."; }
     }
 }

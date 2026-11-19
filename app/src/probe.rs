@@ -1157,12 +1157,12 @@ impl Probe {
         // in place of the reason.
         live.set_pr_load_offer(!ok && needs != Needs::Tool && blocked.is_some() && blocked == self.tool_problem(&sel, tool));
         let run_label = match (&self.flow, sel.kind) {
-            (Some(Flow::StockMeasured { .. }), "stock") | (Some(Flow::TwoReady { .. }), "two") => "HOLD TO APPLY".to_string(),
-            (Some(Flow::TwoFirst { .. }), "two") => "HOLD: OPPOSITE FACE".into(),
-            _ if self.mode == "find" => "HOLD TO PROBE".into(),
-            _ if self.mode == "meas" => "HOLD TO MEASURE".into(),
-            _ if needs != Needs::Probe => "HOLD TO MEASURE TOOL".into(),
-            _ => "HOLD TO CALIBRATE".into(),
+            (Some(Flow::StockMeasured { .. }), "stock") | (Some(Flow::TwoReady { .. }), "two") => "APPLY".to_string(),
+            (Some(Flow::TwoFirst { .. }), "two") => "PROBE OPPOSITE FACE".into(),
+            _ if self.mode == "find" => "PROBE".into(),
+            _ if self.mode == "meas" => "MEASURE".into(),
+            _ if needs != Needs::Probe => "MEASURE TOOL".into(),
+            _ => "CALIBRATE".into(),
         };
         live.set_pr_run_label(run_label.into());
         live.set_pr_running(self.run.is_some());

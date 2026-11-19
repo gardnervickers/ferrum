@@ -1,39 +1,27 @@
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, WarmStage, StatusRow } from "state.slint";
-import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
+import { Btn, EqBtn, Card, Label, Caption, Kv, NumField, H3, Note, Pill } from "widgets.slint";
 import { Brand, Lockup } from "brand.slint";
 
-component Cell inherits Rectangle {
+// A fact tile, with the value in its status tone.
+component Cell inherits Kv {
     in property <string> key;
-    in property <string> value;
     in property <string> kind;
-    height: 74px;
+    label: key;
+    inset: true;
     min-width: 0px;
-    background: Theme.panel2;
-    border-radius: Theme.radius-ctl;
-    VerticalLayout {
-        padding-left: 12px;
-        padding-top: 6px;
-        Label { text: key; font-size: 17px; }
-        Text {
-            text: value;
-            font-family: Theme.display;
-            font-size: 28px;
-            color: kind == "good" ? Theme.good : kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : Theme.ink;
-            overflow: elide;
-        }
-    }
+    tone: kind == "good" ? Theme.good : kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : Theme.ink;
 }
 
 export component UtilScreen inherits Rectangle {
     HorizontalLayout {
-        padding: 14px;
-        spacing: 14px;
+        padding: Theme.gap;
+        spacing: Theme.gap;
         Card {
             width: Layout.compact ? 560px : 680px;
             VerticalLayout {
-                padding: 14px;
-                spacing: 12px;
+                padding: Theme.pad;
+                spacing: Theme.row;
                 H3 { text: "SPINDLE WARM-UP"; }
                 Note { text: Live.wu-note; }
                 Btn {
@@ -46,10 +34,10 @@ export component UtilScreen inherits Rectangle {
                 // Same widths as the rows below (the card is 680 px, 560 compact), so
                 // every row splits at the same x.
                 HorizontalLayout {
-                    spacing: 12px;
+                    spacing: 10px;
                     for st[i] in Live.wu-stages: Rectangle {
                         max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1;
-                        height: 124px;
+                        height: 146px;
                         border-radius: Theme.radius-ctl;
                         background: st.state == "run" ? Theme.good-soft : Theme.panel2;
                         border-width: st.state == "run" ? 2px : 0;
@@ -57,45 +45,36 @@ export component UtilScreen inherits Rectangle {
                         VerticalLayout {
                             padding: 8px;
                             spacing: 4px;
-                            Label { text: "STAGE " + (i + 1) + (st.state == "done" ? " · DONE" : st.state == "run" ? " · NOW" : ""); font-size: 17px; }
-                            Rectangle {
-                                height: 38px;
-                                background: rt.pressed ? Theme.raised : Theme.well;
-                                border-radius: Theme.radius-sm;
-                                Text { text: st.rpm + " RPM"; font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink; }
-                                rt := TouchArea { enabled: !Live.wu-running; clicked => { Actions.edit("wu-rpm-" + i); } }
-                            }
-                            Rectangle {
-                                height: 38px;
-                                background: mt.pressed ? Theme.raised : Theme.well;
-                                border-radius: Theme.radius-sm;
-                                Text { text: st.minutes + " MIN"; font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink; }
-                                mt := TouchArea { enabled: !Live.wu-running; clicked => { Actions.edit("wu-min-" + i); } }
-                            }
+                            Caption { height: 20px; vertical-alignment: center; text: "STAGE " + (i + 1) + (st.state == "done" ? "  ·  DONE" : st.state == "run" ? "  ·  NOW" : ""); color: st.state == "run" ? Theme.good : Theme.dim; }
+                            // The shared number field: value right, unit small after it.
+                            NumField { height: Theme.h-sm; value: st.rpm; unit: "rpm"; enabled: !Live.wu-running; edit => { Actions.edit("wu-rpm-" + i); } }
+                            NumField { height: Theme.h-sm; value: st.minutes; unit: "min"; enabled: !Live.wu-running; edit => { Actions.edit("wu-min-" + i); } }
                         }
                     }
                 }
                 Rectangle {
-                    height: 14px;
-                    border-radius: Theme.radius-ctl;
+                    height: 8px;
+                    border-radius: 4px;
                     background: Theme.well;
-                    Rectangle { x: 0; width: parent.width * Live.wu-progress; border-radius: Theme.radius-ctl; background: Theme.go-border; }
+                    Rectangle { x: 0; width: parent.width * Live.wu-progress; border-radius: 4px; background: Theme.sel; }
                 }
-                Label { height: 26px; overflow: elide; text: Live.wu-text; }
+                Note { height: 26px; wrap: no-wrap; overflow: elide; vertical-alignment: center; text: Live.wu-text; }
                 // Fixed slot so START/STOP never move.
-                Text { height: 26px; overflow: elide; font-family: Theme.body; font-size: 19px; color: Theme.warn; text: !Live.wu-running ? Live.wu-ready : ""; }
+                Text { height: 26px; overflow: elide; font-family: Theme.body; font-size: Theme.t-body; color: Theme.warn; text: !Live.wu-running ? Live.wu-ready : ""; }
+                // A wide gap between the stop and its start, on purpose.
                 HorizontalLayout {
-                    spacing: 12px;
-                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
-                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
+                    height: Theme.h-choice;
+                    spacing: 32px;
+                    EqBtn { kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
+                    EqBtn { kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
                 }
                 H3 { text: "SPINDLE AND TOOL SETTER"; }
                 // Gone when empty, or it takes a share of the free height.
                 if Live.ut-has-blast || Live.ut-has-nose: HorizontalLayout {
-                    spacing: 12px;
+                    spacing: 10px;
                     if Live.ut-has-blast: Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
                     if Live.ut-has-nose: Btn {
-                        width: 320px;
+                        max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1;
                         text: "PROBE SPINDLE NOSE";
                         clicked => {
                             Actions.probe-mode("cal");
@@ -105,15 +84,15 @@ export component UtilScreen inherits Rectangle {
                     }
                 }
                 HorizontalLayout {
-                    spacing: 12px;
+                    spacing: 10px;
                     Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "GO TO G30"; sub: "TOOL SETTER"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-go-g30(); } }
                     Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "SET G30 HERE"; hold: true; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-set-g30(); } }
                 }
                 HorizontalLayout {
-                    spacing: 12px;
-                    if Live.ut-has-nose: Cell { max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
-                    Cell { max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1; key: "SETTER"; value: Live.ut-setter; }
-                    Cell { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; key: "G30 POSITION"; value: Live.ut-g30; }
+                    spacing: 10px;
+                    if Live.ut-has-nose: Cell { width: Layout.compact ? 150px : 180px; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
+                    Cell { width: Layout.compact ? 120px : 150px; key: "SETTER"; value: Live.ut-setter; }
+                    Cell { horizontal-stretch: 1; key: "G30 POSITION"; value: Live.ut-g30; }
                 }
                 Rectangle { vertical-stretch: 1; }
             }
@@ -121,8 +100,8 @@ export component UtilScreen inherits Rectangle {
         Card {
             horizontal-stretch: 1;
             VerticalLayout {
-                padding: 14px;
-                spacing: 12px;
+                padding: Theme.pad;
+                spacing: Theme.row;
                 H3 { text: "MACHINE STATUS"; }
                 GridLayout {
                     spacing: 10px;
@@ -140,7 +119,7 @@ export component UtilScreen inherits Rectangle {
                         vertical-alignment: bottom;
                         text: "v" + Brand.version;
                         font-family: Theme.body;
-                        font-size: 20px;
+                        font-size: Theme.t-body;
                         color: Theme.dim;
                     }
                 }

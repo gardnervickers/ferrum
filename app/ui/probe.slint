@@ -1,10 +1,12 @@
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, ProbeItem, ProbeOpt, ProbeSpot, ProbeParam } from "state.slint";
-import { Btn, Seg, Card, Label, H3, Note } from "widgets.slint";
+import { Btn, EqBtn, Seg, Card, Label, Caption, NumField, H3, Note } from "widgets.slint";
+import { Scrim, Dialog, DialogTitle } from "overlays.slint";
 
-// One run value: label (with unit, and the default once changed), then
-// − value + and a RESET button that only shows when the value differs from
-// the default. Its slot is always reserved, so changing a value moves nothing.
+// One run value under ALL SETTINGS: its name (and the default once
+// changed), then − value + and a RESET that only shows when the value
+// differs from the default. Its slot is always reserved, so changing a
+// value moves nothing. The value is the shared NumField.
 component Stepper inherits Rectangle {
     in property <ProbeParam> p;
     in property <bool> enabled: true;
@@ -20,36 +22,27 @@ component Stepper inherits Rectangle {
         Label {
             height: 26px;
             vertical-alignment: center;
-            text: (p.unit != "" ? p.label + "  " + p.unit : p.label) + (p.changed ? "   ·   DEFAULT " + p.def : "");
-            font-size: 20px;
+            text: p.label + (p.changed ? "   ·   DEFAULT " + p.def : "");
             overflow: elide;
             color: p.changed ? Theme.warn : Theme.muted;
         }
         HorizontalLayout {
-            height: 58px;
+            height: Theme.h-ctl;
             spacing: 6px;
-            Btn { width: 64px; text: "−"; font-size: 30px; enabled: root.enabled; clicked => { Actions.probe-step(p.id, -1); } }
-            Rectangle {
-                horizontal-stretch: 1;
-                background: Theme.well;
-                border-radius: Theme.radius-ctl;
-                border-width: 1px;
-                border-color: vt.pressed ? Theme.sel : Theme.line;
-                Text { x: 6px; width: parent.width - 12px; horizontal-alignment: center; vertical-alignment: center; text: p.value; font-family: Theme.body; font-weight: 600; font-size: 28px; color: Theme.ink; overflow: elide; }
-                vt := TouchArea { enabled: root.enabled; clicked => { Actions.edit("prun-" + p.id); } }
-            }
-            Btn { width: 64px; text: "+"; font-size: 30px; enabled: root.enabled; clicked => { Actions.probe-step(p.id, 1); } }
+            Btn { width: 64px; text: "−"; font-size: Theme.t-big; enabled: root.enabled; clicked => { Actions.probe-step(p.id, -1); } }
+            NumField { horizontal-stretch: 1; value: p.value; unit: p.unit; changed: p.changed; enabled: root.enabled; edit => { Actions.edit("prun-" + p.id); } }
+            Btn { width: 64px; text: "+"; font-size: Theme.t-big; enabled: root.enabled; clicked => { Actions.probe-step(p.id, 1); } }
             Rectangle {
                 width: 96px;
-                if p.changed: Btn { width: parent.width; height: parent.height; text: "RESET"; font-size: 20px; enabled: root.enabled; clicked => { Actions.probe-reset(p.id); } }
+                if p.changed: Btn { width: parent.width; height: parent.height; text: "RESET"; font-size: Theme.t-body; enabled: root.enabled; clicked => { Actions.probe-reset(p.id); } }
             }
         }
     }
 }
 
 // A named group of choices for the target: the name, then the choices as
-// equal buttons across the card. An empty group keeps its height, so the
-// start buttons below never move.
+// one segmented track across the card (they are either/or). An empty group
+// keeps its height, so the start buttons below never move.
 component OptGroup inherits VerticalLayout {
     in property <string> label;
     in property <[ProbeOpt]> opts;
@@ -58,13 +51,12 @@ component OptGroup inherits VerticalLayout {
     spacing: 4px;
     Label { height: 24px; vertical-alignment: center; text: root.label; overflow: elide; }
     HorizontalLayout {
-        height: 56px;
-        spacing: 8px;
-        for o in root.opts: Btn {
-            horizontal-stretch: 1;
-            min-width: 0;
-            height: 56px;
-            font-size: 20px;
+        height: Theme.h-ctl;
+        spacing: 0px;
+        for o[i] in root.opts: Seg {
+            first: i == 0;
+            last: i == root.opts.length - 1;
+            font-size: Theme.t-body;
             text: o.label;
             on: o.on;
             enabled: o.enabled && root.enabled;
@@ -73,68 +65,19 @@ component OptGroup inherits VerticalLayout {
     }
 }
 
-// One run value on the screen: its name, then the value with its unit.
-// The whole row opens the keypad. A value changed for this run is amber;
-// the − / + steps, its default and its own RESET are under ALL SETTINGS.
+// One run value on the screen: its name beside the shared NumField. The
+// whole row opens the keypad. A value changed for this run is amber; the
+// − / + steps, its default and its own RESET are under ALL SETTINGS.
 component ValueRow inherits Rectangle {
     in property <ProbeParam> p;
     in property <bool> enabled: true;
-    height: 64px;
-    background: p.changed ? Theme.warn-soft : Theme.panel2;
-    animate background { duration: Theme.settle; }
-    border-radius: Theme.radius-ctl;
+    height: Theme.h-ctl;
     HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 6px;
-        padding-top: 6px;
-        padding-bottom: 6px;
         spacing: 10px;
-        Label { horizontal-stretch: 1; vertical-alignment: center; text: p.label; font-size: 21px; overflow: elide; color: p.changed ? Theme.warn : Theme.muted; }
-        Rectangle {
-            width: 164px;
-            background: Theme.well;
-            border-radius: Theme.radius-ctl;
-            border-width: 1px;
-            border-color: vt.pressed ? Theme.sel : p.changed ? Theme.warn.with-alpha(0.5) : Theme.line;
-            HorizontalLayout {
-                alignment: center;
-                spacing: 6px;
-                Text { vertical-alignment: center; text: p.value; font-family: Theme.body; font-weight: 600; font-size: 28px; color: Theme.ink; }
-                if p.unit != "": Text { vertical-alignment: center; text: p.unit; font-family: Theme.body; font-size: 19px; color: Theme.dim; }
-            }
-        }
+        Label { horizontal-stretch: 1; vertical-alignment: center; text: p.label; overflow: elide; color: p.changed ? Theme.warn : Theme.muted; }
+        NumField { width: 190px; value: p.value; unit: p.unit; changed: p.changed; enabled: root.enabled; }
     }
-    vt := TouchArea { enabled: root.enabled; clicked => { Actions.edit("prun-" + p.id); } }
-}
-
-component Dialog inherits Rectangle {
-    in property <string> title;
-    in property <length> dw: 1300px;
-    in property <length> dh: 760px;
-    in property <string> close-text: "DONE";
-    callback close();
-    background: Theme.scrim;
-    TouchArea {}
-    Rectangle {
-        x: (parent.width - root.dw) / 2;
-        y: (parent.height - root.dh) / 2;
-        width: root.dw;
-        height: root.dh;
-        background: Theme.panel;
-        border-radius: Theme.radius;
-        border-width: 1px;
-        border-color: Theme.raised-border;
-        VerticalLayout {
-            padding: 20px;
-            spacing: 14px;
-            HorizontalLayout {
-                height: 64px;
-                H3 { horizontal-stretch: 1; vertical-alignment: center; text: root.title; }
-                Btn { width: 200px; height: 64px; text: root.close-text; clicked => { root.close(); } }
-            }
-            @children
-        }
-    }
+    TouchArea { enabled: root.enabled; clicked => { Actions.edit("prun-" + p.id); } }
 }
 
 export component ProbeScreen inherits Rectangle {
@@ -153,22 +96,20 @@ export component ProbeScreen inherits Rectangle {
     // other value, the saved defaults, the two kinds of job step) is one
     // tap away in a dialog.
     HorizontalLayout {
-        padding: 14px;
-        spacing: 14px;
+        padding: Theme.gap;
+        spacing: Theme.gap;
         // What: mode and shape
         Card {
             width: Layout.compact ? 250px : 290px;
             VerticalLayout {
-                padding: 14px;
-                spacing: 10px;
+                padding: Theme.pad;
+                spacing: Theme.row;
                 HorizontalLayout {
-                    height: 60px;
-                    Seg { horizontal-stretch: 1; first: true; text: "FIND"; font-size: 21px; on: Live.pr-mode == "find"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("find"); } }
-                    Seg { horizontal-stretch: 1; text: "MEASURE"; font-size: 21px; on: Live.pr-mode == "meas"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("meas"); } }
-                    Seg { horizontal-stretch: 1; last: true; text: "CAL"; font-size: 21px; on: Live.pr-mode == "cal"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("cal"); } }
+                    Seg { horizontal-stretch: 1; first: true; text: "FIND"; font-size: Theme.t-body; on: Live.pr-mode == "find"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("find"); } }
+                    Seg { horizontal-stretch: 1; text: "MEASURE"; font-size: Theme.t-body; on: Live.pr-mode == "meas"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("meas"); } }
+                    Seg { horizontal-stretch: 1; last: true; text: "CAL"; font-size: Theme.t-body; on: Live.pr-mode == "cal"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("cal"); } }
                 }
-                Rectangle { height: 4px; }
-                for s in Live.pr-shapes: Btn { height: 66px; text: s.label; on: s.on; enabled: !Live.pr-running; clicked => { Actions.probe-shape(s.id); } }
+                for s in Live.pr-shapes: Btn { height: Theme.h-choice; text: s.label; on: s.on; enabled: !Live.pr-running; clicked => { Actions.probe-shape(s.id); } }
                 Rectangle { vertical-stretch: 1; }
             }
         }
@@ -177,11 +118,11 @@ export component ProbeScreen inherits Rectangle {
         Card {
             horizontal-stretch: 1;
             VerticalLayout {
-                padding: 14px;
-                spacing: 10px;
+                padding: Theme.pad;
+                spacing: Theme.row;
                 // The target, and beside it what the routine does there.
                 HorizontalLayout {
-                    height: 40px;
+                    height: 34px;
                     spacing: 14px;
                     H3 { vertical-alignment: center; text: Live.pr-title; overflow: elide; }
                     // (No room for it beside the title in a narrow window.)
@@ -197,7 +138,7 @@ export component ProbeScreen inherits Rectangle {
                     property <float> sc: min(self.width / 400px, (self.height - 64px) / 300px);
                     property <length> ox: (self.width - 400px * sc) / 2;
                     property <length> oy: 32px + (self.height - 64px - 300px * sc) / 2;
-                    Text { x: 0; y: 6px; width: parent.width; horizontal-alignment: center; text: Live.pr-hint; font-family: Theme.body; font-size: 19px; color: Theme.dim; }
+                    Text { x: 0; y: 6px; width: parent.width; horizontal-alignment: center; text: Live.pr-hint; font-family: Theme.body; font-size: Theme.t-body; color: Theme.dim; }
                     Path {
                         visible: root.paths-visible;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
@@ -274,14 +215,11 @@ export component ProbeScreen inherits Rectangle {
                     }
                     // What the tip is doing; its own band, so it never
                     // covers the picture.
-                    Text {
-                        x: 12px; y: parent.height - 30px;
-                        width: parent.width - 24px; height: 24px;
+                    Caption {
+                        x: 16px; y: parent.height - 32px;
+                        width: parent.width - 32px; height: 24px;
                         vertical-alignment: center;
                         text: Live.pr-caption;
-                        font-family: Theme.display;
-                        font-size: 17px;
-                        letter-spacing: 1.2px;
                         color: Theme.good;
                         overflow: elide;
                     }
@@ -293,7 +231,7 @@ export component ProbeScreen inherits Rectangle {
                     border-radius: Theme.radius-ctl;
                     clip: true;
                     property <bool> none: Live.pr-result == "No measurement yet.";
-                    Text { x: 14px; y: 8px; width: parent.width - 28px; height: parent.height - 16px; text: Live.pr-result; font-family: Theme.body; font-size: 22px; color: parent.none ? Theme.dim : Theme.ink; wrap: word-wrap; vertical-alignment: parent.none ? center : top; overflow: elide; }
+                    Text { x: 14px; y: 8px; width: parent.width - 28px; height: parent.height - 16px; text: Live.pr-result; font-family: Theme.body; font-size: Theme.t-ctl; color: parent.none ? Theme.dim : Theme.ink; wrap: word-wrap; vertical-alignment: parent.none ? center : top; overflow: elide; }
                 }
             }
         }
@@ -301,29 +239,29 @@ export component ProbeScreen inherits Rectangle {
         Card {
             width: Layout.compact ? 380px : 420px;
             VerticalLayout {
-                padding: 14px;
-                spacing: 10px;
+                padding: Theme.pad;
+                spacing: Theme.row;
                 // Write-to in FIND; what the mode does otherwise. Same slot.
                 Rectangle {
-                    height: 60px;
+                    height: Theme.h-ctl;
                     if Live.pr-show-wcs: HorizontalLayout {
-                        spacing: 12px;
-                        Label { width: 110px; vertical-alignment: center; text: "WRITE TO"; }
-                        Btn { horizontal-stretch: 1; height: 60px; text: Live.pr-wcs + "  ▾"; font-size: 28px; enabled: !Live.pr-running; clicked => { Live.pr-dialog = "wcs"; } }
+                        spacing: 10px;
+                        Label { horizontal-stretch: 1; vertical-alignment: center; text: "WRITE TO"; }
+                        Btn { width: 190px; height: Theme.h-ctl; menu: true; text: Live.pr-wcs; family: Theme.body; font-size: Theme.t-value; enabled: !Live.pr-running; clicked => { Live.pr-dialog = "wcs"; } }
                     }
                     if !Live.pr-show-wcs: Note { height: parent.height; vertical-alignment: center; text: Live.pr-note; }
                 }
                 // Three fixed value slots (no routine has more key values).
                 // Always three slots; an empty one (no id) keeps its place.
                 for p in Live.pr-params: Rectangle {
-                    height: 64px;
+                    height: Theme.h-ctl;
                     if p.id != "": ValueRow { width: parent.width; p: p; enabled: !Live.pr-running; }
                 }
                 HorizontalLayout {
-                    height: 56px;
+                    height: Theme.h-ctl;
                     spacing: 10px;
-                    Btn { horizontal-stretch: 2; font-size: 20px; text: "ALL SETTINGS"; clicked => { Live.pr-dialog = "more"; } }
-                    Btn { horizontal-stretch: 1; font-size: 20px; text: "RESET"; enabled: Live.pr-changed && !Live.pr-running; clicked => { Actions.probe-reset-all(); } }
+                    Btn { horizontal-stretch: 2; font-size: Theme.t-body; text: "ALL SETTINGS"; clicked => { Live.pr-dialog = "more"; } }
+                    Btn { horizontal-stretch: 1; font-size: Theme.t-body; text: "RESET"; enabled: Live.pr-changed && !Live.pr-running; clicked => { Actions.probe-reset-all(); } }
                 }
                 // The choices the target has (which sides, ridge or slot…).
                 OptGroup { label: Live.pr-opts-label; opts: Live.pr-opts; enabled: !Live.pr-running; }
@@ -332,16 +270,16 @@ export component ProbeScreen inherits Rectangle {
                 // One slot says whether it can start: the tool change when
                 // only the tool is in the way, otherwise ready or why not.
                 Rectangle {
-                    height: 60px;
+                    height: Theme.h-ctl;
                     property <bool> offer: Live.pr-load-offer && !Live.pr-running;
-                    if self.offer: Btn { width: parent.width; height: parent.height; font-size: 22px; text: Live.pr-load-label; enabled: Live.pr-load-enabled && !locked && Live.power; clicked => { Actions.probe-load(); } }
+                    if self.offer: Btn { width: parent.width; height: parent.height; font-size: Theme.t-ctl; text: Live.pr-load-label; enabled: Live.pr-load-enabled && !locked && Live.power; clicked => { Actions.probe-load(); } }
                     if !self.offer: Text {
                         width: parent.width;
                         height: parent.height;
                         wrap: word-wrap;
                         vertical-alignment: center;
                         font-family: Theme.body;
-                        font-size: 20px;
+                        font-size: Theme.t-body;
                         overflow: elide;
                         color: Live.pr-running || Live.pr-ready != "" ? Theme.warn : Theme.good;
                         text: Live.pr-running ? "Running…  STOP is in the bar below." : Live.pr-ready != "" ? Live.pr-ready : Live.pr-pill;
@@ -349,122 +287,166 @@ export component ProbeScreen inherits Rectangle {
                 }
                 // STOP is the bar's STOP, always in the same place.
                 HorizontalLayout {
-                    height: 76px;
+                    height: Theme.h-big;
                     spacing: 10px;
-                    Btn { width: 120px; font-size: 20px; text: "ADD TO\nJOB"; enabled: Live.pr-job-ok && !locked && !Live.pr-running; clicked => { Live.pr-dialog = "job"; } }
-                    Btn { horizontal-stretch: 1; kind: "go"; hold: true; text: Live.pr-run-label; enabled: Live.pr-ready == "" && !locked; clicked => { Actions.probe-run(); } }
+                    Btn { width: 120px; font-size: Theme.t-body; text: "ADD TO\nJOB"; enabled: Live.pr-job-ok && !locked && !Live.pr-running; clicked => { Live.pr-dialog = "job"; } }
+                    Btn { horizontal-stretch: 1; kind: "go"; hold: true; font-size: Theme.t-value; text: Live.pr-run-label; enabled: Live.pr-ready == "" && !locked; clicked => { Actions.probe-run(); } }
                 }
             }
         }
     }
-    if more-open: Dialog {
-        title: "ALL SETTINGS · THIS RUN ONLY";
-        dw: 1300px;
-        // Sized to the rows so no empty band is left below them.
-        dh: min(940px, 262px + ceil(Live.pr-more.length / 3) * 116px);
-        close => { Live.pr-dialog = ""; }
-        Note { height: 28px; text: "A changed value shows in amber and goes back to its default after the run."; }
-        GridLayout {
-            spacing: 10px;
-            for p[i] in Live.pr-more: Stepper { col: mod(i, 3); row: floor(i / 3); p: p; enabled: !Live.pr-running; }
-        }
-        Rectangle { vertical-stretch: 1; }
-        HorizontalLayout {
-            height: 64px;
-            spacing: 10px;
-            Btn { width: 300px; font-size: 22px; text: "RESET ALL"; enabled: Live.pr-changed && !Live.pr-running; clicked => { Actions.probe-reset-all(); } }
-            Rectangle { horizontal-stretch: 1; }
-            Btn { width: 300px; font-size: 22px; text: "SAVED DEFAULTS…"; clicked => { Live.pr-dialog = "defaults"; } }
-        }
-    }
-    if job-open: Dialog {
-        title: "ADD TO THE JOB · " + Live.pr-title;
-        dw: 900px;
-        dh: 372px;
-        close-text: "CANCEL";
-        close => { Live.pr-dialog = ""; }
-        Note { height: 28px; text: "The job will run this routine from where the probe is now."; }
-        // Two equal halves: the step that sets the offset, and the one
-        // that only measures. Each says what it does underneath.
-        HorizontalLayout {
-            spacing: 14px;
-            for check in [false, true]: VerticalLayout {
-                width: (parent.width - 14px) / 2;
-                spacing: 10px;
-                Btn {
-                    height: 110px;
-                    font-size: 26px;
-                    text: check ? "CHECK A SIZE" : "SET " + Live.pr-wcs;
-                    enabled: !check || Live.pr-job-check;
-                    clicked => { Actions.probe-add-job(check); Live.pr-dialog = ""; }
+    if more-open: Scrim {
+        Dialog {
+            width: 1300px;
+            // Sized to the rows so no empty band is left below them.
+            height: min(940px, 228px + ceil(Live.pr-more.length / 3) * 116px);
+            VerticalLayout {
+                padding: Theme.dlg-pad;
+                spacing: Theme.dlg-row;
+                DialogTitle { text: "ALL SETTINGS · THIS RUN ONLY"; }
+                Note { height: 28px; text: "A changed value shows in amber and goes back to its default after the run."; }
+                GridLayout {
+                    spacing: 10px;
+                    for p[i] in Live.pr-more: Stepper { col: mod(i, 3); row: floor(i / 3); p: p; enabled: !Live.pr-running; }
                 }
-                Note {
-                    height: 50px;
-                    min-width: 0;
-                    horizontal-alignment: center;
-                    vertical-alignment: top;
-                    text: !check ? "Probes and writes the work offset." : Live.pr-job-check ? "Measures and reports. Offsets stay as they are." : "Only a bore, boss, pocket, slot, ridge or top face can be checked.";
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout {
+                    height: Theme.h-choice;
+                    spacing: 12px;
+                    Btn { width: 260px; text: "RESET ALL"; enabled: Live.pr-changed && !Live.pr-running; clicked => { Actions.probe-reset-all(); } }
+                    Btn { width: 260px; text: "SAVED DEFAULTS"; clicked => { Live.pr-dialog = "defaults"; } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Btn { width: 260px; text: "DONE"; clicked => { Live.pr-dialog = ""; } }
                 }
             }
         }
-        Rectangle { vertical-stretch: 1; }
     }
-    if defaults-open: Dialog {
-        title: "PROBE DEFAULTS";
-        dw: 1300px;
-        dh: 840px;
-        close => { Live.pr-dialog = ""; }
-        HorizontalLayout {
-            height: 60px;
-            spacing: 0;
-            Seg { horizontal-stretch: 1; text: "TOUCH PROBE"; on: root.defaults-tab == "probe"; clicked => { root.defaults-tab = "probe"; } }
-            Seg { horizontal-stretch: 1; text: "TOOL SETTER"; on: root.defaults-tab == "setter"; clicked => { root.defaults-tab = "setter"; } }
-            Seg { horizontal-stretch: 1; text: "CALIBRATION"; on: root.defaults-tab == "cal"; clicked => { root.defaults-tab = "cal"; } }
-        }
-        Note { height: 28px; text: "Saved values (#3004–#3037). Tap one to change it; it is written to LinuxCNC now."; }
-        Rectangle {
-            vertical-stretch: 1;
-            background: Theme.well;
-            border-radius: Theme.radius-ctl;
-            clip: true;
-            Flickable {
-                content-height: dlist.preferred-height;
-                dlist := VerticalLayout {
-                    padding: 8px;
-                    for p in Live.pr-defaults: Rectangle {
-                        visible: p.def == root.defaults-tab;
-                        height: p.def == root.defaults-tab ? 66px : 0px;
-                        Rectangle {
-                            y: 3px;
-                            height: parent.height - 6px;
-                            background: dt.pressed ? Theme.raised : Theme.panel2;
-                            border-radius: Theme.radius-ctl;
-                            HorizontalLayout {
-                                padding-left: 16px;
-                                padding-right: 16px;
-                                spacing: 16px;
-                                Label { width: 90px; vertical-alignment: center; text: "#" + p.id; color: Theme.dim; }
-                                Label { horizontal-stretch: 1; vertical-alignment: center; text: p.label; font-size: 22px; color: Theme.ink; overflow: elide; }
-                                Text { width: 260px; horizontal-alignment: right; vertical-alignment: center; text: p.value + (p.unit != "" ? " " + p.unit : ""); font-family: Theme.body; font-weight: 600; font-size: 26px; color: Theme.ink; overflow: elide; }
-                            }
-                            dt := TouchArea { clicked => { Actions.edit("pdef-" + p.id); } }
+    if job-open: Scrim {
+        Dialog {
+            width: 900px;
+            height: 400px;
+            VerticalLayout {
+                padding: Theme.dlg-pad;
+                spacing: Theme.dlg-row;
+                DialogTitle { text: "ADD TO THE JOB · " + Live.pr-title; }
+                Note { height: 28px; text: "The job will run this routine from where the probe is now."; }
+                // Two equal halves: the step that sets the offset, and the one
+                // that only measures. Each says what it does underneath.
+                HorizontalLayout {
+                    spacing: 12px;
+                    for check in [false, true]: VerticalLayout {
+                        width: (parent.width - 12px) / 2;
+                        spacing: 8px;
+                        Btn {
+                            height: Theme.h-big;
+                            font-size: Theme.t-value;
+                            text: check ? "CHECK A SIZE" : "SET " + Live.pr-wcs;
+                            enabled: !check || Live.pr-job-check;
+                            clicked => { Actions.probe-add-job(check); Live.pr-dialog = ""; }
+                        }
+                        Note {
+                            height: 50px;
+                            min-width: 0;
+                            horizontal-alignment: center;
+                            vertical-alignment: top;
+                            text: !check ? "Probes and writes the work offset." : Live.pr-job-check ? "Measures and reports. Offsets stay as they are." : "Only a bore, boss, pocket, slot, ridge or top face can be checked.";
                         }
                     }
                 }
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout {
+                    height: Theme.h-choice;
+                    Btn { width: 260px; text: "CANCEL"; clicked => { Live.pr-dialog = ""; } }
+                    Rectangle { horizontal-stretch: 1; }
+                }
             }
         }
     }
-    if wcs-open: Dialog {
-        title: "WRITE TO";
-        dw: 520px;
-        dh: 860px;
-        close => { Live.pr-dialog = ""; }
-        for c in Live.wcs-codes: Btn {
-            height: 66px;
-            font-size: 30px;
-            text: c;
-            on: c == Live.pr-wcs;
-            clicked => { Actions.probe-wcs(c); Live.pr-dialog = ""; }
+    if defaults-open: Scrim {
+        Dialog {
+            width: 1300px;
+            height: 840px;
+            VerticalLayout {
+                padding: Theme.dlg-pad;
+                spacing: Theme.dlg-row;
+                DialogTitle { text: "PROBE DEFAULTS"; }
+                HorizontalLayout {
+                    spacing: 0;
+                    Seg { first: true; text: "TOUCH PROBE"; on: root.defaults-tab == "probe"; clicked => { root.defaults-tab = "probe"; } }
+                    Seg { text: "TOOL SETTER"; on: root.defaults-tab == "setter"; clicked => { root.defaults-tab = "setter"; } }
+                    Seg { last: true; text: "CALIBRATION"; on: root.defaults-tab == "cal"; clicked => { root.defaults-tab = "cal"; } }
+                }
+                Note { height: 28px; text: "Saved values (#3004–#3037). Tap one to change it; it is written to LinuxCNC now."; }
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.well;
+                    border-radius: Theme.radius-ctl;
+                    clip: true;
+                    Flickable {
+                        content-height: dlist.preferred-height;
+                        dlist := VerticalLayout {
+                            padding: 8px;
+                            for p in Live.pr-defaults: Rectangle {
+                                visible: p.def == root.defaults-tab;
+                                height: p.def == root.defaults-tab ? 62px : 0px;
+                                Rectangle {
+                                    y: 3px;
+                                    height: parent.height - 6px;
+                                    background: dt.pressed ? Theme.raised : Theme.panel2;
+                                    border-radius: Theme.radius-ctl;
+                                    HorizontalLayout {
+                                        padding-left: 16px;
+                                        padding-right: 16px;
+                                        spacing: 6px;
+                                        Caption { width: 90px; vertical-alignment: center; text: "#" + p.id; }
+                                        Label { horizontal-stretch: 1; vertical-alignment: center; text: p.label; color: Theme.ink; overflow: elide; }
+                                        // The value with its unit small and dim after it, as in every field.
+                                        Text { horizontal-alignment: right; vertical-alignment: center; text: p.value; font-family: Theme.body; font-weight: 600; font-size: Theme.t-value; color: Theme.ink; }
+                                        Text { width: 70px; vertical-alignment: center; text: p.unit; font-family: Theme.body; font-size: Theme.t-small; color: Theme.dim; }
+                                    }
+                                    dt := TouchArea { clicked => { Actions.edit("pdef-" + p.id); } }
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    height: Theme.h-choice;
+                    Rectangle { horizontal-stretch: 1; }
+                    Btn { width: 260px; text: "DONE"; clicked => { Live.pr-dialog = ""; } }
+                }
+            }
+        }
+    }
+    // The same list as every other picker: Barlow items, CANCEL at the foot.
+    if wcs-open: Scrim {
+        Dialog {
+            width: 760px;
+            height: min(820px, 176px + Live.wcs-codes.length * 72px);
+            VerticalLayout {
+                padding: Theme.dlg-pad;
+                spacing: Theme.dlg-row;
+                DialogTitle { text: "WRITE TO"; }
+                Rectangle {
+                    vertical-stretch: 1;
+                    clip: true;
+                    Flickable {
+                        content-height: wlist.preferred-height;
+                        wlist := VerticalLayout {
+                            spacing: 8px;
+                            for c in Live.wcs-codes: Btn {
+                                height: Theme.h-choice;
+                                family: Theme.body;
+                                font-size: Theme.t-value;
+                                text: c;
+                                on: c == Live.pr-wcs;
+                                clicked => { Actions.probe-wcs(c); Live.pr-dialog = ""; }
+                            }
+                        }
+                    }
+                }
+                Btn { height: Theme.h-choice; text: "CANCEL"; clicked => { Live.pr-dialog = ""; } }
+            }
         }
     }
 }

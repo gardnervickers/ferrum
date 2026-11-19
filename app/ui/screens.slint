@@ -1,6 +1,6 @@
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, MdiCard } from "state.slint";
-import { Card, Label, Btn, Seg, Note, H3 } from "widgets.slint";
+import { Card, Label, Caption, Btn, EqBtn, Seg, Note, H3 } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
 import { JogPanel } from "jog.slint";
 
@@ -10,10 +10,10 @@ export component Blocked inherits Rectangle {
     in property <string> title;
     in property <string> text;
     Card {
-        x: 14px;
-        y: 14px;
-        width: parent.width - 28px;
-        height: parent.height - 28px;
+        x: Theme.gap;
+        y: Theme.gap;
+        width: parent.width - 2 * Theme.gap;
+        height: parent.height - 2 * Theme.gap;
         VerticalLayout {
             alignment: center;
             padding-left: 120px;
@@ -23,7 +23,7 @@ export component Blocked inherits Rectangle {
                 horizontal-alignment: center;
                 text: title + " IS OFF ON THIS MACHINE";
                 font-family: Theme.display;
-                font-size: 40px;
+                font-size: Theme.t-title;
                 letter-spacing: 2px;
                 color: Theme.warn;
             }
@@ -32,7 +32,7 @@ export component Blocked inherits Rectangle {
                 text: root.text;
                 wrap: word-wrap;
                 font-family: Theme.body;
-                font-size: 26px;
+                font-size: Theme.t-value;
                 color: Theme.muted;
             }
         }
@@ -43,10 +43,10 @@ export component Placeholder inherits Rectangle {
     in property <string> title;
     in property <string> note;
     Card {
-        x: 14px;
-        y: 14px;
-        width: parent.width - 28px;
-        height: parent.height - 28px;
+        x: Theme.gap;
+        y: Theme.gap;
+        width: parent.width - 2 * Theme.gap;
+        height: parent.height - 2 * Theme.gap;
         VerticalLayout {
             alignment: center;
             spacing: 12px;
@@ -62,7 +62,7 @@ export component Placeholder inherits Rectangle {
                 horizontal-alignment: center;
                 text: note;
                 font-family: Theme.body;
-                font-size: 24px;
+                font-size: Theme.t-btn;
                 color: Theme.muted;
             }
         }
@@ -70,12 +70,12 @@ export component Placeholder inherits Rectangle {
 }
 
 component KeyBtn inherits Btn {
-    height: 54px;
+    height: Theme.h-ctl;
     // Equal columns whatever the label.
     preferred-width: 0;
     min-width: 0;
     horizontal-stretch: 1;
-    font-size: self.text == "SPACE" || self.text == "CLR" ? 20px : 28px;
+    font-size: self.text == "SPACE" || self.text == "CLR" ? Theme.t-small : Theme.t-value;
     enabled: Live.power && !Live.manual-locked;
     clicked => { Actions.mdi-key(self.text); }
 }
@@ -83,14 +83,14 @@ component KeyBtn inherits Btn {
 // MDI (mockup v17, stacked to fit the Run screen's right panel beside the
 // backplot): command line, help, library by category, G-code keypad.
 component MdiPanel inherits VerticalLayout {
-    spacing: 12px;
+    spacing: Theme.row;
     // As Probe Basic: MDI needs the machine on, homed and idle.
     property <bool> unlocked: Live.power && Live.homed && !Live.manual-locked;
     HorizontalLayout {
         spacing: 12px;
         Rectangle {
             horizontal-stretch: 1;
-            height: 72px;
+            height: Theme.h-choice;
             background: Theme.well;
             border-width: 1px;
             border-color: input.has-focus ? Theme.sel : Theme.raised-border;
@@ -102,9 +102,10 @@ component MdiPanel inherits VerticalLayout {
                 width: max(parent.width - 32px, self.preferred-width);
                 vertical-alignment: center;
                 text <=> Live.mdi-text;
-                font-family: Theme.display;
-                font-size: 36px;
-                letter-spacing: 1px;
+                // G-code is a value: Barlow, as in the program list.
+                font-family: Theme.body;
+                font-weight: 600;
+                font-size: Theme.t-big;
                 color: Theme.ink;
                 enabled: unlocked;
                 edited => { Actions.mdi-edited(); }
@@ -113,25 +114,25 @@ component MdiPanel inherits VerticalLayout {
         }
         Btn {
             width: 130px;
-            height: 72px;
+            height: Theme.h-choice;
             text: "SEND";
             kind: "go";
-            font-size: 28px;
             enabled: unlocked && Live.mdi-text != "";
             clicked => { Actions.mdi-send(Live.mdi-text); }
         }
     }
     Text {
-        height: 28px;
+        height: 22px;
         overflow: elide;
         text: Live.manual-locked ? "MDI is locked while a program runs or is paused." : Live.mdi-help;
         font-family: Theme.body;
-        font-size: 19px;
+        font-size: Theme.t-body;
         color: Theme.muted;
     }
     HorizontalLayout {
         spacing: 0px;
         for c[i] in Live.mdi-categories: Seg {
+            font-size: Theme.t-ctl;
             text: c;
             first: i == 0;
             last: i == Live.mdi-categories.length - 1;
@@ -152,12 +153,14 @@ component MdiPanel inherits VerticalLayout {
                         property <MdiCard> card: Live.mdi-cards[i];
                         horizontal-stretch: 1;
                         // Three rows fit above the keypad, so none is cut in half.
-                        height: 60px;
+                        height: 56px;
                         border-radius: Theme.radius-ctl;
                         background: i >= Live.mdi-cards.length ? transparent : ct.pressed && unlocked ? Theme.sel-soft : Theme.raised;
                         border-width: i >= Live.mdi-cards.length ? 0 : 1px;
                         border-color: Theme.raised-border;
                         opacity: unlocked ? 1 : 0.38;
+                        // The command and what it does on one line each; the
+                        // full description is the help line once it is picked.
                         if i < Live.mdi-cards.length: VerticalLayout {
                             padding-left: 14px;
                             padding-right: 14px;
@@ -165,22 +168,12 @@ component MdiPanel inherits VerticalLayout {
                             spacing: 2px;
                             HorizontalLayout {
                                 spacing: 10px;
-                                Text { text: card.label; font-family: Theme.display; font-size: 24px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
-                                if card.moves: Text { vertical-alignment: center; text: "· MOVES"; font-family: Theme.display; font-size: 18px; color: Theme.warn; }
+                                Text { text: card.label; font-family: Theme.body; font-weight: 600; font-size: Theme.t-ctl; color: Theme.ink; overflow: elide; }
+                                if card.moves: Caption { vertical-alignment: center; text: "MOVES"; color: Theme.warn; }
                             }
-                            if card.desc != "": Text { text: card.desc; font-family: Theme.body; font-size: 17px; color: Theme.muted; overflow: elide; }
+                            if card.desc != "": Text { text: card.desc; font-family: Theme.body; font-size: Theme.t-cap; color: Theme.muted; overflow: elide; }
                         }
-                        // What a tap would pick, lit.
-                if Live.cube-hot != "": Path {
-                    width: parent.width; height: parent.height;
-                    viewbox-width: 100; viewbox-height: 100;
-                    commands: Live.cube-hot;
-                    fill: Theme.sel.with-alpha(ct.pressed ? 0.55 : 0.35);
-                    stroke: Theme.sel;
-                    stroke-width: 1.5px;
-                }
-                ct := TouchArea {
-                    changed has-hover => { if !self.has-hover && !self.pressed { Actions.plot-cube-hover(-1, -1); } }
+                        ct := TouchArea {
                             enabled: unlocked && i < Live.mdi-cards.length;
                             clicked => { Actions.mdi-pick(card.fill); }
                         }
@@ -189,14 +182,19 @@ component MdiPanel inherits VerticalLayout {
                 if Live.mdi-cards.length == 0: Note { text: Live.mdi-category == "RECENT" ? "Commands you send appear here." : "No entries in this category."; }
             }
         }
-        GridLayout {
+        // Five equal columns; the last row's 0 spans the two under − and ⌫.
+        keys := VerticalLayout {
+            spacing: 8px;
+            property <length> kw: (self.width - 4 * 8px) / 5;
+            for r in [["G", "M", "X", "Y", "Z"], ["A", "F", "S", "T", "H"], ["P", "Q", "L", "R", "."], ["7", "8", "9", "−", "⌫"], ["4", "5", "6", "SPACE", "CLR"]]: HorizontalLayout {
                 spacing: 8px;
-                Row { for k in ["G", "M", "X", "Y", "Z"]: KeyBtn { text: k; } }
-                Row { for k in ["A", "F", "S", "T", "H"]: KeyBtn { text: k; } }
-                Row { for k in ["P", "Q", "L", "R", "."]: KeyBtn { text: k; } }
-                Row { for k in ["7", "8", "9", "−", "⌫"]: KeyBtn { text: k; } }
-                Row { for k in ["4", "5", "6", "SPACE", "CLR"]: KeyBtn { text: k; } }
-                Row { for k in ["1", "2", "3", "0"]: KeyBtn { text: k; } }
+                for k in r: KeyBtn { text: k; }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                for k in ["1", "2", "3"]: KeyBtn { text: k; width: keys.kw; }
+                KeyBtn { text: "0"; }
+            }
         }
 }
 
@@ -211,14 +209,22 @@ component GLine inherits Rectangle {
     // A tapped line fades in. The executing line moves many times a second,
     // so its tint has no animation: an animated binding that read `current`
     // would cost the whole screen an extra frame at every line.
-    Rectangle { background: picked ? Theme.raised : transparent; animate background { duration: Theme.quick; } }
+    // Picked (run from here): the chosen look, a tint with the accent edge.
+    // The bar at the left is only ever "the machine is here".
+    Rectangle {
+        border-radius: Theme.radius-sm;
+        background: picked ? Theme.sel-soft : transparent;
+        border-width: picked ? 2px : 0;
+        border-color: Theme.sel;
+        animate background { duration: Theme.quick; }
+    }
     Rectangle { background: current ? Theme.sel-soft : transparent; }
     if current: Rectangle { x: 0; width: 4px; background: Theme.sel; }
     HorizontalLayout {
         padding-left: 8px;
         spacing: 14px;
-        Text { width: 62px; horizontal-alignment: right; vertical-alignment: center; text: n; font-family: Theme.body; font-size: 18px; color: current ? Theme.sel-ink : Theme.dim; }
-        Text { vertical-alignment: center; text: code; font-family: Theme.body; font-weight: current ? 600 : 400; font-size: 21px; color: current ? Theme.ink : Theme.muted; overflow: elide; }
+        Text { width: 62px; horizontal-alignment: right; vertical-alignment: center; text: n; font-family: Theme.body; font-size: Theme.t-small; color: current ? Theme.sel-ink : Theme.dim; }
+        Text { vertical-alignment: center; text: code; font-family: Theme.body; font-weight: current ? 600 : 400; font-size: Theme.t-body; color: current ? Theme.ink : Theme.muted; overflow: elide; }
     }
     TouchArea { clicked => { root.tapped(); } }
 }
@@ -226,7 +232,7 @@ component GLine inherits Rectangle {
 component ProgramCard inherits Card {
     VerticalLayout {
         padding: Theme.pad;
-        spacing: 12px;
+        spacing: Theme.row;
         HorizontalLayout {
             height: 34px;
             H3 { horizontal-stretch: 1; vertical-alignment: center; text: Live.program == "" ? "NO PROGRAM LOADED" : Live.program; color: Live.program == "" ? Theme.muted : Theme.ink; overflow: elide; }
@@ -234,13 +240,17 @@ component ProgramCard inherits Card {
             // Right-aligned as a pair: a growing count only eats into the title's slack.
             Rectangle {
                 width: line-cap.preferred-width;
-                line-cap := Label { y: 2px; height: parent.height; vertical-alignment: center; text: "LINE"; font-size: 16px; color: Theme.dim; }
+                line-cap := Caption { y: 2px; height: parent.height; vertical-alignment: center; text: "LINE"; }
             }
+            // A fixed width for the longest count this program can show, so
+            // LINE never shifts as the run goes on.
             Text {
+                min-width: count-size.preferred-width;
+                count-size := Text { visible: false; text: Live.gcode-count + " / " + Live.gcode-count; font-family: Theme.body; font-weight: 600; font-size: Theme.t-btn; }
                 vertical-alignment: center;
                 horizontal-alignment: right;
                 text: min(Live.line, Live.gcode-count) + " / " + Live.gcode-count;
-                font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink;
+                font-family: Theme.body; font-weight: 600; font-size: Theme.t-btn; color: Theme.ink;
             }
             // Time left while running, the estimate before: the same pair
             // as LINE, a fixed width so the ticking clock doesn't nudge it.
@@ -249,14 +259,14 @@ component ProgramCard inherits Card {
             }
             if Live.time-left != "": Rectangle {
                 width: time-cap.preferred-width;
-                time-cap := Label { y: 2px; height: parent.height; vertical-alignment: center; text: Live.time-label; font-size: 16px; color: Theme.dim; }
+                time-cap := Caption { y: 2px; height: parent.height; vertical-alignment: center; text: Live.time-label; }
             }
             if Live.time-left != "": Text {
                 min-width: 92px;
                 vertical-alignment: center;
                 horizontal-alignment: right;
                 text: Live.time-left;
-                font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink;
+                font-family: Theme.body; font-weight: 600; font-size: Theme.t-btn; color: Theme.ink;
             }
         }
         Rectangle {
@@ -383,16 +393,15 @@ component ProgramCard inherits Card {
                 x: 12px; y: 12px; width: 68px;
                 spacing: 8px;
                 alignment: start;
-                Btn { height: 56px; font-size: 32px; text: "+"; clicked => { Actions.plot-zoom(1.5, 0.5, 0.5); } }
-                Btn { height: 56px; font-size: 32px; text: "−"; clicked => { Actions.plot-zoom(1 / 1.5, 0.5, 0.5); } }
+                Btn { height: Theme.h-ctl; font-size: Theme.t-big; text: "+"; clicked => { Actions.plot-zoom(1.5, 0.5, 0.5); } }
+                Btn { height: Theme.h-ctl; font-size: Theme.t-big; text: "−"; clicked => { Actions.plot-zoom(1 / 1.5, 0.5, 0.5); } }
                 Rectangle { height: 6px; }
-                Btn { height: 56px; font-size: 20px; text: "FIT"; clicked => { Actions.plot-fit(); } }
-                Btn { height: 56px; font-size: 20px; text: "CLEAR"; clicked => { Actions.plot-clear-trail(); } }
+                Btn { height: Theme.h-ctl; font-size: Theme.t-body; text: "FIT"; clicked => { Actions.plot-fit(); } }
+                Btn { height: Theme.h-ctl; font-size: Theme.t-body; text: "CLEAR"; clicked => { Actions.plot-clear-trail(); } }
             }
-            Text {
+            Caption {
                 x: 96px; y: 14px;
                 text: Live.plot-view + (Live.plot-summary == "" ? "" : "  ·  " + Live.plot-summary);
-                font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim;
             }
             // Load legend: only when a load module is fitted.
             if Live.program != "" && Live.plot-load != "": HorizontalLayout {
@@ -401,14 +410,14 @@ component ProgramCard inherits Card {
                 height: 22px;
                 alignment: start;
                 spacing: 8px;
-                Text { vertical-alignment: center; text: "LOAD"; font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim; }
+                Caption { vertical-alignment: center; text: "LOAD"; }
                 // Fixed width: the reading must not nudge the scale beside it.
-                Text { width: 44px; vertical-alignment: center; horizontal-alignment: right; text: Live.plot-load; font-family: Theme.body; font-weight: 600; font-size: 19px; color: Theme.ink; }
+                Text { width: 44px; vertical-alignment: center; horizontal-alignment: right; text: Live.plot-load; font-family: Theme.body; font-weight: 600; font-size: Theme.t-body; color: Theme.ink; }
                 VerticalLayout {
                     alignment: center;
                     HorizontalLayout {
                         spacing: 2px;
-                        for c in [#6fdc9c, #b1d080, #f3c463, #f18f5c, #ee5a54]: Rectangle { width: 18px; height: 6px; border-radius: 3px; background: c; }
+                        for c in Theme.load-scale: Rectangle { width: 18px; height: 6px; border-radius: 3px; background: c; }
                     }
                 }
             }
@@ -421,7 +430,7 @@ component ProgramCard inherits Card {
                     width: parent.width; height: parent.height;
                     viewbox-width: 100; viewbox-height: 100;
                     commands: f.path;
-                    fill: f.on ? Theme.sel.mix(Theme.raised, 0.25) : Theme.panel2.mix(#3a424b, 1 - f.facing * 0.7);
+                    fill: f.on ? Theme.sel.mix(Theme.raised, 0.25) : Theme.panel2.mix(Theme.raised-border, 1 - f.facing * 0.7);
                     stroke: f.on ? Theme.sel : Theme.raised-border;
                     stroke-width: f.on ? 2px : 1px;
                 }
@@ -438,7 +447,7 @@ component ProgramCard inherits Card {
                     width: 80px; height: 20px;
                     horizontal-alignment: center; vertical-alignment: center;
                     text: f.label;
-                    font-family: Theme.display; font-size: 15px; letter-spacing: 1.2px;
+                    font-family: Theme.display; font-size: Theme.t-cap; letter-spacing: 1.2px;
                     color: f.on ? Theme.sel-ink : Theme.muted;
                 }
                 // What a tap would pick, lit.
@@ -499,10 +508,9 @@ component ProgramCard inherits Card {
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 14px;
                     spacing: 10px;
-                    Text {
+                    Caption {
                         vertical-alignment: center;
                         text: "TRAVEL";
-                        font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px;
                         color: Live.plot-check-level == 2 ? Theme.bad : Live.plot-check-level == 1 ? Theme.warn : Theme.good;
                     }
                     Text {
@@ -510,7 +518,7 @@ component ProgramCard inherits Card {
                         vertical-alignment: center;
                         overflow: elide;
                         text: Live.plot-check;
-                        font-family: Theme.body; font-size: 18px; color: Theme.ink;
+                        font-family: Theme.body; font-size: Theme.t-small; color: Theme.ink;
                     }
                 }
                 TouchArea { enabled: Live.plot-check-level > 0; clicked => { Actions.plot-check-tap(); } }
@@ -518,7 +526,7 @@ component ProgramCard inherits Card {
             // Show or hide the table and the tool.
             Btn {
                 x: parent.width - self.width - 12px; y: parent.height - self.height - 12px;
-                width: 130px; height: 48px; font-size: 20px;
+                width: 130px; height: Theme.h-sm; font-size: Theme.t-body;
                 text: "TABLE"; on: Live.plot-machine;
                 visible: Live.plot-has-machine;
                 clicked => { Actions.plot-machine(); }
@@ -528,7 +536,7 @@ component ProgramCard inherits Card {
 }
 
 component GcodeView inherits VerticalLayout {
-    spacing: 10px;
+    spacing: Theme.row;
     property <length> line-h: 32px;
     property <int> cur: Live.line - 1;
     property <int> picked: Live.gcode-selected;
@@ -563,24 +571,25 @@ component GcodeView inherits VerticalLayout {
     // What a restart from the picked line will set up. Fixed height so the
     // buttons never move when a line is picked.
     Note {
-        height: 48px;
-        font-size: 17px;
+        height: 44px;
+        font-size: Theme.t-small;
         vertical-alignment: center;
         overflow: elide;
         text: Live.gcode-selected >= 0 ? Live.gcode-restart : "Tap a line to run from it.";
     }
     HorizontalLayout {
-        spacing: 12px;
+        spacing: 10px;
         Btn {
+            horizontal-stretch: 1;
             text: "RUN FROM SELECTED"; hold: true;
-            font-size: Layout.compact ? 18px : 24px;
+            font-size: Layout.compact ? Theme.t-small : Theme.t-btn;
             enabled: Live.gcode-selected >= 0 && Live.power && Live.homed && !Live.manual-locked;
             clicked => { Actions.gcode-run-from-selected(); }
         }
-        Btn { text: "NEXT M6"; font-size: Layout.compact ? 18px : 24px; enabled: Live.gcode-count > 0; clicked => { Actions.gcode-next-m6(); } }
+        Btn { text: "NEXT M6"; font-size: Layout.compact ? Theme.t-small : Theme.t-btn; enabled: Live.gcode-count > 0; clicked => { Actions.gcode-next-m6(); } }
         // Lines starting with "/" are skipped while this is on.
         Btn {
-            text: Layout.compact ? "BLOCK DEL" : "BLOCK DELETE"; font-size: Layout.compact ? 18px : 24px;
+            text: Layout.compact ? "BLOCK DEL" : "BLOCK DELETE"; font-size: Layout.compact ? Theme.t-small : Theme.t-btn;
             on: Live.block-delete; enabled: Live.connected;
             clicked => { Actions.block-delete(); }
         }
@@ -605,7 +614,7 @@ export component RunScreen inherits Rectangle {
             width: Layout.side;
             VerticalLayout {
                 padding: Theme.pad;
-                spacing: 12px;
+                spacing: Theme.row;
                 RunTabs { }
                 // The new tab's controls fade in; they take touches from the first frame.
                 if Live.run-tab == "program": GcodeView { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }

@@ -2,7 +2,7 @@ import { Theme, Layout } from "theme.slint";
 import { Live, Actions, PillData, DroRow, DroPos, NavItem, MsgRow, MdiCard, GotoRow, FileRow, ToolRow, CheckRow, OffsetRow, ProbeItem, ProbeSpot, ProbeParam, WarmStage, StatusRow, JobOp, ConvField, HistoryRow, SetupRow, SetupStep } from "state.slint";
 import { StatusBar, LeftColumn, BottomBar } from "frame.slint";
 import { Placeholder, RunScreen, Blocked } from "screens.slint";
-import { Arrive } from "widgets.slint";
+import { Arrive, Caption } from "widgets.slint";
 import { Brand, Boot, BootStep, Splash } from "brand.slint";
 
 import { ManualScreen } from "jog.slint";
@@ -86,7 +86,7 @@ export component MainWindow inherits Window {
             padding-left: 20px;
             padding-right: 20px;
             spacing: 0px;
-            Text { height: 38px; vertical-alignment: center; text: "MACHINE STATUS"; font-family: Theme.display; font-size: 18px; letter-spacing: 1.6px; color: Theme.dim; }
+            Caption { height: 38px; vertical-alignment: center; text: "MACHINE STATUS"; }
             for p in Live.pills: HorizontalLayout {
                 spacing: 14px;
                 VerticalLayout {
@@ -108,7 +108,7 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                         text: p.text;
                         font-family: Theme.display;
-                        font-size: 22px;
+                        font-size: Theme.t-ctl;
                         letter-spacing: 1.2px;
                         color: p.kind == "bad" ? Theme.bad : p.kind == "warn" ? Theme.warn : Theme.ink;
                     }
@@ -116,7 +116,7 @@ export component MainWindow inherits Window {
                         text: p.hint;
                         wrap: word-wrap;
                         font-family: Theme.body;
-                        font-size: 19px;
+                        font-size: Theme.t-body;
                         color: Theme.muted;
                     }
                 }
@@ -124,34 +124,36 @@ export component MainWindow inherits Window {
         }
         TouchArea { clicked => { Live.status-open = false; } }
     }
+    // The toast takes the top bar's message area (it says the same thing,
+    // louder), so it never covers a control on the screen below. It drops
+    // into place as it appears; a long one grows down over the screen's edge.
     if Live.toast != "": Rectangle {
-        x: parent.width - self.width - 14px;
-        // Under the top bar, clear of the plot and bottom-bar controls. It
-        // drops into place as it appears.
-        y: 60px;
+        property <length> right: Live.remote ? 290px : 400px;
+        width: min(640px, parent.width - Layout.left - self.right - 20px);
+        x: parent.width - self.right - self.width;
+        y: -8px;
         opacity: 0;
         init => {
-            self.y = 72px;
+            self.y = 4px;
             self.opacity = 1;
         }
         animate y, opacity { duration: Theme.enter; easing: ease-out; }
-        width: 860px;
         // Grows to fit: an error is read in full, never cut off.
-        height: max(84px, toast-text.preferred-height + 28px);
+        height: max(56px, toast-text.preferred-height + 16px);
         background: Theme.panel2;
         border-width: 2px;
         border-color: Live.toast-info ? Theme.warn : Theme.bad;
         border-radius: Theme.radius-ctl;
         toast-text := Text {
-            x: 24px;
-            width: parent.width - 48px;
+            x: 18px;
+            width: parent.width - 36px;
             height: parent.height;
             vertical-alignment: center;
             text: Live.toast;
             wrap: word-wrap;
             font-family: Theme.body;
             font-weight: 600;
-            font-size: 26px;
+            font-size: Theme.t-ctl;
             color: Live.toast-info ? Theme.warn : Theme.bad;
         }
         TouchArea { clicked => { Live.toast = ""; Actions.toast-dismiss(); } }

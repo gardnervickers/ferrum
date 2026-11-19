@@ -3,30 +3,17 @@
 // here moves the machine except the tool setter buttons, which UTIL has too.
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, SetupRow, SetupStep, StatusRow } from "state.slint";
-import { Btn, Card, Label, H3, Note, Pill, Seg, NumField } from "widgets.slint";
+import { Btn, Card, Label, Caption, Kv, H3, Note, Pill, Seg, NumField } from "widgets.slint";
 
-component Fact inherits Rectangle {
+// A fact tile, with the value in its status tone.
+component Fact inherits Kv {
     in property <string> key;
-    in property <string> value;
     in property <string> kind;
-    height: 74px;
+    label: key;
+    inset: true;
     min-width: 0px;
     horizontal-stretch: 1;
-    background: Theme.panel2;
-    border-radius: Theme.radius-ctl;
-    VerticalLayout {
-        padding-left: 12px;
-        padding-top: 6px;
-        Label { text: key; font-size: 17px; }
-        Text {
-            text: value;
-            font-family: Theme.body;
-            font-weight: 600;
-            font-size: 26px;
-            color: kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : Theme.ink;
-            overflow: elide;
-        }
-    }
+    tone: kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : Theme.ink;
 }
 
 component StepTab inherits Rectangle {
@@ -34,7 +21,7 @@ component StepTab inherits Rectangle {
     in property <int> index;
     in property <bool> on;
     callback clicked();
-    height: 70px;
+    height: Theme.h-choice;
     border-radius: Theme.radius-ctl;
     background: on ? Theme.sel-soft : touch.pressed ? Theme.raised : Theme.panel2;
     border-width: 2px;
@@ -44,16 +31,19 @@ component StepTab inherits Rectangle {
         padding-left: 16px;
         padding-right: 14px;
         spacing: 12px;
-        Text { vertical-alignment: center; width: 26px; text: index + 1; font-family: Theme.display; font-size: 26px; color: on ? Theme.sel-ink : Theme.dim; }
-        Text { vertical-alignment: center; horizontal-stretch: 1; text: step.label; font-family: Theme.display; font-size: 26px; letter-spacing: 1.4px; color: on ? Theme.sel-ink : Theme.ink; overflow: elide; }
+        Text { vertical-alignment: center; width: 26px; text: index + 1; font-family: Theme.body; font-weight: 600; font-size: Theme.t-value; color: on ? Theme.sel-ink : Theme.dim; }
+        Text { vertical-alignment: center; horizontal-stretch: 1; text: step.label; font-family: Theme.display; font-size: Theme.t-btn; letter-spacing: 1.2px; color: on ? Theme.sel-ink : Theme.ink; overflow: elide; }
         if step.count > 0: VerticalLayout {
             alignment: center;
             Rectangle {
-                width: max(28px, n.preferred-width + 12px);
-                height: 28px;
-                border-radius: 14px;
+                // The same count badge as on the nav.
+                width: max(26px, n.preferred-width + 12px);
+                height: 26px;
+                border-radius: 13px;
                 background: Theme.warn-soft;
-                n := Text { text: step.count; font-family: Theme.display; font-size: 20px; color: Theme.warn; horizontal-alignment: center; vertical-alignment: center; }
+                border-width: 1px;
+                border-color: Theme.warn.with-alpha(0.5);
+                n := Text { text: step.count; font-family: Theme.body; font-weight: 600; font-size: Theme.t-small; color: Theme.warn; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
     }
@@ -67,7 +57,7 @@ component RowView inherits Rectangle {
     background: r.level == "bad" ? Theme.bad-soft : r.level == "warn" ? Theme.warn-soft : Theme.panel2;
     border-radius: Theme.radius-ctl;
     HorizontalLayout {
-        padding: 14px;
+        padding: Theme.pad;
         padding-left: 18px;
         spacing: 16px;
         // The dot sits on the title's line.
@@ -80,7 +70,7 @@ component RowView inherits Rectangle {
             horizontal-stretch: 1;
             spacing: 4px;
             alignment: center;
-            Text { text: r.title; wrap: word-wrap; font-family: Theme.body; font-weight: 600; font-size: 25px; color: Theme.ink; }
+            Text { text: r.title; wrap: word-wrap; font-family: Theme.body; font-weight: 600; font-size: Theme.t-btn; color: Theme.ink; }
             if r.detail != "": Note { text: r.detail; }
             if r.code != "": Rectangle {
                 background: Theme.well;
@@ -93,21 +83,21 @@ component RowView inherits Rectangle {
                     text: r.code;
                     wrap: word-wrap;
                     font-family: Theme.body;
-                    font-size: 21px;
+                    font-size: Theme.t-body;
                     color: Theme.sel-ink;
                 }
             }
-            if r.note != "": Text { text: r.note; wrap: word-wrap; font-family: Theme.body; font-size: 19px; color: Theme.warn; }
+            if r.note != "": Text { text: r.note; wrap: word-wrap; font-family: Theme.body; font-size: Theme.t-body; color: Theme.warn; }
         }
         // The control, in a fixed column so the rows line up.
         if setting || r.kind == "live" || r.kind == "action": VerticalLayout {
             width: 300px;
             alignment: center;
             if r.kind == "number": NumField { value: r.value; edit => { Actions.edit("setup-" + r.key); } }
-            if r.kind == "choice": Btn { height: 56px; font-size: 22px; text: r.value; clicked => { Actions.setup-tap(r.key); } }
+            if r.kind == "choice": Btn { height: Theme.h-ctl; menu: true; family: Theme.body; font-size: Theme.t-ctl; text: r.value; clicked => { Actions.setup-tap(r.key); } }
             if r.kind == "bool": HorizontalLayout {
                 spacing: 0px;
-                height: 56px;
+                height: Theme.h-ctl;
                 Seg { first: true; text: "YES"; on: r.value == "YES"; clicked => { if r.value != "YES" { Actions.setup-tap(r.key); } } }
                 Seg { last: true; text: "NO"; on: r.value == "NO"; clicked => { if r.value != "NO" { Actions.setup-tap(r.key); } } }
             }
@@ -115,31 +105,31 @@ component RowView inherits Rectangle {
                 alignment: end;
                 Pill { text: r.value; kind: r.level == "ok" ? "good" : r.level == "bad" ? "bad" : r.level == "warn" ? "warn" : ""; }
             }
-            if r.kind == "action": Btn { height: 64px; font-size: 22px; text: r.value; hold: r.key == "set-g30"; sub: r.key == "set-g30" ? "HOLD" : ""; enabled: Live.power && !Live.manual-locked; clicked => { Actions.setup-tap(r.key); } }
+            if r.kind == "action": Btn { height: Theme.h-ctl; font-size: Theme.t-ctl; text: r.value; hold: r.key == "set-g30"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.setup-tap(r.key); } }
         }
     }
 }
 
 export component SetupScreen inherits Rectangle {
     HorizontalLayout {
-        padding: 14px;
-        spacing: 14px;
+        padding: Theme.gap;
+        spacing: Theme.gap;
         Card {
             width: Layout.compact ? 300px : 340px;
             VerticalLayout {
-                padding: 14px;
-                spacing: 10px;
+                padding: Theme.pad;
+                spacing: Theme.row;
                 H3 { text: "SETUP"; }
                 for st[i] in Live.setup-steps: StepTab { step: st; index: i; on: i == Live.setup-step; clicked => { Actions.setup-go(i); } }
                 Rectangle { vertical-stretch: 1; }
-                if Live.setup-pending != "": Text { text: Live.setup-pending; wrap: word-wrap; font-family: Theme.body; font-size: 19px; color: Theme.warn; }
+                if Live.setup-pending != "": Text { text: Live.setup-pending; wrap: word-wrap; font-family: Theme.body; font-size: Theme.t-body; color: Theme.warn; }
             }
         }
         Card {
             horizontal-stretch: 1;
             VerticalLayout {
-                padding: 14px;
-                spacing: 12px;
+                padding: Theme.pad;
+                spacing: Theme.row;
                 if Live.setup-first: Rectangle {
                     background: Theme.info-soft;
                     border-radius: Theme.radius-ctl;
@@ -151,7 +141,7 @@ export component SetupScreen inherits Rectangle {
                         text: "New machine: jog, home, MDI, programs, offsets and tools work now. These steps set up the rest. Each change is saved to ferrum.toml as you make it; FINISH ends setup.";
                         wrap: word-wrap;
                         font-family: Theme.body;
-                        font-size: 22px;
+                        font-size: Theme.t-ctl;
                         color: Theme.info;
                     }
                 }
@@ -173,11 +163,11 @@ export component SetupScreen inherits Rectangle {
                     }
                 }
                 HorizontalLayout {
-                    spacing: 14px;
-                    Btn { width: 200px; height: 64px; text: "BACK"; enabled: Live.setup-step > 0; clicked => { Actions.setup-go(Live.setup-step - 1); } }
+                    spacing: 12px;
+                    Btn { width: 200px; height: Theme.h-ctl; text: "BACK"; enabled: Live.setup-step > 0; clicked => { Actions.setup-go(Live.setup-step - 1); } }
                     Rectangle { horizontal-stretch: 1; }
-                    if Live.setup-step < Live.setup-steps.length - 1: Btn { width: 200px; height: 64px; text: "NEXT"; clicked => { Actions.setup-go(Live.setup-step + 1); } }
-                    if Live.setup-step == Live.setup-steps.length - 1: Btn { width: 200px; height: 64px; text: "FINISH"; kind: "go"; clicked => { Actions.setup-finish(); } }
+                    if Live.setup-step < Live.setup-steps.length - 1: Btn { width: 200px; height: Theme.h-ctl; text: "NEXT"; clicked => { Actions.setup-go(Live.setup-step + 1); } }
+                    if Live.setup-step == Live.setup-steps.length - 1: Btn { width: 200px; height: Theme.h-ctl; text: "FINISH"; clicked => { Actions.setup-finish(); } }
                 }
             }
         }

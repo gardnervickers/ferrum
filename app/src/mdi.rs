@@ -19,9 +19,20 @@ pub struct Entry {
     pub category: String,
     pub label: String,
     pub description: String,
+    /// A shorter description for the card (one line of about 40 characters);
+    /// the full one is the help line. Optional.
+    #[serde(default)]
+    pub brief: String,
     pub fill: String,
     #[serde(default)]
     pub moves: bool,
+}
+
+impl Entry {
+    /// What the card shows under the label.
+    pub fn card_text(&self) -> &str {
+        if self.brief.is_empty() { &self.description } else { &self.brief }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -147,7 +158,7 @@ impl Mdi {
                 .history
                 .iter()
                 .map(|h| {
-                    let desc = self.lib.explain(h).map(|e| e.description.clone()).unwrap_or_default();
+                    let desc = self.lib.explain(h).map(|e| e.card_text().to_string()).unwrap_or_default();
                     let moves = self.lib.explain(h).is_some_and(|e| e.moves);
                     MdiCard { label: h.into(), desc: desc.into(), fill: h.into(), moves }
                 })
@@ -159,7 +170,7 @@ impl Mdi {
             .filter(|e| e.category == self.category)
             .map(|e| MdiCard {
                 label: e.label.clone().into(),
-                desc: e.description.clone().into(),
+                desc: e.card_text().into(),
                 fill: e.fill.clone().into(),
                 moves: e.moves,
             })

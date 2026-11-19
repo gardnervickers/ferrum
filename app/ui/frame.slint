@@ -1,7 +1,7 @@
 // The fixed machine frame: status bar, DRO column, nav and cycle bar.
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, DroRow, DroPos } from "state.slint";
-import { Btn, Pill, Label, Card } from "widgets.slint";
+import { Btn, EqBtn, Pill, Label, Caption, Card, Kv } from "widgets.slint";
 import { Brand } from "brand.slint";
 
 // The product's mark, small, for the top bar: the Fe tile and the name.
@@ -15,7 +15,7 @@ component TopMark inherits HorizontalLayout {
         Rectangle {
             width: 38px;
             height: 38px;
-            border-radius: 6px;
+            border-radius: Theme.radius-sm;
             border-width: 2px;
             border-color: Brand.rust;
             background: Theme.panel;
@@ -25,7 +25,7 @@ component TopMark inherits HorizontalLayout {
                 vertical-alignment: center;
                 font-family: Theme.body;
                 font-weight: 600;
-                font-size: 22px;
+                font-size: Theme.t-ctl;
                 color: Brand.rust;
             }
         }
@@ -34,7 +34,7 @@ component TopMark inherits HorizontalLayout {
         vertical-alignment: center;
         text: Brand.name;
         font-family: Theme.display;
-        font-size: 26px;
+        font-size: Theme.t-value;
         letter-spacing: 2px;
         color: Theme.dim;
     }
@@ -68,9 +68,9 @@ export component StatusBar inherits Rectangle {
         VerticalLayout {
             alignment: center;
             Btn {
-                height: 56px;
+                height: Theme.h-ctl;
                 width: 190px;
-                font-size: 22px;
+                font-size: Theme.t-ctl;
                 text: Live.estop ? "RESET E-STOP" : "E-STOP";
                 kind: Live.estop ? "tripped" : "stop";
                 hold: Live.estop;
@@ -85,26 +85,14 @@ export component StatusBar inherits Rectangle {
         VerticalLayout {
             alignment: center;
             Btn {
-                height: 56px;
+                height: Theme.h-ctl;
                 width: 176px;
-                font-size: 22px;
+                font-size: Theme.t-ctl;
                 text: Live.power ? "POWER ON" : "POWER OFF";
                 on: Live.power;
                 hold: true;
                 enabled: Live.connected && !Live.estop;
                 clicked => { Actions.power(); }
-            }
-        }
-        if Live.connected && Live.power && !Live.homed && Live.home-all-ok: VerticalLayout {
-            alignment: center;
-            Btn {
-                height: 56px;
-                width: 170px;
-                font-size: 22px;
-                text: "HOME ALL";
-                kind: "hold";
-                hold: true;
-                clicked => { Actions.home-all(); }
             }
         }
         // The mode (E-STOP, AUTO, MDI...): a fixed width keeps what follows
@@ -122,7 +110,8 @@ export component StatusBar inherits Rectangle {
                 horizontal-stretch: 0;
                 HorizontalLayout {
                     Pill {
-                        text: Live.status-text + (Live.status-open ? "  ▲" : "  ▼");
+                        text: Live.status-text;
+                        caret: Live.status-open ? "up" : "down";
                         kind: Live.status-kind;
                         min-width: 150px;
                         lit: Live.status-flash && root.blink;
@@ -137,6 +126,19 @@ export component StatusBar inherits Rectangle {
                 }
             }
         }
+        // After the pills, so they never move when it appears: only the
+        // message area gives way. A plain plate, as HOME ALL in the column.
+        if Live.connected && Live.power && !Live.homed && Live.home-all-ok: VerticalLayout {
+            alignment: center;
+            Btn {
+                height: Theme.h-ctl;
+                width: 170px;
+                font-size: Theme.t-ctl;
+                text: "HOME ALL";
+                hold: true;
+                clicked => { Actions.home-all(); }
+            }
+        }
         Text {
             horizontal-stretch: 1;
             min-width: 0;
@@ -144,8 +146,10 @@ export component StatusBar inherits Rectangle {
             horizontal-alignment: right;
             overflow: elide;
             text: Live.message;
+            // A toast takes this area while it shows (see main.slint).
+            opacity: Live.toast != "" ? 0 : 1;
             font-family: Theme.body;
-            font-size: 21px;
+            font-size: Theme.t-body;
             color: Live.message-error ? Theme.bad : root.fresh ? Theme.ink : Theme.muted;
             animate color { duration: root.fresh ? 0ms : 800ms; easing: ease-out; }
             // Tapping the latest message opens the full log.
@@ -160,7 +164,7 @@ export component StatusBar inherits Rectangle {
             horizontal-alignment: right;
             text: Live.clock;
             font-family: Theme.display;
-            font-size: 24px;
+            font-size: Theme.t-btn;
             color: Theme.muted;
         }
         // Closing the display ends the LinuxCNC session; never mid-program.
@@ -169,9 +173,9 @@ export component StatusBar inherits Rectangle {
             alignment: center;
             if !Live.remote: Btn {
                 width: 110px;
-                height: 48px;
+                height: Theme.h-sm;
                 text: "EXIT";
-                font-size: 20px;
+                font-size: Theme.t-body;
                 hold: true;
                 enabled: !Live.running;
                 clicked => { Actions.exit(); }
@@ -188,8 +192,8 @@ component DroSub inherits Rectangle {
     in property <length> value-width;
     width: value-width + 40px;
     // Bebas caps sit high in their line box; 2px down puts them on the value's baseline.
-    Text { x: 0; y: 2px; height: parent.height; vertical-alignment: center; text: label; font-family: Theme.display; font-size: 14px; letter-spacing: 1.4px; color: Theme.dim; }
-    Text { x: 40px; width: value-width; height: parent.height; vertical-alignment: center; horizontal-alignment: right; text: value; font-family: Theme.body; font-weight: 500; font-size: 19px; color: Theme.muted; }
+    Caption { x: 0; y: 2px; height: parent.height; vertical-alignment: center; text: label; font-size: Theme.t-tag; }
+    Text { x: 40px; width: value-width; height: parent.height; vertical-alignment: center; horizontal-alignment: right; text: value; font-family: Theme.body; font-weight: 500; font-size: Theme.t-body; color: Theme.muted; }
 }
 
 component DroLine inherits Rectangle {
@@ -235,9 +239,9 @@ component DroLine inherits Rectangle {
         x: 50px;
         y: 12px;
         width: root.zero-w;
-        height: 56px;
+        height: Theme.h-ctl;
         text: "ZERO";
-        font-size: Layout.compact ? 20px : 22px;
+        font-size: Layout.compact ? Theme.t-body : Theme.t-ctl;
         enabled: Live.power && data.homed && !Live.manual-locked;
         clicked => {
             Actions.dro-zero(data.axis);
@@ -251,11 +255,10 @@ component DroLine inherits Rectangle {
         y: 12px;
         // Wider than ZERO so the HOLD tag clears the word.
         width: root.zero-w + 36px;
-        height: 56px;
+        height: Theme.h-ctl;
         text: "HOME";
-        kind: "hold";
         hold: true;
-        font-size: Layout.compact ? 20px : 22px;
+        font-size: Layout.compact ? Theme.t-body : Theme.t-ctl;
         enabled: Live.connected && !Live.running;
         clicked => { Actions.home-axis(data.axis); }
     }
@@ -284,23 +287,6 @@ component DroLine inherits Rectangle {
     }
 }
 
-component Kv inherits Rectangle {
-    in property <string> label;
-    in property <string> value;
-    height: 64px;
-    background: Theme.panel;
-    border-radius: Theme.radius-ctl;
-    VerticalLayout {
-        padding-left: 14px;
-        padding-right: 12px;
-        padding-top: 7px;
-        spacing: 1px;
-        alignment: start;
-        Text { text: label; font-family: Theme.display; font-size: 15px; letter-spacing: 1.5px; color: Theme.dim; }
-        Text { text: value; font-family: Theme.body; font-weight: 600; font-size: 27px; color: Theme.ink; overflow: elide; }
-    }
-}
-
 component OverrideRow inherits HorizontalLayout {
     in property <string> label;
     in property <string> which;
@@ -308,9 +294,9 @@ component OverrideRow inherits HorizontalLayout {
     in property <int> limit;
     in property <int> step: 10;
     spacing: 10px;
-    height: 50px;
-    Label { width: 84px; vertical-alignment: center; text: label; font-size: 18px; }
-    Btn { width: 64px; min-height: 50px; text: "−"; font-size: 28px; clicked => { Actions.override(which, -step); } }
+    height: Theme.h-sm;
+    Label { width: 84px; vertical-alignment: center; text: label; font-size: Theme.t-small; }
+    Btn { width: 64px; min-height: Theme.h-sm; text: "−"; font-size: Theme.t-value; clicked => { Actions.override(which, -step); } }
     Rectangle {
         horizontal-stretch: 1;
         Rectangle {
@@ -335,7 +321,7 @@ component OverrideRow inherits HorizontalLayout {
             background: Theme.muted;
         }
     }
-    Btn { width: 64px; min-height: 50px; text: "+"; font-size: 28px; clicked => { Actions.override(which, step); } }
+    Btn { width: 64px; min-height: Theme.h-sm; text: "+"; font-size: Theme.t-value; clicked => { Actions.override(which, step); } }
     // Tapping the percentage resets the row to 100%.
     Text {
         width: 72px;
@@ -345,7 +331,7 @@ component OverrideRow inherits HorizontalLayout {
         TouchArea { clicked => { Actions.override-reset(which); } }
         font-family: Theme.body;
         font-weight: 600;
-        font-size: 27px;
+        font-size: Theme.t-value;
         color: pct == 100 ? Theme.ink : Theme.warn;
         animate color { duration: Theme.settle; }
     }
@@ -388,7 +374,7 @@ export component LeftColumn inherits Rectangle {
         Text {
             text: Live.modal;
             font-family: Theme.body;
-            font-size: 18px;
+            font-size: Theme.t-small;
             letter-spacing: 0.3px;
             color: Theme.dim;
             overflow: elide;
@@ -411,14 +397,14 @@ export component LeftColumn inherits Rectangle {
             HorizontalLayout {
                 spacing: 8px;
                 if Live.quick-mist: Btn {
-                    height: 54px; font-size: 22px;
+                    height: Theme.h-ctl; font-size: Theme.t-ctl;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: "MIST"; on: Live.mist;
                     enabled: Live.connected && Live.power;
                     clicked => { Actions.mist-toggle(); }
                 }
                 if Live.quick-flood: Btn {
-                    height: 54px; font-size: 22px;
+                    height: Theme.h-ctl; font-size: Theme.t-ctl;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: "FLOOD"; on: Live.flood;
                     enabled: Live.connected && Live.power;
@@ -430,19 +416,18 @@ export component LeftColumn inherits Rectangle {
                 // Released: tap to clamp. Clamped: hold to release (spindle
                 // off, nothing running); releasing also clears the tool.
                 if Live.quick-drawbar && Live.tools-drawbar != "NOT FITTED": Btn {
-                    height: 54px; font-size: 22px;
+                    height: Theme.h-ctl; font-size: Theme.t-ctl;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
                     text: Live.tools-drawbar == "EXTENDED" ? "CLAMP TOOL" : "RELEASE TOOL";
                     kind: Live.tools-drawbar == "EXTENDED" ? "hold" : "";
                     hold: Live.tools-drawbar != "EXTENDED";
-                    sub: Live.tools-drawbar == "EXTENDED" ? "" : "HOLD";
                     enabled: Live.tools-drawbar == "EXTENDED" ? Live.tools-can-retract : Live.tools-can-extend;
                     clicked => { Actions.tools-drawbar(Live.tools-drawbar != "EXTENDED"); }
                 }
                 if Live.quick-home: Btn {
-                    height: 54px; font-size: 22px;
+                    height: Theme.h-ctl; font-size: Theme.t-ctl;
                     preferred-width: 0; min-width: 0; horizontal-stretch: 1;
-                    text: "HOME ALL"; sub: "HOLD"; hold: true;
+                    text: "HOME ALL"; hold: true;
                     enabled: Live.connected && Live.power && !Live.running;
                     clicked => { Actions.home-all(); }
                 }
@@ -497,7 +482,8 @@ export component BottomBar inherits Rectangle {
                     glide: true;
                     width: parent.width;
                     height: parent.height;
-                    font-size: Layout.compact ? 20px : 24px;
+                    // Ten tabs in a narrow window: a size down, so no label wraps.
+                    font-size: Layout.compact ? (root.nav-many ? Theme.t-small : Theme.t-body) : Theme.t-btn;
                     flat: true;
                     icon: n.icon;
                     text: n.label;
@@ -511,12 +497,15 @@ export component BottomBar inherits Rectangle {
                     width: max(26px, badge-text.preferred-width + 12px);
                     height: 26px;
                     border-radius: 13px;
-                    background: Theme.warn;
+                    // A soft plate with the count in the tone, as on SETUP.
+                    background: Theme.bar;
+                    Rectangle { border-radius: 13px; background: Theme.warn-soft; border-width: 1px; border-color: Theme.warn.with-alpha(0.5); }
                     badge-text := Text {
                         text: n.badge;
-                        font-family: Theme.display;
-                        font-size: 18px;
-                        color: Theme.frame;
+                        font-family: Theme.body;
+                        font-weight: 600;
+                        font-size: Theme.t-small;
+                        color: Theme.warn;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -528,12 +517,12 @@ export component BottomBar inherits Rectangle {
             alignment: center;
             spacing: 8px;
             Btn {
-                width: Layout.compact ? 136px : 150px; height: 44px; font-size: Layout.compact ? 18px : 20px;
+                width: Layout.compact ? 136px : 150px; height: Theme.h-sm; font-size: Layout.compact ? Theme.t-small : Theme.t-body;
                 text: "SINGLE BLOCK"; on: Live.single-block;
                 clicked => { Actions.single-block(); }
             }
             Btn {
-                width: Layout.compact ? 136px : 150px; height: 44px; font-size: Layout.compact ? 18px : 20px;
+                width: Layout.compact ? 136px : 150px; height: Theme.h-sm; font-size: Layout.compact ? Theme.t-small : Theme.t-body;
                 text: "M01 STOP"; on: Live.optional-stop;
                 enabled: Live.connected;
                 clicked => { Actions.optional-stop(); }
@@ -563,7 +552,7 @@ export component BottomBar inherits Rectangle {
             // A static ring (no flashing) says CYCLE START will resume.
             Rectangle {
                 width: cycle-w + 12px; height: 112px;
-                border-radius: 15px;
+                border-radius: Theme.radius-ctl + 5px;
                 border-width: 4px;
                 border-color: Live.paused ? Theme.good : transparent;
                 animate border-color { duration: Theme.settle; }

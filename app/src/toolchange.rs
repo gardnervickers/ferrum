@@ -266,22 +266,22 @@ impl ToolChange {
             live.set_tc_message(why.into());
         };
         if !self.resume_safe() {
-            return fail("NOT SAFE TO RESUME: SPINDLE OFF, DRAWBAR RETRACTED AND TOOL SEATED ARE ALL REQUIRED.");
+            return fail("Not safe to resume: spindle off, drawbar retracted and tool seated are all required.");
         }
         // A drill can be changed in its chuck without cycling the drawbar;
         // still require a cleared request before M6 resumes.
         self.io.set_manual_request(false);
         if !self.clear_touch_off() {
-            return fail("COULD NOT CLEAR THE TOUCH-OFF REQUEST. CHECK HAL.");
+            return fail("Could not clear the touch-off request. Check HAL.");
         }
         if touch_off {
             if !self.touch_off_allowed() {
-                return fail("TOUCH OFF IS NOT AVAILABLE FOR THIS TOOL.");
+                return fail("Touch off is not available for this tool.");
             }
             pulse(|on| self.io.set_touch_off(on));
             if self.io.read().touch_off_latched != Some(true) {
                 self.clear_touch_off();
-                return fail("THE TOUCH-OFF REQUEST DID NOT LATCH. CHECK HAL.");
+                return fail("The touch-off request did not latch. Check HAL.");
             }
         }
         self.last = self.io.read();
@@ -344,19 +344,19 @@ impl ToolChange {
         live.set_tc_seated(self.seated);
         live.set_tc_has_drawbar(self.io.drawbar());
         let msg = if i.spindle_request == Some(true) {
-            "SPINDLE COMMAND ACTIVE. ACKNOWLEDGE ONLY WHEN THE TOOL CHANGE IS SAFE."
+            "Spindle command active. Acknowledge only when the tool change is safe."
         } else if !self.io.drawbar() && !self.seated {
-            "LOAD THE TOOL, VERIFY IT IS SECURE, THEN ACKNOWLEDGE BELOW."
+            "Load the tool, verify it is secure, then acknowledge below."
         } else if !self.io.drawbar() {
-            "TOOL ACKNOWLEDGED. RESUME WHEN READY."
+            "Tool acknowledged. Resume when ready."
         } else if i.drawbar_extended == Some(true) {
-            "DRAWBAR EXTENDED. RETRACT IF NEEDED, THEN ACKNOWLEDGE WHEN THE TOOL IS SECURE."
+            "Drawbar extended. Retract if needed, then acknowledge when the tool is secure."
         } else if i.drawbar_extended.is_none() {
-            "DRAWBAR STATUS UNKNOWN. ACKNOWLEDGE ONLY AFTER THE TOOL IS SECURE."
+            "Drawbar status unknown. Acknowledge only after the tool is secure."
         } else if !self.seated {
-            "LOAD THE TOOL, VERIFY IT IS SEATED, THEN ACKNOWLEDGE BELOW."
+            "Load the tool, verify it is seated, then acknowledge below."
         } else {
-            "TOOL SEATED ACKNOWLEDGED. RESUME OR TOUCH OFF WHEN READY."
+            "Tool seated acknowledged. Resume or touch off when ready."
         };
         live.set_tc_message(msg.into());
         live.set_tc_can_extend(i.spindle_request == Some(false));
@@ -366,11 +366,11 @@ impl ToolChange {
         live.set_tc_touch_off_tip(
             if t == self.probe_tool { "The probe is calibrated on a reference surface, not here" } else { "Measure the tool on the fixed toolsetter" }.into(),
         );
-        live.set_tc_scratch(if crate::machine_cfg::get().is_scratch_tool(t) { format!("SCRATCH TOOL T{t}: A TOOL TOUCH OFF IS LIKELY REQUIRED BEFORE CUTTING") } else { String::new() }.into());
+        live.set_tc_scratch(if crate::machine_cfg::get().is_scratch_tool(t) { format!("Scratch tool T{t}: a tool touch off is likely required before cutting.") } else { String::new() }.into());
         let (text, kind) = match i.nose_reference {
-            Some(true) => ("SPINDLE NOSE REFERENCE UPDATED AFTER HOMING", "good"),
-            Some(false) => ("SPINDLE NOSE REFERENCE NOT UPDATED AFTER HOMING", "warn"),
-            None => ("SPINDLE NOSE REFERENCE STATUS UNKNOWN", ""),
+            Some(true) => ("NOSE REFERENCE UPDATED", "good"),
+            Some(false) => ("NOSE REFERENCE NOT UPDATED", "warn"),
+            None => ("NOSE REFERENCE UNKNOWN", ""),
         };
         live.set_tc_nose(text.into());
         live.set_tc_nose_kind(kind.into());

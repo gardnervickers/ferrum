@@ -14,7 +14,7 @@ mdi G53 G1 Z${stock_depth_mz} F2000
 include ../common/probe-run.scn
 expect prop.pr-result{Stock} ~= ${stock_w} +- ${geom_tol}
 expect prop.pr-result{×} ~= ${stock_h} +- ${geom_tol}
-expect prop.pr-run-label == "HOLD TO APPLY"
+expect prop.pr-run-label == "APPLY"
 expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001  # measuring writes nothing
 include ../common/probe-run.scn
 expect prop.pr-result contains "Center written to G54"

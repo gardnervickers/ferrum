@@ -1,48 +1,7 @@
 import { Theme } from "theme.slint";
 import { Live, Actions, ConvField } from "state.slint";
-import { Btn, Seg, Card, Label, H3, Note } from "widgets.slint";
+import { Btn, EqBtn, Seg, Card, Label, Caption, FieldTile, Chevron, H3, Note } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
-
-// One input as a tile: caption above, value below. A choice opens the
-// picker; a number opens the keypad.
-component FieldTile inherits Rectangle {
-    in property <ConvField> f;
-    // An empty slot keeps the grid's columns when the count is odd.
-    in property <bool> empty;
-    property <bool> unused: f.value == "—";
-    height: 76px;
-    horizontal-stretch: 1;
-    border-radius: Theme.radius-ctl;
-    background: empty ? transparent : f.choice ? Theme.raised : Theme.well;
-    border-width: empty ? 0 : 1px;
-    border-color: touch.pressed ? Theme.sel : Theme.raised-border;
-    opacity: unused ? 0.45 : 1;
-    animate border-color { duration: touch.pressed ? 0ms : 200ms; }
-    if !empty: Text {
-        x: 16px; y: 9px;
-        width: parent.width - 32px;
-        text: f.label;
-        font-family: Theme.display; font-size: 16px; letter-spacing: 1.5px;
-        color: Theme.dim;
-        overflow: elide;
-    }
-    if !empty: HorizontalLayout {
-        x: 16px; y: 30px;
-        width: parent.width - 32px;
-        height: 38px;
-        spacing: 7px;
-        alignment: start;
-        Text { vertical-alignment: center; text: f.value; font-family: Theme.body; font-weight: 600; font-size: 30px; color: Theme.ink; overflow: elide; }
-        if f.unit != "": Text { y: 3px; vertical-alignment: center; text: f.unit; font-family: Theme.body; font-size: 18px; color: Theme.dim; }
-    }
-    if !empty && f.choice: Text {
-        x: parent.width - 34px;
-        height: parent.height;
-        vertical-alignment: center;
-        text: "▾"; font-size: 32px; color: Theme.muted;
-    }
-    touch := TouchArea { enabled: !empty && !unused; clicked => { Actions.conv-field(f.key); } }
-}
 
 // One line of the recap: a section and what it is set to. Tapping opens it.
 component RecapRow inherits Rectangle {
@@ -50,14 +9,15 @@ component RecapRow inherits Rectangle {
     property <bool> on: Live.conv-section == r.key;
     height: 48px;
     border-radius: Theme.radius-sm;
+    // The chosen row: a tint with the accent edge, as in every list.
     background: on ? Theme.sel-soft : touch.pressed ? Theme.raised : transparent;
+    border-width: on ? 2px : 0;
+    border-color: Theme.sel;
     animate background { duration: Theme.quick; }
-    Rectangle { x: 0; y: 9px; width: 4px; height: parent.height - 18px; border-radius: 2px; background: on ? Theme.sel : transparent; animate background { duration: Theme.quick; } }
-    Text {
+    Caption {
         x: 16px; y: 2px; width: 70px; height: parent.height;
         vertical-alignment: center;
         text: r.label;
-        font-family: Theme.display; font-size: 17px; letter-spacing: 1.5px;
         color: on ? Theme.sel-ink : Theme.dim;
         animate color { duration: Theme.quick; }
     }
@@ -65,17 +25,12 @@ component RecapRow inherits Rectangle {
         x: 92px; width: parent.width - 126px; height: parent.height;
         vertical-alignment: center;
         text: r.value;
-        font-family: Theme.body; font-weight: 500; font-size: 22px;
+        font-family: Theme.body; font-weight: 500; font-size: Theme.t-ctl;
         color: Theme.ink;
         overflow: elide;
     }
     // Says the row opens something.
-    Text {
-        x: parent.width - 26px; height: parent.height;
-        vertical-alignment: center;
-        text: "›"; font-family: Theme.body; font-size: 28px;
-        color: on ? Theme.sel-ink : Theme.dim;
-    }
+    Chevron { x: parent.width - 32px; y: (parent.height - self.height) / 2; dir: "right"; color: on ? Theme.sel-ink : Theme.dim; }
     touch := TouchArea { clicked => { Actions.conv-section(r.key); } }
 }
 
@@ -126,7 +81,7 @@ component DepthView inherits Rectangle {
         x: x0 + 20px; y: root.height * at[2];
         width: x1 - x0 - 40px; height: root.height - self.y - 18px;
         background: Theme.panel2;
-        border-radius: 4px;
+        border-radius: Theme.radius-sm;
     }
     // The cut, from Z START to Z END.
     Rectangle {
@@ -142,7 +97,7 @@ component DepthView inherits Rectangle {
         width: tool-w; height: facing ? 56px : 96px;
         background: Theme.raised;
         border-width: 1px; border-color: Theme.raised-border;
-        border-top-left-radius: 4px; border-top-right-radius: 4px;
+        border-top-left-radius: Theme.radius-sm; border-top-right-radius: Theme.radius-sm;
     }
     for l[i] in Live.conv-levels: Rectangle {
         y: root.height * at[i] - 28px;
@@ -159,12 +114,12 @@ component DepthView inherits Rectangle {
             border-width: 1px;
             border-color: lt.pressed ? Theme.sel : Theme.raised-border;
             animate border-color { duration: lt.pressed ? 0ms : 200ms; }
-            Text { x: 12px; y: 6px; width: parent.width - 24px; text: l.label; font-family: Theme.display; font-size: 14px; letter-spacing: 1.2px; color: Theme.dim; overflow: elide; }
+            Caption { x: 12px; y: 6px; width: parent.width - 24px; text: l.label; font-size: Theme.t-tag; overflow: elide; }
             HorizontalLayout {
                 x: 12px; y: 22px; width: parent.width - 24px; height: 30px;
                 spacing: 6px; alignment: start;
-                Text { vertical-alignment: center; text: (i == 1 ? "+" : "") + l.value; font-family: Theme.body; font-weight: 600; font-size: 25px; color: Theme.ink; }
-                Text { y: 2px; vertical-alignment: center; text: l.unit; font-family: Theme.body; font-size: 16px; color: Theme.dim; }
+                Text { vertical-alignment: center; text: (i == 1 ? "+" : "") + l.value; font-family: Theme.body; font-weight: 600; font-size: Theme.t-btn; color: Theme.ink; }
+                Text { vertical-alignment: center; text: l.unit; font-family: Theme.body; font-size: Theme.t-cap; color: Theme.dim; }
             }
             lt := TouchArea { clicked => { Actions.conv-field(l.key); } }
         }
@@ -184,9 +139,9 @@ export component ConvScreen inherits Rectangle {
         Card {
             width: 230px;
             VerticalLayout {
-                padding: 12px;
-                spacing: 10px;
-                for t in Live.conv-types: Btn { height: 72px; text: t.label; on: t.on; font-size: 24px; clicked => { Actions.conv-type(t.id); } }
+                padding: Theme.pad;
+                spacing: Theme.row;
+                for t in Live.conv-types: Btn { height: Theme.h-choice; text: t.label; on: t.on; clicked => { Actions.conv-type(t.id); } }
                 Rectangle { vertical-stretch: 1; }
             }
         }
@@ -194,7 +149,7 @@ export component ConvScreen inherits Rectangle {
             horizontal-stretch: 1;
             VerticalLayout {
                 padding: Theme.pad;
-                spacing: 12px;
+                spacing: Theme.row;
                 HorizontalLayout {
                     height: 34px;
                     spacing: 14px;
@@ -207,7 +162,7 @@ export component ConvScreen inherits Rectangle {
                     // 2: see it. The sketch, then the whole operation in four lines.
                     VerticalLayout {
                         horizontal-stretch: 1;
-                        spacing: 12px;
+                        spacing: Theme.row;
                         Rectangle {
                             vertical-stretch: 1;
                             background: Theme.well;
@@ -215,10 +170,9 @@ export component ConvScreen inherits Rectangle {
                             clip: true;
                             if Live.conv-section != "depth": PlanView { }
                             if Live.conv-section == "depth": DepthView { }
-                            Text {
+                            Caption {
                                 x: 16px; y: 12px;
                                 text: Live.conv-section == "depth" ? "SIDE VIEW  ·  NOT TO SCALE" : "TOP VIEW";
-                                font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim;
                             }
                         }
                         Rectangle {
@@ -245,7 +199,7 @@ export component ConvScreen inherits Rectangle {
                                 wrap: word-wrap;
                                 overflow: elide;
                                 font-family: Theme.body;
-                                font-size: 21px;
+                                font-size: Theme.t-body;
                                 color: Live.conv-error ? Theme.bad : Theme.muted;
                             }
                         }
@@ -253,9 +207,8 @@ export component ConvScreen inherits Rectangle {
                     // 3: set it. One section of inputs at a time.
                     VerticalLayout {
                         width: 500px;
-                        spacing: 12px;
+                        spacing: Theme.row;
                         HorizontalLayout {
-                            height: 56px;
                             spacing: 0px;
                             for s[i] in Live.conv-sections: Seg {
                                 text: s.label;
@@ -269,14 +222,21 @@ export component ConvScreen inherits Rectangle {
                         for row in (Live.conv-fields.length + 1) / 2: HorizontalLayout {
                             spacing: 10px;
                             for col in 2: FieldTile {
-                                f: Live.conv-fields[row * 2 + col];
+                                property <ConvField> f: Live.conv-fields[row * 2 + col];
+                                label: f.label;
+                                value: f.value;
+                                unit: f.unit;
+                                choice: f.choice;
+                                // "—": not used by this operation.
+                                enabled: f.value != "—";
                                 empty: row * 2 + col >= Live.conv-fields.length;
+                                edit => { Actions.conv-field(f.key); }
                             }
                         }
                         if Live.conv-show-holes: HorizontalLayout {
                             spacing: 10px;
-                            Btn { height: 56px; text: "ADD HOLE"; font-size: 22px; clicked => { Actions.conv-hole-add(); } }
-                            Btn { height: 56px; text: "DELETE"; font-size: 22px; enabled: Live.conv-hole-sel >= 0; clicked => { Actions.conv-hole-del(); } }
+                            EqBtn { text: "ADD HOLE"; clicked => { Actions.conv-hole-add(); } }
+                            EqBtn { text: "DELETE"; hold: true; enabled: Live.conv-hole-sel >= 0; clicked => { Actions.conv-hole-del(); } }
                         }
                         if Live.conv-show-holes: Rectangle {
                             vertical-stretch: 1;
@@ -288,11 +248,16 @@ export component ConvScreen inherits Rectangle {
                                 height: floor((parent.height - 12px) / 48px) * 48px;
                                 for h[i] in Live.conv-holes: Rectangle {
                                     height: 48px;
-                                    background: i == Live.conv-hole-sel ? Theme.sel-soft : ht.pressed ? Theme.raised : transparent;
-                                    animate background { duration: Theme.quick; }
-                                    if i == Live.conv-hole-sel: Rectangle { x: 0; width: 4px; background: Theme.sel; }
+                                    Rectangle {
+                                        x: 6px; y: 2px; width: parent.width - 12px; height: parent.height - 4px;
+                                        border-radius: Theme.radius-sm;
+                                        background: i == Live.conv-hole-sel ? Theme.sel-soft : ht.pressed ? Theme.raised : transparent;
+                                        border-width: i == Live.conv-hole-sel ? 2px : 0;
+                                        border-color: Theme.sel;
+                                        animate background { duration: Theme.quick; }
+                                    }
                                     ht := TouchArea { clicked => { Actions.conv-hole-select(i); } }
-                                    Text { x: 16px; vertical-alignment: center; text: h; font-family: Theme.body; font-size: 22px; color: Theme.ink; }
+                                    Text { x: 18px; vertical-alignment: center; text: h; font-family: Theme.body; font-weight: 500; font-size: Theme.t-ctl; color: Theme.ink; }
                                 }
                             }
                         }
@@ -300,10 +265,10 @@ export component ConvScreen inherits Rectangle {
                         // 4: use it.
                         Note { height: 26px; text: "Open the G-code on RUN, or keep it as a job op."; wrap: no-wrap; overflow: elide; }
                         HorizontalLayout {
-                            height: 72px;
+                            height: Theme.h-choice;
                             spacing: 10px;
-                            Btn { text: "LOAD AS PROGRAM"; enabled: !Live.conv-error && !locked; clicked => { Actions.conv-load(); } }
-                            Btn { text: "ADD TO JOB"; enabled: !Live.conv-error && !Live.job-running; clicked => { Actions.conv-add(); } }
+                            EqBtn { text: "LOAD AS PROGRAM"; enabled: !Live.conv-error && !locked; clicked => { Actions.conv-load(); } }
+                            EqBtn { text: "ADD TO JOB"; enabled: !Live.conv-error && !Live.job-running; clicked => { Actions.conv-add(); } }
                         }
                     }
                 }

@@ -53,10 +53,36 @@ export global Theme {
     out property <color> info-soft: #8cc4ef1f;
     // Behind a dialog.
     out property <color> scrim: #050708b8;
+    // Light laid over a plate: under a finger, the hold sweep, and the
+    // faint plate of an unchosen segment, table cell or quiet capsule.
+    out property <color> press: #ffffff26;
+    out property <color> sweep: #ffffff40;
+    out property <color> faint: #ffffff0b;
+    out property <color> faint-press: #ffffff24;
+    // Text on a filled (go / hold / stop) plate, and its corner tag.
+    out property <color> on-fill: #ffffff;
+    out property <color> on-fill-dim: #ffffffb0;
+    // The tripped E-STOP plate.
+    out property <color> tripped: #3a1414;
+    // The load scale on the backplot, low to high.
+    out property <[color]> load-scale: [#6fdc9c, #b1d080, #f3c463, #f18f5c, #ee5a54];
+    // One colour per operation of a program on FILES (the accent first).
+    out property <[color]> op-colors: [#7f8fff, #f3c463, #7fd6a0, #e07a7a, #8cc4ef, #c49cf0];
 
     // Type: Bebas Neue for labels and buttons, Barlow Condensed for values and text.
     out property <string> display: "Bebas Neue";
     out property <string> body: "Barlow Condensed";
+    // The type scale. Every text takes one of these steps (the DRO's
+    // numerals and the splash have their own sizes).
+    out property <length> t-tag: 13px;      // corner tags, the DRO's small captions
+    out property <length> t-cap: 16px;      // captions over a value or a well
+    out property <length> t-small: 18px;    // secondary lines, units
+    out property <length> t-body: 20px;     // sentences, labels
+    out property <length> t-ctl: 22px;      // a compact button, a list row
+    out property <length> t-btn: 24px;      // buttons
+    out property <length> t-value: 28px;    // values, card titles
+    out property <length> t-big: 32px;      // primary buttons, big values
+    out property <length> t-title: 38px;    // dialog titles
 
     // Motion: short transitions on a change of state, nothing at idle.
     // `quick` for presses and toggles, `settle` for bars and status colours,
@@ -73,6 +99,17 @@ export global Theme {
     // Spacing and corners.
     out property <length> gap: 14px;
     out property <length> pad: 16px;
+    // Between rows inside a card (8px inside a tight group).
+    out property <length> row: 12px;
+    // Inside a dialog: its padding and the gap between its rows.
+    out property <length> dlg-pad: 20px;
+    out property <length> dlg-row: 14px;
+    // Control heights: small (a row in a table header, a stacked pair),
+    // standard, a row of choices, and a primary action.
+    out property <length> h-sm: 48px;
+    out property <length> h-ctl: 56px;
+    out property <length> h-choice: 64px;
+    out property <length> h-big: 84px;
     out property <length> radius: 12px;
     out property <length> radius-ctl: 10px;
     out property <length> radius-sm: 7px;

@@ -1,10 +1,38 @@
 import { Theme } from "theme.slint";
 
+// A small stroked chevron: "opens a list" (down), "open" (up), "goes
+// somewhere" (right). Drawn, like the nav icons, not a font glyph.
+export component Chevron inherits Path {
+    in property <string> dir: "down";
+    in property <color> color: Theme.muted;
+    width: 20px;
+    height: 20px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    commands: dir == "up" ? "M5 15l7-7 7 7" : dir == "right" ? "M9 5l7 7-7 7" : dir == "left" ? "M15 5l-7 7 7 7" : "M5 9l7 7 7-7";
+    stroke: root.color;
+    stroke-width: 2px;
+    fill: transparent;
+}
+
+// Arrow icons for motion buttons (Btn.icon): the same 2px line as the nav.
+export global Arrows {
+    out property <string> up: "M12 20V5M5 12l7-7 7 7";
+    out property <string> down: "M12 4v15M5 12l7 7 7-7";
+    out property <string> left: "M20 12H5M12 5l-7 7 7 7";
+    out property <string> right: "M4 12h15M12 5l7 7-7 7";
+    out property <string> cw: "M20 12a8 8 0 1 1-3-6.2M17 2v4h-4";
+    out property <string> ccw: "M4 12a8 8 0 1 0 3-6.2M7 2v4h4";
+}
+
 // The mockup's button. kind: "" | "go" | "hold" | "stop". With `hold`, the
 // press must last 800 ms (a misuse safeguard, see ARCHITECTURE.md).
 export component Btn inherits Rectangle {
     in property <string> text;
+    // A small second line under the label.
     in property <string> sub;
+    // A small caption over the label: the button shows a value to change.
+    in property <string> cap;
     in property <string> icon;
     in property <bool> on;
     in property <bool> enabled: true;
@@ -15,8 +43,13 @@ export component Btn inherits Rectangle {
     // The chosen plate is drawn by the parent, which slides it between
     // buttons (the nav bar); this button only tints its label.
     in property <bool> glide;
-    in property <length> font-size: 24px;
+    in property <length> font-size: Theme.t-btn;
     in property <string> family: Theme.display;
+    // A stroked chevron at the right edge: the button opens a list.
+    in property <bool> menu;
+    // The label in the accent's ink on a plain plate: a key of another
+    // kind in a pad (the keypad's operators), not a chosen state.
+    in property <bool> accent;
     callback clicked();
     // Fires on touch-down, before any hold or release (E-STOP trips on it).
     callback pressed();
@@ -28,38 +61,38 @@ export component Btn inherits Rectangle {
     // Whether the current touch began on a hold button; the label (and
     // `hold`) can flip under the finger, so the release must not then act.
     property <bool> touch-held;
-    preferred-height: 64px;
+    preferred-height: Theme.h-ctl;
     border-radius: Theme.radius-ctl;
     property <bool> filled: kind == "go" || kind == "hold" || kind == "stop";
     background: kind == "go" ? Theme.go : kind == "hold" ? Theme.hold : kind == "stop" ? Theme.stop
-        : kind == "tripped" ? #3a1414 : on && glide ? transparent : on ? Theme.sel-soft : flat ? transparent : Theme.raised;
+        : kind == "tripped" ? Theme.tripped : on && glide ? transparent : on ? Theme.sel-soft : flat ? transparent : Theme.raised;
     border-color: kind == "go" ? Theme.go-border : kind == "hold" ? Theme.hold-border : kind == "stop" ? Theme.stop-border
         : kind == "tripped" ? Theme.stop-border : on ? Theme.sel : Theme.raised-border;
     border-width: kind == "tripped" ? 3px : on && glide ? 0 : on && !filled ? 2px : flat ? 0 : 1px;
     opacity: enabled ? 1.0 : 0.38;
     clip: true;
     animate background, border-color, opacity { duration: Theme.quick; }
-    property <color> ink: filled || kind == "tripped" ? #ffffff : on ? Theme.sel-ink : flat ? Theme.muted : Theme.ink;
+    property <color> ink: filled || kind == "tripped" ? Theme.on-fill : on || accent ? Theme.sel-ink : flat ? Theme.muted : Theme.ink;
 
     Rectangle {
-        background: touch.pressed && enabled ? #ffffff26 : transparent;
+        background: touch.pressed && enabled ? Theme.press : transparent;
         // Lights at once under the finger, fades when it lifts.
         animate background { duration: touch.pressed ? 0ms : 200ms; }
     }
     Rectangle {
         x: 0;
         width: arming ? parent.width : 0;
-        background: #ffffff40;
+        background: Theme.sweep;
         animate width { duration: root.arming ? 800ms : 0ms; }
     }
-    // The label is always centred; a HOLD/sub caption is a small tag in the
-    // top-right corner, so captioned and plain buttons line up side by side.
-    property <bool> captioned: hold || sub != "";
+    // The label is always centred. The corner tag means one thing only:
+    // HOLD (the press must last). A `sub` caption is a small second line
+    // under the label.
     VerticalLayout {
         alignment: center;
-        spacing: 4px;
-        padding-left: 10px;
-        padding-right: 10px;
+        spacing: (sub != "" || cap != "") && icon == "" ? 0px : 4px;
+        padding-left: menu ? 34px : 10px;
+        padding-right: menu ? 34px : 10px;
         if icon != "": HorizontalLayout {
             alignment: center;
             Path {
@@ -73,26 +106,45 @@ export component Btn inherits Rectangle {
                 fill: transparent;
             }
         }
-        Text {
+        if cap != "": Text {
+            text: root.cap;
+            font-family: Theme.display;
+            font-size: Theme.t-tag;
+            letter-spacing: 1.4px;
+            color: filled ? Theme.on-fill-dim : Theme.dim;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+        if root.text != "": Text {
             text: root.text;
             font-family: root.family;
             font-size: root.font-size;
-            letter-spacing: 0.05 * root.font-size;
+            letter-spacing: root.family == Theme.display ? 0.05 * root.font-size : 0;
             color: root.ink;
             animate color { duration: Theme.quick; }
             horizontal-alignment: center;
             wrap: word-wrap;
         }
+        if sub != "": Text {
+            text: root.sub;
+            font-family: Theme.display;
+            font-size: Theme.t-tag;
+            letter-spacing: 1.4px;
+            color: filled ? Theme.on-fill-dim : on ? Theme.sel-ink : Theme.muted;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
     }
-    if captioned: Text {
+    if hold: Text {
         x: root.width - self.width - 9px;
-        y: 5px;
-        text: sub != "" ? sub : "HOLD";
+        y: 3px;
+        text: "HOLD";
         font-family: Theme.display;
-        font-size: 13px;
+        font-size: Theme.t-tag;
         letter-spacing: 1.4px;
-        color: filled ? #ffffffb0 : Theme.muted;
+        color: filled ? Theme.on-fill-dim : Theme.muted;
     }
+    if menu: Chevron { x: root.width - 34px; y: (root.height - self.height) / 2; color: root.ink; }
     hold-timer := Timer {
         interval: 800ms;
         running: root.arming && !root.fired;
@@ -121,6 +173,14 @@ export component Btn inherits Rectangle {
     }
 }
 
+// A button in a row of equals: every EqBtn in a layout gets the same width
+// whatever its label, so CANCEL / ENTER and the like line up.
+export component EqBtn inherits Btn {
+    preferred-width: 0;
+    min-width: 0;
+    horizontal-stretch: 1;
+}
+
 // A status pill: a coloured dot and a label on a quiet capsule.
 export component Pill inherits Rectangle {
     in property <string> text;
@@ -130,12 +190,15 @@ export component Pill inherits Rectangle {
     // Flashing: `lit` toggles twice a second. Hard on/off, no fade: a fade
     // would animate (and on the GPU redraw the whole screen) all the time.
     in property <bool> blinking;
+    // "down" / "up": the pill opens a list.
+    in property <string> caret;
     property <duration> fade: blinking ? 0ms : Theme.settle;
     property <color> tone: kind == "good" ? Theme.good : kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : kind == "info" ? Theme.info : Theme.dim;
     height: 38px;
     horizontal-stretch: 0;
     border-radius: 19px;
-    background: lit ? Theme.stop : kind == "bad" ? #ff8f8a24 : kind == "warn" ? #f3c4631c : Theme.panel;
+    // A quiet tint of its tone, so the capsule shows on a card as on the bar.
+    background: lit ? Theme.stop : kind == "bad" ? Theme.bad-soft : kind == "warn" ? Theme.warn-soft : kind == "good" ? Theme.good-soft : kind == "info" ? Theme.info-soft : Theme.faint;
     animate background { duration: fade; }
     HorizontalLayout {
         padding-left: 14px;
@@ -149,19 +212,31 @@ export component Pill inherits Rectangle {
             vertical-alignment: center;
             text: root.text;
             font-family: Theme.display;
-            font-size: 20px;
+            font-size: Theme.t-body;
             letter-spacing: 1.2px;
             color: lit ? Theme.ink : kind == "" ? Theme.muted : tone;
             animate color { duration: fade; }
+        }
+        if caret != "": VerticalLayout {
+            alignment: center;
+            Chevron { width: 16px; height: 16px; dir: root.caret; color: lit ? Theme.ink : kind == "" ? Theme.muted : tone; }
         }
     }
 }
 
 export component Label inherits Text {
     font-family: Theme.display;
-    font-size: 20px;
+    font-size: Theme.t-body;
     letter-spacing: 1.6px;
     color: Theme.muted;
+}
+
+// The small spaced caption over a value, a tile or a well.
+export component Caption inherits Text {
+    font-family: Theme.display;
+    font-size: Theme.t-cap;
+    letter-spacing: 1.4px;
+    color: Theme.dim;
 }
 
 export component Card inherits Rectangle {
@@ -178,9 +253,9 @@ export component Seg inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> first;
     in property <bool> last;
-    in property <length> font-size: 24px;
+    in property <length> font-size: Theme.t-btn;
     callback clicked();
-    preferred-height: 52px;
+    preferred-height: Theme.h-ctl;
     min-width: 40px;
     horizontal-stretch: 1;
     opacity: enabled ? 1.0 : 0.38;
@@ -195,7 +270,7 @@ export component Seg inherits Rectangle {
         height: parent.height - 6px;
         border-radius: Theme.radius-sm;
         // Unchosen segments keep a faint plate so each reads as a target.
-        background: root.on ? Theme.sel-soft : touch.pressed && root.enabled ? #ffffff24 : #ffffff0b;
+        background: root.on ? Theme.sel-soft : touch.pressed && root.enabled ? Theme.faint-press : Theme.faint;
         border-width: 2px;
         border-color: root.on ? Theme.sel : transparent;
         animate background, border-color { duration: Theme.quick; }
@@ -215,16 +290,19 @@ export component Seg inherits Rectangle {
     touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
 }
 
-// A value well that opens the keypad when tapped.
+// A value well that opens the keypad when tapped: the one look for "a
+// number you tap to change". The value is right-aligned with its unit small
+// and dim after it. `changed` marks a value that differs from its default.
 export component NumField inherits Rectangle {
     in property <string> value;
     in property <string> unit;
     in property <bool> enabled: true;
+    in property <bool> changed;
     callback edit();
-    height: 54px;
+    height: Theme.h-ctl;
     background: Theme.well;
     border-width: 1px;
-    border-color: touch.pressed ? Theme.sel : Theme.raised-border;
+    border-color: touch.pressed ? Theme.sel : changed ? Theme.hold-border : Theme.raised-border;
     border-radius: Theme.radius-ctl;
     animate border-color { duration: touch.pressed ? 0ms : 200ms; }
     opacity: enabled ? 1 : 0.38;
@@ -233,22 +311,82 @@ export component NumField inherits Rectangle {
         padding-right: 14px;
         spacing: 6px;
         alignment: end;
-        Text { vertical-alignment: center; text: value; font-family: Theme.body; font-weight: 600; font-size: 28px; color: Theme.ink; }
-        if unit != "": Text { vertical-alignment: center; text: unit; font-family: Theme.body; font-size: 17px; color: Theme.dim; }
+        Text { vertical-alignment: center; text: value; font-family: Theme.body; font-weight: 600; font-size: Theme.t-value; color: Theme.ink; }
+        if unit != "": Text { vertical-alignment: center; text: unit; font-family: Theme.body; font-size: Theme.t-small; color: Theme.dim; }
     }
     touch := TouchArea { enabled: root.enabled; clicked => { root.edit(); } }
 }
 
+// The same value as a tile: caption above, value below, left-aligned. For
+// grids of inputs (CONV). `choice` marks one that opens a list instead of
+// the keypad: a raised plate with a chevron.
+export component FieldTile inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> unit;
+    in property <bool> choice;
+    // An empty slot keeps a grid's columns when the count is odd.
+    in property <bool> empty;
+    in property <bool> enabled: true;
+    callback edit();
+    height: 76px;
+    horizontal-stretch: 1;
+    border-radius: Theme.radius-ctl;
+    background: empty ? transparent : choice ? Theme.raised : Theme.well;
+    border-width: empty ? 0 : 1px;
+    border-color: touch.pressed ? Theme.sel : Theme.raised-border;
+    opacity: enabled ? 1 : 0.38;
+    animate border-color { duration: touch.pressed ? 0ms : 200ms; }
+    if !empty: Caption {
+        x: 16px; y: 9px;
+        width: parent.width - 32px;
+        text: root.label;
+        overflow: elide;
+    }
+    if !empty: HorizontalLayout {
+        x: 16px; y: 30px;
+        width: parent.width - (choice ? 60px : 32px);
+        height: 38px;
+        spacing: 6px;
+        alignment: start;
+        Text { vertical-alignment: center; text: root.value; font-family: Theme.body; font-weight: 600; font-size: Theme.t-value; color: Theme.ink; overflow: elide; }
+        if unit != "": Text { vertical-alignment: center; text: root.unit; font-family: Theme.body; font-size: Theme.t-small; color: Theme.dim; }
+    }
+    if !empty && choice: Chevron { x: parent.width - 38px; y: (parent.height - self.height) / 2; }
+    touch := TouchArea { enabled: !empty && root.enabled; clicked => { root.edit(); } }
+}
+
+// A caption and the value under it: a fact to read, not a control. `inset`
+// for a tile on a card (one tone up); the default sits on the frame.
+export component Kv inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <color> tone: Theme.ink;
+    in property <bool> inset;
+    height: 64px;
+    background: inset ? Theme.panel2 : Theme.panel;
+    border-radius: Theme.radius-ctl;
+    VerticalLayout {
+        padding-left: 14px;
+        padding-right: 12px;
+        padding-top: 7px;
+        spacing: 1px;
+        alignment: start;
+        Caption { text: label; overflow: elide; }
+        Text { text: value; font-family: Theme.body; font-weight: 600; font-size: Theme.t-value; color: root.tone; overflow: elide; }
+    }
+}
+
 export component H3 inherits Text {
     font-family: Theme.display;
-    font-size: 28px;
+    font-size: Theme.t-value;
     letter-spacing: 1.8px;
     color: Theme.ink;
 }
 
 export component Note inherits Text {
     font-family: Theme.body;
-    font-size: 19px;
+    font-size: Theme.t-body;
     color: Theme.muted;
     wrap: word-wrap;
 }
