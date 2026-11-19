@@ -2,6 +2,43 @@
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, DroRow, DroPos } from "state.slint";
 import { Btn, Pill, Label, Card } from "widgets.slint";
+import { Brand } from "brand.slint";
+
+// The product's mark, small, for the top bar: the Fe tile and the name.
+// Static (it never animates or changes), so it costs nothing at idle.
+component TopMark inherits HorizontalLayout {
+    in property <bool> name: true;
+    spacing: 10px;
+    alignment: start;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 38px;
+            height: 38px;
+            border-radius: 6px;
+            border-width: 2px;
+            border-color: Brand.rust;
+            background: Theme.panel;
+            Text {
+                text: Brand.symbol;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-family: Theme.body;
+                font-weight: 600;
+                font-size: 22px;
+                color: Brand.rust;
+            }
+        }
+    }
+    if root.name: Text {
+        vertical-alignment: center;
+        text: Brand.name;
+        font-family: Theme.display;
+        font-size: 26px;
+        letter-spacing: 2px;
+        color: Theme.dim;
+    }
+}
 
 export component StatusBar inherits Rectangle {
     background: Theme.bar;
@@ -114,6 +151,9 @@ export component StatusBar inherits Rectangle {
             // Tapping the latest message opens the full log.
             TouchArea { clicked => { Live.drawer-open = true; } }
         }
+        Rectangle { width: 8px; }
+        // The name only where the bar has room for it beside the message.
+        TopMark { name: !Layout.compact; }
         Text {
             width: 84px;
             vertical-alignment: center;
