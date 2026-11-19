@@ -673,9 +673,7 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         m.send(Command::BlockDelete(!on));
     });
     // LinuxCNC shuts the whole session down when its display program exits.
-    actions.on_exit(|| {
-        let _ = slint::quit_event_loop();
-    });
+    actions.on_exit(boot::request_quit);
     let weak = ui.as_weak();
     actions.on_navigate(move |id| {
         if let Some(ui) = weak.upgrade() {
@@ -723,7 +721,7 @@ fn main() -> Result<(), slint::PlatformError> {
         notes.push(format!("[TRAJ]LINEAR_UNITS = {u} is not a unit millgui knows; showing millimetres"));
     }
     let hal: Box<dyn checks::Hal> = if args.sim { Box::new(checks::NoHal) } else { Box::new(checks::Halcmd::new()) };
-    let (mut modules, problems) = modules::build(&cfg, hal.as_ref());
+    let (modules, problems) = modules::build(&cfg, hal.as_ref());
     notes.extend(problems);
 
     if args.check {
@@ -769,6 +767,33 @@ fn main() -> Result<(), slint::PlatformError> {
         fit_desktop_window(&ui);
     }
     boot::init_brand(&ui);
+    ui.global::<Boot>().on_quit(boot::request_quit);
+    // Closing the window is leaving: go through the same orderly stop.
+    ui.window().on_close_requested(|| {
+        boot::request_quit();
+        slint::CloseRequestResponse::KeepWindowShown
+    });
+    // One event loop for the life of the window. Start-up runs as a task on
+    // it: stopping the loop and running it again with the window open left
+    // the screen frozen on the splash (winit does not carry windows between
+    // runs of its loop).
+    slint::spawn_local(run(ui.clone_strong(), args, cfg, modules, notes, hal, renderer))
+        .map_err(|e| slint::PlatformError::Other(e.to_string()))?;
+    ui.show()?;
+    slint::run_event_loop_until_quit()
+}
+
+/// Everything from the splash to the orderly stop, on the UI thread. What
+/// this sets up stays alive because the task does, until the user leaves.
+async fn run(
+    ui: MainWindow,
+    args: Args,
+    cfg: Config,
+    mut modules: Vec<Box<dyn Module>>,
+    mut notes: Vec<String>,
+    hal: Box<dyn checks::Hal>,
+    renderer: renderer::Choice,
+) {
     #[cfg(unix)]
     let launcher: Rc<RefCell<Option<boot::Launcher>>> = Rc::new(RefCell::new(None));
     if args.boot && !args.sim {
@@ -779,12 +804,15 @@ fn main() -> Result<(), slint::PlatformError> {
                 std::process::exit(2);
             };
             boot::show(&ui, 0, boot::footer(None, Some(&ini)));
-            match boot::launch(&ui, &ini, &cfg) {
+            match boot::launch(&ui, &ini, &cfg).await {
                 Some(l) => {
                     *launcher.borrow_mut() = Some(l);
                     boot::LAUNCHED.store(true, std::sync::atomic::Ordering::SeqCst);
                 }
-                None => return Ok(()),
+                None => {
+                    let _ = slint::quit_event_loop();
+                    return;
+                }
             }
         }
     } else if args.sim {
@@ -794,15 +822,14 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     let nml = cfg.get("EMC", "NML_FILE").map(|f| cfg.dir().join(f).to_string_lossy().into_owned());
     let (sim, open) = (args.sim, args.open.clone());
-    // The simulator is there at once: no wait, and only one event loop
-    // (the Mac window never has to run one twice).
-    let machine = if sim { connect_machine(sim, open, nml).ok() } else { boot::connect(&ui, move || connect_machine(sim, open, nml)) };
+    // The simulator is there at once: no wait.
+    let machine = if sim { connect_machine(sim, open, nml).ok() } else { boot::connect(&ui, move || connect_machine(sim, open, nml)).await };
     let Some(machine) = machine else {
         #[cfg(unix)]
         {
             let left = launcher.borrow_mut().take();
             if let Some(l) = left {
-                l.shutdown(&ui);
+                l.shutdown(&ui).await;
             }
         }
         std::process::exit(1);
@@ -1226,18 +1253,16 @@ fn main() -> Result<(), slint::PlatformError> {
         t
     };
 
-    ui.global::<Boot>().on_quit(boot::request_quit);
-    ui.show()?;
-    let r = slint::run_event_loop();
+    boot::until_quit().await;
     drop(_hal);
     #[cfg(unix)]
     let left = launcher.borrow_mut().take();
     #[cfg(unix)]
     if let Some(l) = left {
-        l.shutdown(&ui);
+        l.shutdown(&ui).await;
     }
     let _ = ui.hide();
-    r
+    let _ = slint::quit_event_loop();
 }
 
 /// `--write-ini`: the check's INI lines into the INI, only while LinuxCNC

@@ -19,6 +19,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::task::{Poll, Waker};
 use std::time::{Duration, Instant};
 
 const STEPS: [&str; 4] = ["REALTIME", "HAL", "MOTION", "SCREEN"];
@@ -164,9 +165,9 @@ pub fn demo(ui: &MainWindow, what: &str) {
     }
 }
 
-/// Set by EXIT on the splash and by SIGTERM/Ctrl-C. A wait on the splash
-/// ends without a result only when this is set: winit can carry a quit
-/// asked for in the loop before (EXIT is a hold button) into the next run.
+/// The user is leaving: EXIT on the splash or in the app, closing the
+/// window, SIGTERM/Ctrl-C. The start-up task sees it, stops things in order
+/// and only then ends the event loop.
 pub static QUIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Set while `--boot` stops LinuxCNC (see main's signal handler).
@@ -179,7 +180,10 @@ pub static SIGNALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 
 pub fn request_quit() {
     QUIT.store(true, std::sync::atomic::Ordering::SeqCst);
-    let _ = slint::quit_event_loop();
+}
+
+fn quitting() -> bool {
+    QUIT.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 /// How a wait on the splash ended.
@@ -189,60 +193,82 @@ pub enum Wait<T> {
     Quit,
 }
 
-/// Run the event loop with the splash up until `poll` returns a value or
-/// the user leaves. `poll` runs every 50 ms; the seconds counter ticks.
-pub fn run_until<T: 'static>(ui: &MainWindow, mut poll: impl FnMut(&MainWindow) -> Option<T> + 'static) -> Wait<T> {
-    let out: Rc<RefCell<Option<T>>> = Rc::new(RefCell::new(None));
-    let t0 = Instant::now();
-    let base = ui.global::<Boot>().get_seconds();
+/// Call `tick` every `period` on the UI thread until it returns a value.
+/// The event loop keeps running (and drawing) meanwhile.
+async fn every<T: 'static>(period: Duration, mut tick: impl FnMut() -> Option<T> + 'static) -> T {
+    struct Slot<T> {
+        value: Option<T>,
+        waker: Option<Waker>,
+    }
+    let slot = Rc::new(RefCell::new(Slot { value: None, waker: None }));
     let timer = slint::Timer::default();
     {
-        let (out, weak) = (out.clone(), ui.as_weak());
-        let mut first = true;
-        timer.start(slint::TimerMode::Repeated, Duration::from_millis(50), move || {
-            let Some(ui) = weak.upgrade() else { return };
-            // The first tick only lets the window draw once.
-            if std::mem::take(&mut first) {
+        let slot = slot.clone();
+        timer.start(slint::TimerMode::Repeated, period, move || {
+            if slot.borrow().value.is_some() {
                 return;
             }
-            let boot = ui.global::<Boot>();
-            let s = base + t0.elapsed().as_secs() as i32;
-            if boot.get_seconds() != s {
-                boot.set_seconds(s);
-            }
-            if out.borrow().is_none() {
-                if let Some(v) = poll(&ui) {
-                    *out.borrow_mut() = Some(v);
-                    let _ = slint::quit_event_loop();
+            if let Some(v) = tick() {
+                let mut s = slot.borrow_mut();
+                s.value = Some(v);
+                if let Some(w) = s.waker.take() {
+                    w.wake();
                 }
             }
         });
     }
-    ui.global::<Boot>().on_quit(request_quit);
-    QUIT.store(false, std::sync::atomic::Ordering::SeqCst);
-    let _ = ui.show();
-    loop {
-        let _ = slint::run_event_loop();
-        if out.borrow().is_some() || QUIT.load(std::sync::atomic::Ordering::SeqCst) {
-            break;
+    std::future::poll_fn(|cx| {
+        let mut s = slot.borrow_mut();
+        match s.value.take() {
+            Some(v) => Poll::Ready(v),
+            None => {
+                s.waker = Some(cx.waker().clone());
+                Poll::Pending
+            }
         }
-    }
-    drop(timer);
-    let v = out.borrow_mut().take();
-    match v {
-        Some(v) => Wait::Done(v),
-        None => Wait::Quit,
-    }
+    })
+    .await
+}
+
+/// Wait with the splash up until `poll` returns a value or the user leaves.
+/// `poll` runs every 50 ms; the seconds counter ticks.
+pub async fn wait_until<T: 'static>(ui: &MainWindow, mut poll: impl FnMut(&MainWindow) -> Option<T> + 'static) -> Wait<T> {
+    let t0 = Instant::now();
+    let base = ui.global::<Boot>().get_seconds();
+    let weak = ui.as_weak();
+    let mut first = true;
+    every(Duration::from_millis(50), move || {
+        let ui = weak.upgrade()?;
+        // The first tick only lets the window draw once.
+        if std::mem::take(&mut first) {
+            return None;
+        }
+        let boot = ui.global::<Boot>();
+        let s = base + t0.elapsed().as_secs() as i32;
+        if boot.get_seconds() != s {
+            boot.set_seconds(s);
+        }
+        if quitting() {
+            return Some(Wait::Quit);
+        }
+        poll(&ui).map(Wait::Done)
+    })
+    .await
+}
+
+/// Until the user leaves.
+pub async fn until_quit() {
+    every(Duration::from_millis(50), || quitting().then_some(())).await
 }
 
 /// Connect to LinuxCNC (or build the simulator) on a thread while the
 /// splash shows. On failure the splash says so and waits for EXIT.
-pub fn connect<M: Send + 'static>(ui: &MainWindow, f: impl FnOnce() -> Result<M, String> + Send + 'static) -> Option<M> {
+pub async fn connect<M: Send + 'static>(ui: &MainWindow, f: impl FnOnce() -> Result<M, String> + Send + 'static) -> Option<M> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(f());
     });
-    let got = run_until(ui, move |_| rx.try_recv().ok());
+    let got = wait_until(ui, move |_| rx.try_recv().ok()).await;
     match got {
         Wait::Done(Ok(m)) => {
             ui.global::<Boot>().set_progress(AT[3] + 0.11);
@@ -255,7 +281,7 @@ pub fn connect<M: Send + 'static>(ui: &MainWindow, f: impl FnOnce() -> Result<M,
             say(ui, "NO ANSWER FROM LINUXCNC", "");
             boot.set_error(format!("millgui could not connect to LinuxCNC: {e}").into());
             boot.set_phase("failed".into());
-            let _ = run_until(ui, |_| None::<()>);
+            until_quit().await;
             None
         }
         Wait::Quit => None,
@@ -330,7 +356,7 @@ mod launch {
     fn openpty() -> std::io::Result<(OwnedFd, OwnedFd)> {
         let (mut m, mut s) = (0, 0);
         // SAFETY: openpty writes two fresh descriptors we then own.
-        let r = unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) };
+        let r = unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
         if r != 0 {
             return Err(std::io::Error::last_os_error());
         }
@@ -562,9 +588,16 @@ mod launch {
         Exited(std::process::ExitStatus),
     }
 
+    /// TRY AGAIN or RESTART pressed (true), or the user left (false).
+    async fn until_retry(ui: &MainWindow, retry: &Rc<std::cell::Cell<bool>>) -> bool {
+        retry.set(false);
+        let r = retry.clone();
+        matches!(wait_until(ui, move |_| r.get().then_some(())).await, Wait::Done(()))
+    }
+
     /// Start LinuxCNC with the splash up. Returns once its display step has
     /// started (millgui then connects as usual), or None to exit.
-    pub fn launch(ui: &MainWindow, ini: &Path, cfg: &Config) -> Option<Launcher> {
+    pub async fn launch(ui: &MainWindow, ini: &Path, cfg: &Config) -> Option<Launcher> {
         let boot = ui.global::<Boot>();
         let ini = std::fs::canonicalize(ini).unwrap_or_else(|_| ini.to_path_buf());
         // Relative paths in the INI are from its folder, as for LinuxCNC's display.
@@ -581,17 +614,14 @@ mod launch {
             say(ui, "THIS INI DOES NOT USE MILLGUI", "");
             boot.set_error(format!("{} has DISPLAY = {display}. Boot mode starts LinuxCNC with millgui as its screen; use millgui.ini, whose DISPLAY is ./millgui/run.", ini.display()).into());
             boot.set_phase("failed".into());
-            let _ = run_until(ui, |_| None::<()>);
+            until_quit().await;
             return None;
         }
         let hal_files = cfg.get_all("HAL", "HALFILE").len();
         let retry = Rc::new(std::cell::Cell::new(false));
         {
             let retry = retry.clone();
-            boot.on_retry(move || {
-                retry.set(true);
-                super::request_quit();
-            });
+            boot.on_retry(move || retry.set(true));
         }
         // A retry after a failure, or "restart" when another session holds the lock.
         let mut restart = false;
@@ -602,9 +632,7 @@ mod launch {
                 boot.set_log("".into());
                 boot.set_can_retry(true);
                 boot.set_phase("lock".into());
-                retry.set(false);
-                let _ = run_until(ui, |_| None::<()>);
-                if !retry.get() {
+                if !until_retry(ui, &retry).await {
                     return None;
                 }
                 restart = true;
@@ -618,9 +646,7 @@ mod launch {
                     boot.set_error(e.into());
                     boot.set_can_retry(true);
                     boot.set_phase("failed".into());
-                    retry.set(false);
-                    let _ = run_until(ui, |_| None::<()>);
-                    if retry.get() {
+                    if until_retry(ui, &retry).await {
                         restart = false;
                         continue;
                     }
@@ -629,7 +655,7 @@ mod launch {
             };
             let run = Rc::new(RefCell::new(Some(run)));
             let r2 = run.clone();
-            let got = run_until(ui, move |ui| {
+            let got = wait_until(ui, move |ui| {
                 let mut g = r2.borrow_mut();
                 let r = g.as_mut()?;
                 r.pump(ui);
@@ -640,7 +666,8 @@ mod launch {
                     Ok(Some(st)) => Some(Next::Exited(st)),
                     _ => None,
                 }
-            });
+            })
+            .await;
             let mut r = run.borrow_mut().take().unwrap();
             match got {
                 Wait::Done(Next::Attached(s)) => {
@@ -656,9 +683,7 @@ mod launch {
                 }
                 Wait::Done(Next::Exited(st)) => {
                     r.failed(ui, st);
-                    retry.set(false);
-                    let _ = run_until(ui, |_| None::<()>);
-                    if retry.get() {
+                    if until_retry(ui, &retry).await {
                         restart = false;
                         continue;
                     }
@@ -666,7 +691,7 @@ mod launch {
                 }
                 Wait::Quit => {
                     // EXIT while starting: stop what has started.
-                    r.launcher.shutdown(ui);
+                    r.launcher.shutdown(ui).await;
                     return None;
                 }
             }
@@ -680,8 +705,9 @@ mod launch {
         }
 
         /// Stop LinuxCNC (close the display's connection, or signal the
-        /// script before it got that far) and wait for it, splash up.
-        pub fn shutdown(mut self, ui: &MainWindow) {
+        /// script before it got that far) and wait for it, splash up. A
+        /// further EXIT or signal does not cut this short.
+        pub async fn shutdown(mut self, ui: &MainWindow) {
             let boot = ui.global::<Boot>();
             say(ui, "STOPPING LINUXCNC", "");
             boot.set_phase("stopping".into());
@@ -693,33 +719,22 @@ mod launch {
                 }
             }
             let t0 = Instant::now();
-            let child = Rc::new(RefCell::new(Some(self)));
-            let c2 = child.clone();
-            let _ = run_until(ui, move |_| {
-                let mut g = c2.borrow_mut();
-                let l = g.as_mut()?;
-                if matches!(l.child.try_wait(), Ok(Some(_))) {
+            every(Duration::from_millis(50), move || {
+                if matches!(self.child.try_wait(), Ok(Some(_))) {
                     return Some(());
                 }
                 if t0.elapsed() > Duration::from_secs(20) {
                     eprintln!("millgui: LinuxCNC did not stop within 20 s; killing it");
                     // SAFETY: as above, the whole group we started.
                     unsafe {
-                        libc::kill(-(l.child.id() as i32), libc::SIGKILL);
+                        libc::kill(-(self.child.id() as i32), libc::SIGKILL);
                     }
-                    let _ = l.child.wait();
+                    let _ = self.child.wait();
                     return Some(());
                 }
                 None
-            });
-            // A second EXIT (or a signal) while stopping: still wait a little.
-            let left = child.borrow_mut().take();
-            if let Some(mut l) = left {
-                let t1 = Instant::now();
-                while t1.elapsed() < Duration::from_secs(10) && !matches!(l.child.try_wait(), Ok(Some(_))) {
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-            }
+            })
+            .await;
         }
     }
 
