@@ -25,7 +25,7 @@ writes the file so it stops doing that.
 Check what Ferrum makes of a machine, with or without LinuxCNC running:
 
 ```sh
-Ferrum --check ~/linuxcnc/configs/mymachine/mymachine.ini
+ferrum --check ~/linuxcnc/configs/mymachine/mymachine.ini
 ```
 
 It prints what was read, what is missing and what is switched off because

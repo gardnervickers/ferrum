@@ -43,8 +43,8 @@ Headers and libraries for Ferrum's NML backend, laid out as a sysroot:
 mkdir -p ~/lcnc/sysroot/usr/include
 ln -s ~/lcnc/src/include ~/lcnc/sysroot/usr/include/linuxcnc
 ln -s ~/lcnc/src/lib ~/lcnc/sysroot/usr/lib
-cd Ferrum
-LCNC_SYSROOT=~/lcnc/sysroot CARGO_TARGET_DIR=target-nml cargo build -p Ferrum
+cd ferrum
+LCNC_SYSROOT=~/lcnc/sysroot CARGO_TARGET_DIR=target-nml cargo build -p ferrum-lcnc
 ```
 
 Build the probe manager comp once (`halcompile --install` on

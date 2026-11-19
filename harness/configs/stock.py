@@ -16,7 +16,7 @@ import shutil
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[2]
+FERRUM = HERE.parents[1]  # the Ferrum checkout (ferrum/ in mymill, or its own repo)
 
 # Limits and speeds per unit system: (min, max) per axis, max vel, accel.
 LIMITS = {
@@ -80,7 +80,7 @@ CYCLE_TIME = 0.001
 
 [RS274NGC]
 PARAMETER_FILE = sim.var
-SUBROUTINE_PATH = {out / 'subroutines'}:{REPO / 'ferrum' / 'macros'}
+SUBROUTINE_PATH = {out / 'subroutines'}:{FERRUM / 'macros'}
 # A built job checks its stamp through #<_hal[...]> (ferrum --check --write-ini sets it).
 HAL_PIN_VARS = 1
 
@@ -218,9 +218,9 @@ def main():
     (out / "tool.tbl").write_text("\n".join(TOOLS[a.units]) + "\n")
     disp = out / "display"
     disp.write_text('#!/bin/sh\nexport SLINT_SCALE_FACTOR="${SLINT_SCALE_FACTOR:-1}"\n'
-                    f'exec "${{FERRUM_BIN:-{REPO}/ferrum/target/release/ferrum}}" "$@"\n')
+                    f'exec "${{FERRUM_BIN:-{FERRUM}/target/release/ferrum}}" "$@"\n')
     disp.chmod(0o755)
-    for f in (REPO / "ferrum" / "testdata" / "nc_files").glob("*.ngc"):
+    for f in (FERRUM / "testdata" / "nc_files").glob("*.ngc"):
         shutil.copy(f, out / "nc_files" / f.name)
     # No ferrum/hal beside the INI: ferrum's modules connect their pins
     # themselves ([hal] in ferrum.toml, or the defaults), as on a stranger's

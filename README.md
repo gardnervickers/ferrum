@@ -36,7 +36,7 @@ ferrum/scripts/run-local --ini ferrum.ini       # window, simulated machine
 ```
 
 ```bash
-cd Ferrum && cargo run -- --ini ../ferrum.ini --screenshot /tmp/frame.png --screen run
+cd ferrum && cargo run -- --ini ../ferrum.ini --screenshot /tmp/frame.png --screen run
 ```
 
 The second renders one frame headless to a PNG. Mac builds have no NML

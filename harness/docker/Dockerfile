@@ -17,7 +17,8 @@ RUN update-ca-certificates >/dev/null 2>&1 || true
 RUN useradd -m -s /bin/bash cncsim && echo 'cncsim ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/cncsim
 
 COPY setup-linuxcnc /tmp/setup/ferrum/harness/setup-linuxcnc
-COPY probe_manager.comp /tmp/setup/hal_components/probe_manager.comp
+# The mymill repo adds its probe_manager comp here; empty on its own.
+COPY comps/ /tmp/setup/hal_components/
 RUN mkdir -p /opt/lcnc && chown cncsim /opt/lcnc && chown -R cncsim /tmp/setup
 USER cncsim
 RUN /tmp/setup/ferrum/harness/setup-linuxcnc /opt/lcnc && sudo rm -rf /var/lib/apt/lists/* /opt/lcnc/src/.git

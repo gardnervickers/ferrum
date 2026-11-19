@@ -118,6 +118,15 @@ fn load_configs(root: &Path) -> Vec<Config> {
                 }
             }
         }
+        // `requires`: paths (from the config's folder) the config cannot
+        // run without, e.g. the machine config around Ferrum's checkout.
+        if let Some(missing) = vars
+            .get("requires")
+            .and_then(|r| r.split_whitespace().find(|p| !dir.join(p).exists()))
+        {
+            eprintln!("config {name}: skipped, {missing} is not there");
+            continue;
+        }
         let mut tags: Vec<String> = vars
             .get("tags")
             .map(|t| t.split_whitespace().map(String::from).collect())

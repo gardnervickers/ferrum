@@ -1,4 +1,6 @@
 # Variables for scenarios (${name}) and tags for `needs`/`xfail`.
+# Only inside the mymill repo (Ferrum in its own repo skips this config).
+requires = ../../../../mymill.ini ../../../../vendor/probe_basic/configs
 tags = mm probe-basic mymill-hal xyza drawbar pendant probe-geometry
 units = mm
 # A comfortable move in machine units, and a spot well inside travel (work = machine after G54 clear).

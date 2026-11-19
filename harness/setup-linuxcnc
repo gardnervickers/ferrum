@@ -41,8 +41,8 @@ mkdir -p "$LCNC/sysroot/usr/include"
 [ -e "$LCNC/sysroot/usr/include/linuxcnc" ] || ln -s "$LCNC/src/include" "$LCNC/sysroot/usr/include/linuxcnc"
 [ -e "$LCNC/sysroot/usr/lib" ] || ln -s "$LCNC/src/lib" "$LCNC/sysroot/usr/lib"
 
-# probe_manager comp (mymill.hal loads it).
-if ! ls "$LCNC/src/rtlib/probe_manager.so" >/dev/null 2>&1; then
+# probe_manager comp (mymill.hal loads it): only inside the mymill repo.
+if [ -f "$REPO/hal_components/probe_manager.comp" ] && ! ls "$LCNC/src/rtlib/probe_manager.so" >/dev/null 2>&1; then
   (set +u; source "$LCNC/src/scripts/rip-environment"; cd "$REPO/hal_components" && halcompile --install probe_manager.comp >/dev/null)
 fi
 echo "LinuxCNC sim ready in $LCNC"
