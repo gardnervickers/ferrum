@@ -1,0 +1,75 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Measures across a boss or ridge along one axis from above it:
+; o<ferrum_span_outside> call [axis] [hint] [z clear] [z probe],
+; axis 0 = X, 1 = Y. The probe starts at Z [z clear] over the feature's
+; middle. It steps out to start - (hint/2 + #3023), plunges to
+; [z probe], touches towards the feature (reach #3018) and rises; then it
+; goes over to start + (hint/2 + #3023), plunges, touches back
+; towards the feature and rises. Every positioning move is guarded. The
+; stylus-centre touch points give the centre (their mean) and the outside
+; width (their difference - 2 x effective tip radius, #5410/2 - #3032).
+; The probe ends over the centre at [z clear]. Results go to
+; #<_ferrum_center> and #<_ferrum_width>; the compensated faces go to
+; #1005/#1006 (X) or #1007/#1008 (Y) as the edge macros would report them.
+; Nothing is written to a work offset and nothing is reported.
+o<ferrum_span_outside> sub
+#<axis> = #1
+#<hint> = #2
+#<z_clear> = #3
+#<z_probe> = #4
+#<r> = [[#5410 / 2] - #3032]
+o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
+    (ABORT, Invalid span axis)
+o100 endif
+o101 if [#<hint> LT 0]
+    (ABORT, Size hint must not be negative)
+o101 endif
+o102 if [#<z_probe> GE #<z_clear>]
+    (ABORT, Probing depth must be below the clearance height)
+o102 endif
+#<off> = [[#<hint> / 2] + #3023]
+o110 if [#<axis> EQ 0]
+    #<c0> = #5420
+o110 else
+    #<c0> = #5421
+o110 endif
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+
+; Near side: approach in + direction.
+o120 if [#<axis> EQ 0]
+    o<ferrum_guarded_move> call [#<c0> - #<off> - #5420] [0] [0]
+o120 else
+    o<ferrum_guarded_move> call [0] [#<c0> - #<off> - #5421] [0]
+o120 endif
+o<ferrum_guarded_move> call [0] [0] [#<z_probe> - #5422]
+o<ferrum_touch> call [#<axis>] [1] [#3018]
+#<lo> = #<_ferrum_hit>
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+
+; Far side: approach in - direction.
+o130 if [#<axis> EQ 0]
+    o<ferrum_guarded_move> call [#<c0> + #<off> - #5420] [0] [0]
+o130 else
+    o<ferrum_guarded_move> call [0] [#<c0> + #<off> - #5421] [0]
+o130 endif
+o<ferrum_guarded_move> call [0] [0] [#<z_probe> - #5422]
+o<ferrum_touch> call [#<axis>] [-1] [#3018]
+#<hi> = #<_ferrum_hit>
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+
+#<_ferrum_center> = [[#<lo> + #<hi>] / 2]
+#<_ferrum_width> = [#<hi> - #<lo> - [2 * #<r>]]
+o140 if [#<_ferrum_width> LE 0]
+    (ABORT, The two faces were not found on opposite sides)
+o140 endif
+o150 if [#<axis> EQ 0]
+    #1006 = [#<lo> + #<r>]
+    #1005 = [#<hi> - #<r>]
+    o<ferrum_guarded_move> call [#<_ferrum_center> - #5420] [0] [0]
+o150 else
+    #1008 = [#<lo> + #<r>]
+    #1007 = [#<hi> - #<r>]
+    o<ferrum_guarded_move> call [0] [#<_ferrum_center> - #5421] [0]
+o150 endif
+o<ferrum_span_outside> endsub
+M2

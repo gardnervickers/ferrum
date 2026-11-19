@@ -1,0 +1,44 @@
+title FIND outside corners of the sim STOCK block write X, Y and Z of G54
+needs probe-basic probe-geometry
+# Each starts over the top, 3 in from both faces at the corner, the tip 5
+# above the top. The macro touches the top first (Z), then both faces.
+include ../common/probe-start.scn
+do probe-shape "block"
+do probe-wcs "G54"
+
+mdi G53 G0 X${corner_l_x} Y${corner_f_y}
+mdi G53 G1 Z${stock_above_mz} F2000
+do probe-target "c-fl"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${stock_x_min} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${stock_y_min} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${stock_top} +- ${geom_tol}
+
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${corner_r_x} Y${corner_f_y}
+mdi G53 G1 Z${stock_above_mz} F2000
+do probe-target "c-fr"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${stock_x_max} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${stock_y_min} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${stock_top} +- ${geom_tol}
+
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${corner_l_x} Y${corner_b_y}
+mdi G53 G1 Z${stock_above_mz} F2000
+do probe-target "c-bl"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${stock_x_min} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${stock_y_max} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${stock_top} +- ${geom_tol}
+
+include ../common/probe-wcs0.scn
+mdi G53 G0 X${corner_r_x} Y${corner_b_y}
+mdi G53 G1 Z${stock_above_mz} F2000
+do probe-target "c-br"
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${stock_x_max} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${stock_y_max} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${stock_top} +- ${geom_tol}
+mdi G53 G0 Z${travel_z}
+shot corners-done

@@ -1,0 +1,14 @@
+title M6 with TOUCH OFF measures the tool on the setter
+needs drawbar
+include ../common/ready.scn
+do mdi-send "T4 M6"
+wait prop.tc-open == true within 60
+do tc-seated-toggle
+wait prop.tc-can-touch-off == true within 5
+do tc-resume true
+idle 120
+expect stat.tool_in_spindle == 4
+expect stat.tool_table[0].id == 4
+expect stat.tool_table[0].zoffset > 0
+expect prop.tool == "T4"
+shot after-touch-off

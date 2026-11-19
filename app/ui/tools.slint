@@ -1,0 +1,277 @@
+import { Theme, Layout } from "theme.slint";
+import { Live, Actions, ToolRow, CheckRow } from "state.slint";
+import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
+import { ListView } from "std-widgets.slint";
+
+component Cell inherits Rectangle {
+    in property <string> text;
+    in property <bool> tag;
+    in property <bool> editable;
+    // A wear adjustment included in the value, shown small at the left.
+    in property <string> wear;
+    callback tapped();
+    Rectangle {
+        x: 6px;
+        y: 5px;
+        width: parent.width - 12px;
+        height: parent.height - 10px;
+        border-radius: Theme.radius-ctl;
+        background: ta.pressed && root.editable ? Theme.raised : #ffffff08;
+        border-width: 1px;
+        border-color: ta.pressed && root.editable ? Theme.sel : #ffffff14;
+        Text {
+            x: 0;
+            width: parent.width - 12px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            text: tag ? "NEEDS LENGTH" : root.text;
+            font-family: tag ? Theme.display : Theme.body;
+            font-size: tag ? 19px : 24px;
+            color: tag ? Theme.warn : Theme.ink;
+        }
+        if root.wear != "" && !tag: Text {
+            x: 10px;
+            vertical-alignment: center;
+            text: root.wear;
+            font-family: Theme.body;
+            font-weight: 500;
+            font-size: 17px;
+            color: Theme.warn;
+        }
+    }
+    ta := TouchArea { enabled: editable; clicked => { root.tapped(); } }
+}
+
+export component ToolsScreen inherits Rectangle {
+    property <bool> locked: Live.manual-locked;
+    HorizontalLayout {
+        padding: 14px;
+        spacing: 14px;
+        Card {
+            horizontal-stretch: 1.5;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                HorizontalLayout {
+                    H3 { horizontal-stretch: 1; text: "TOOL TABLE"; }
+                    Label { vertical-alignment: center; text: "TAP LENGTH, DIA OR COMMENT TO EDIT"; }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    Label { width: 110px; text: "T"; }
+                    // Right edges line up with the values in the cells below.
+                    Label { width: 152px; horizontal-alignment: right; text: "LENGTH Z"; }
+                    Rectangle { width: 18px; }
+                    Label { width: 122px; horizontal-alignment: right; text: "DIA"; }
+                    Rectangle { width: 18px; }
+                    Label { horizontal-stretch: 1; text: "   COMMENT"; }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.well;
+                    border-radius: Theme.radius-ctl;
+                    clip: true;
+                    tl := ListView {
+                        for t[i] in Live.tools: Rectangle {
+                            height: 54px;
+                            background: i == Live.tools-selected ? Theme.sel-soft : rt.pressed ? Theme.raised : transparent;
+                            border-radius: Theme.radius-sm;
+                            border-width: i == Live.tools-selected ? 2px : 0;
+                            border-color: Theme.sel;
+                            animate background { duration: Theme.quick; }
+                            rt := TouchArea { clicked => { Actions.tools-select(i); } }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                HorizontalLayout {
+                                    width: 110px;
+                                    spacing: 6px;
+                                    Text { vertical-alignment: center; text: t.t; font-family: Theme.display; font-size: 26px; color: Theme.ink; }
+                                    if t.current: Text { vertical-alignment: center; text: "● IN"; font-family: Theme.display; font-size: 18px; color: Theme.good; }
+                                }
+                                Cell {
+                                    width: 170px;
+                                    wear: t.wear-len;
+                                    text: t.len;
+                                    tag: t.needs-len;
+                                    editable: !locked;
+                                    tapped => { Actions.tools-select(i); Actions.edit("tool-z"); }
+                                }
+                                Cell {
+                                    width: 140px;
+                                    wear: t.wear-dia;
+                                    text: t.dia;
+                                    editable: !locked;
+                                    tapped => { Actions.tools-select(i); Actions.edit("tool-d"); }
+                                }
+                                // Tap to edit on the text keyboard.
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    Rectangle {
+                                        x: 6px;
+                                        y: 5px;
+                                        width: parent.width - 12px;
+                                        height: parent.height - 10px;
+                                        border-radius: Theme.radius-ctl;
+                                        background: ct.pressed && !locked ? Theme.raised : transparent;
+                                        border-width: ct.pressed && !locked ? 1px : 0px;
+                                        border-color: Theme.sel;
+                                    }
+                                    Text {
+                                        x: 0;
+                                        width: parent.width - 8px;
+                                        height: parent.height;
+                                        vertical-alignment: center;
+                                        text: "   " + t.comment;
+                                        font-family: Theme.body;
+                                        font-size: 22px;
+                                        color: t.scratch ? Theme.warn : Theme.muted;
+                                        overflow: elide;
+                                    }
+                                    ct := TouchArea {
+                                        enabled: !locked;
+                                        clicked => { Actions.tools-select(i); Actions.text-edit("tool-comment"); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // More tools below: cover the cut-off row and say so.
+                    if tl.content-height > tl.visible-height && tl.content-y > tl.visible-height - tl.content-height + 4px: Rectangle {
+                        y: parent.height - 40px;
+                        height: 40px;
+                        background: Theme.well;
+                        Rectangle { y: 0; height: 1px; background: Theme.line; }
+                        Text {
+                            x: parent.width - self.width - 16px;
+                            vertical-alignment: center;
+                            height: parent.height;
+                            text: "SCROLL FOR MORE TOOLS";
+                            font-family: Theme.display;
+                            font-size: 17px;
+                            letter-spacing: 1px;
+                            color: Theme.dim;
+                        }
+                    }
+                }
+                // Wear: add a signed amount to the selected tool.
+                HorizontalLayout {
+                    height: 56px;
+                    spacing: 12px;
+                    Label { width: Layout.compact ? 110px : 150px; vertical-alignment: center; text: "WEAR " + Live.tools-sel-label; }
+                    Btn { max-width: 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1; font-size: Layout.compact ? 19px : 22px; text: Layout.compact ? "ADJ LENGTH" : "ADJUST LENGTH"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-z"); } }
+                    Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; font-size: Layout.compact ? 19px : 22px; text: Layout.compact ? "ADJ DIA" : "ADJUST DIA"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-d"); } }
+                    if !Layout.compact: Note { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; vertical-alignment: center; font-size: 18px; text: "Adds to the table value. Length +: cuts shallower. Dia: G41/G42 only."; }
+                }
+                // Tool setter: measure the selected tool, check the loaded one.
+                if Live.tools-has-setter: HorizontalLayout {
+                    height: 56px;
+                    spacing: 12px;
+                    Label { width: Layout.compact ? 110px : 150px; vertical-alignment: center; text: "TOOL SETTER"; }
+                    Btn {
+                        max-width: 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1;
+                        kind: "go";
+                        font-size: Layout.compact ? 19px : 22px;
+                        text: Live.tools-sel-label == "" ? "MEASURE" : "MEASURE " + Live.tools-sel-label;
+                        enabled: Live.tools-can-measure && !locked;
+                        clicked => { Actions.tools-measure(); }
+                    }
+                    Btn {
+                        max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1;
+                        font-size: Layout.compact ? 19px : 22px;
+                        text: Live.tools-check-label;
+                        enabled: Live.tools-can-check && !locked;
+                        clicked => { Actions.tools-check(); }
+                    }
+                    Text {
+                        horizontal-stretch: 1; preferred-width: 0px; min-width: 0px;
+                        vertical-alignment: center;
+                        font-family: Theme.body;
+                        font-size: 18px;
+                        wrap: word-wrap;
+                        overflow: elide;
+                        text: Live.tools-setter-note != "" ? Live.tools-setter-note : "MEASURE loads the tool if needed and sets its length. CHECK looks for a broken tool.";
+                        color: Live.tools-setter-tone == "good" ? Theme.good : Live.tools-setter-tone == "bad" ? Theme.bad : Theme.muted;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Btn {
+                        horizontal-stretch: 3; preferred-width: 0px; min-width: 0px;
+                        kind: "go";
+                        font-size: Layout.compact ? 18px : 22px;
+                        text: Live.tools-sel-label == "" ? Layout.compact ? "M6" : "M6 SELECTED" : "M6 " + Live.tools-sel-label;
+                        enabled: Live.tools-sel-label != "" && !locked && Live.power;
+                        clicked => { Actions.tools-m6(); }
+                    }
+                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "UNLOAD SPINDLE"; sub: "HOLD"; hold: true; enabled: !locked && Live.power && Live.tool != "T0"; clicked => { Actions.tools-unload(); } }
+                    Rectangle { width: Layout.compact ? 4px : 16px; }
+                    Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
+                    if Live.has-scratch: Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }
+                    Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? 18px : 22px; text: "DELETE"; hold: true; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.tools-delete(); } }
+                }
+            }
+        }
+        VerticalLayout {
+            width: Layout.compact ? 340px : 420px;
+            spacing: 14px;
+            Card {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    H3 { text: "LOADED PROGRAM CHECK"; }
+                    Note { text: Live.program == "" ? "No program loaded." : "Tools used by " + Live.program + " against the table."; wrap: word-wrap; }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: Theme.well;
+                        border-radius: Theme.radius-ctl;
+                        ListView {
+                            for c[ci] in Live.tools-check: Rectangle {
+                                height: 62px;
+                                background: ck.pressed ? Theme.raised : transparent;
+                                border-radius: Theme.radius-sm;
+                                // Selects the tool in the table (to MEASURE it).
+                                ck := TouchArea { clicked => { Actions.tools-check-select(ci); } }
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 12px;
+                                    Text { width: 80px; vertical-alignment: center; text: c.t; font-family: Theme.display; font-size: 26px; color: Theme.ink; }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Pill { text: c.status; kind: c.kind; }
+                                    }
+                                    Text { horizontal-stretch: 1; vertical-alignment: center; text: c.action; font-family: Theme.body; font-size: 20px; color: Theme.muted; wrap: Layout.compact ? no-wrap : word-wrap; overflow: elide; }
+                                }
+                            }
+                        }
+                        if Live.tools-check.length == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: "No T words in the program."; }
+                    }
+                    Btn { font-size: 22px; text: "CREATE MISSING ENTRIES"; enabled: Live.tools-missing && !locked; clicked => { Actions.tools-create-missing(); } }
+                }
+            }
+            // Only on a machine with a power drawbar.
+            if Live.tools-drawbar != "NOT FITTED": Card {
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    HorizontalLayout {
+                        H3 { horizontal-stretch: 1; text: "DRAWBAR"; }
+                        Pill {
+                            text: Live.tools-drawbar;
+                            kind: Live.tools-drawbar == "RETRACTED" ? "good" : Live.tools-drawbar == "EXTENDED" ? "warn" : "";
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Btn { text: "RELEASE TOOL"; sub: "HOLD"; hold: true; enabled: Live.tools-can-extend; clicked => { Actions.tools-drawbar(true); } }
+                        Btn { text: "CLAMP TOOL"; enabled: Live.tools-can-retract; clicked => { Actions.tools-drawbar(false); } }
+                    }
+                    Note { text: "Outside a tool change: spindle off and nothing running. M6 handles the drawbar itself."; wrap: word-wrap; }
+                }
+            }
+        }
+    }
+}

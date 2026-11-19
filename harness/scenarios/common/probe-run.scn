@@ -1,0 +1,11 @@
+# Hold the PROBE screen's run button once ferrum offers it (its readiness
+# line is empty: on, homed, idle, the right tool; and not busy writing its
+# probe defaults, which it does 3 s after things go still), then wait until
+# it has finished the routine, restore lines included, and it did not fail.
+wait prop.pr-running == false within 30
+wait prop.pr-ready == "" within 30
+do probe-run
+wait prop.pr-running == true within 10
+wait prop.pr-running == false within 300
+idle 30
+expect prop.pr-result !contains failed

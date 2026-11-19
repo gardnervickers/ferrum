@@ -1,0 +1,9 @@
+[package]
+name = "uimirror"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+# Build-time code generator: reads app/ui/state.slint and writes Rust that
+# reads, writes and forwards the Live properties and Actions callbacks as
+# JSON, so the touchscreen and the browser can mirror one another.

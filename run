@@ -1,0 +1,5 @@
+#!/bin/sh
+# LinuxCNC DISPLAY entry for ferrum; runs the binary deployed by scripts/deploy.
+# The layout is drawn for 1920x1080 at scale 1, whatever DPI X reports.
+export SLINT_SCALE_FACTOR="${SLINT_SCALE_FACTOR:-1}"
+exec "$(dirname "$0")/bin/ferrum" "$@"

@@ -1,0 +1,78 @@
+# Build, unit tests, and the end-to-end harness (harness/README.md) on
+# LinuxCNC 2.9.10 simulators: metric, inch, rotary and gantry. Simulator
+# only; nothing here talks to a machine.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      args:
+        description: "harness arguments, e.g. -c sim-inch basics"
+        required: false
+        default: ""
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-0 libfontconfig-dev libfreetype-dev \
+            libgl1-mesa-dev libudev-dev >/dev/null
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --locked
+      - name: Unit tests
+        run: cargo test --locked -q
+
+  harness:
+    name: Harness (LinuxCNC sim)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache LinuxCNC build
+        uses: actions/cache@v4
+        with:
+          path: ~/lcnc
+          key: lcnc-2.9.10-${{ runner.os }}-${{ hashFiles('harness/setup-linuxcnc') }}
+
+      - name: Set up LinuxCNC simulator
+        # Installs packages every time; builds LinuxCNC only on a cache miss.
+        run: harness/setup-linuxcnc ~/lcnc
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target-nml"
+
+      - name: Harness unit tests
+        run: cargo test -q -p ferrum-harness
+
+      - name: Run harness
+        run: harness/run ${{ inputs.args }}
+
+      - name: Summary
+        if: always()
+        run: cat harness-out/report.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: harness-report
+          path: harness-out
+          retention-days: 14

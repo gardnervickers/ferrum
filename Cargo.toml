@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["app", "crates/jobcore", "crates/lcnc", "crates/machine", "crates/preview", "crates/uimirror", "harness", "web"]
+# The browser build targets wasm32; `cargo build` on its own builds the machine screen.
+default-members = ["app", "crates/jobcore", "crates/lcnc", "crates/machine", "crates/preview", "crates/uimirror"]
+
+[workspace.package]
+edition = "2021"
+publish = false
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+
+# The backplot is software-rendered on every status tick while the tool
+# moves; unoptimized it takes ~140 ms a frame, which makes the debug
+# simulator lag. Dependencies and the renderer are optimized even in dev.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.preview]
+opt-level = 3

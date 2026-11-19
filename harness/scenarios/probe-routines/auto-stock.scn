@@ -1,0 +1,25 @@
+title FIND STOCK CENTER walks round the sim STOCK block, then APPLY sets G54 X Y at its middle
+needs probe-basic probe-geometry
+# Start beside the front face (15 out, tip 5 below the top): the routine
+# walks the outside at that height and reports the size; a second hold
+# applies the centre.
+include ../common/probe-start.scn
+do probe-shape "block"
+do probe-target "ctr"
+do probe-opt "both"
+do probe-opt "start-F"
+do probe-wcs "G54"
+mdi G53 G0 X${stock_cx} Y${edge_front_y}
+mdi G53 G1 Z${stock_depth_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Stock} ~= ${stock_w} +- ${geom_tol}
+expect prop.pr-result{×} ~= ${stock_h} +- ${geom_tol}
+expect prop.pr-run-label == "HOLD TO APPLY"
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001  # measuring writes nothing
+include ../common/probe-run.scn
+expect prop.pr-result contains "Center written to G54"
+expect stat.g5x_offset[0] ~= ${stock_cx} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${stock_cy} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot auto-stock-done

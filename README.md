@@ -10,7 +10,7 @@ Ferrum is the screen you stand in front of: big targets, one job per screen, and
 
 ![The RUN screen running a program on the simulated machine](docs/images/run.gif)
 
-> **Status: early.** Ferrum runs its author's mill, and it is being split out of the machine config it grew up in. The binary and its settings file are still called `millgui`. Expect names and paths to move.
+> **Status: early.** Ferrum runs its author's mill, and it has just been split out of the machine config it grew up in. Expect names and paths to move. (It was called millgui: settings files, INI sections and environment variables under that name are still read.)
 
 ## What it does
 
@@ -46,7 +46,7 @@ Ferrum is developed on a Raspberry Pi 5. It draws on the GPU where there is one 
 No LinuxCNC needed, on Linux or macOS. This opens a window on a built-in simulated machine:
 
 ```sh
-cargo run --release -p millgui -- --sim --windowed
+cargo run --release -p ferrum-lcnc -- --sim --windowed
 ```
 
 ## Install
@@ -54,7 +54,7 @@ cargo run --release -p millgui -- --sim --windowed
 Build on the machine that runs LinuxCNC, pointing the build at LinuxCNC's headers and libraries:
 
 ```sh
-LCNC_INCLUDE_DIR=/usr/include/linuxcnc LCNC_LIB_DIR=/usr/lib cargo build --release -p millgui
+LCNC_INCLUDE_DIR=/usr/include/linuxcnc LCNC_LIB_DIR=/usr/lib cargo build --release -p ferrum-lcnc
 ```
 
 Then make Ferrum the display in your INI:
@@ -67,7 +67,7 @@ DISPLAY = /path/to/ferrum/run
 Check what Ferrum makes of your machine. This works with LinuxCNC stopped and changes nothing:
 
 ```sh
-millgui --check ~/linuxcnc/configs/mymachine/mymachine.ini
+target/release/ferrum --check ~/linuxcnc/configs/mymachine/mymachine.ini
 ```
 
 It prints what it read, what is missing and which features are off because of it. Add `--write-ini` and it adds the INI lines it asks for, keeping the old file as `mymachine.ini.bak`.
@@ -88,7 +88,7 @@ On a new machine SETUP opens first. Jogging, homing, MDI, programs, offsets and 
 
 LinuxCNC's settings stay in your INI: axes, units, limits, speeds and paths. Ferrum only reads them.
 
-What LinuxCNC does not know lives in one file beside the INI, `millgui.toml`. Every key is optional, and the SETUP screen writes it for you:
+What LinuxCNC does not know lives in one file beside the INI, `ferrum.toml`. Every key is optional, and the SETUP screen writes it for you:
 
 ```toml
 [modules]
@@ -107,7 +107,7 @@ max_z = 120
 probe_tripped = "motion.probe-input"
 ```
 
-Each screen is a module. Leave one out and it is never created: no nav entry, no HAL pins. The full list of keys is in [docs/millgui-toml.md](docs/millgui-toml.md).
+Each screen is a module. Leave one out and it is never created: no nav entry, no HAL pins. The full list of keys is in [docs/ferrum-toml.md](docs/ferrum-toml.md).
 
 Ferrum ships its own probing macros in [`macros/`](macros/). They need no HAL pins beyond the probe input, and they work in mm or inch.
 

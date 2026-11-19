@@ -1,0 +1,54 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Measures across a pocket, bore or slot along one axis from inside it:
+; o<ferrum_span_inside> call [axis] [hint] [cal], axis 0 = X, 1 = Y.
+; The probe is already at depth between the two walls. For X it touches the
+; -X wall first (reach #3018 + hint/2) and then the +X wall (reach
+; #3018 + hint); for Y the +Y wall first, then -Y. The stylus-centre touch
+; points give the centre (their mean) and the inside width (their
+; difference + 2 x effective tip radius, radius = #5410/2 - cal). The probe
+; then makes a guarded move to the centre, at the same Z. Results go to
+; #<_ferrum_center> and #<_ferrum_width>; the two compensated walls go to
+; #1005/#1006 (X) or #1007/#1008 (Y) as the edge macros would report them.
+; Nothing is written to a work offset and nothing is reported.
+o<ferrum_span_inside> sub
+#<axis> = #1
+#<hint> = #2
+#<r> = [[#5410 / 2] - #3]
+o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
+    (ABORT, Invalid span axis)
+o100 endif
+o101 if [#<hint> LT 0]
+    (ABORT, Size hint must not be negative)
+o101 endif
+#<first> = 1
+o110 if [#<axis> EQ 0]
+    #<first> = -1
+o110 endif
+o<ferrum_touch> call [#<axis>] [#<first>] [#3018 + [#<hint> / 2]]
+#<a> = #<_ferrum_hit>
+o<ferrum_touch> call [#<axis>] [0 - #<first>] [#3018 + #<hint>]
+#<b> = #<_ferrum_hit>
+G90
+o120 if [#<first> EQ -1]
+    #<lo> = #<a>
+    #<hi> = #<b>
+o120 else
+    #<lo> = #<b>
+    #<hi> = #<a>
+o120 endif
+#<_ferrum_center> = [[#<lo> + #<hi>] / 2]
+#<_ferrum_width> = [#<hi> - #<lo> + [2 * #<r>]]
+o130 if [#<hi> LE #<lo>]
+    (ABORT, The two walls were not found on opposite sides)
+o130 endif
+o140 if [#<axis> EQ 0]
+    #1005 = [#<lo> - #<r>]
+    #1006 = [#<hi> + #<r>]
+    o<ferrum_guarded_move> call [#<_ferrum_center> - #5420] [0] [0]
+o140 else
+    #1007 = [#<lo> - #<r>]
+    #1008 = [#<hi> + #<r>]
+    o<ferrum_guarded_move> call [0] [#<_ferrum_center> - #5421] [0]
+o140 endif
+o<ferrum_span_inside> endsub
+M2

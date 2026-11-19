@@ -1,0 +1,48 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; CAL tool length on the tool setter (ferrum CAL > TOOL LENGTH; also the
+; M6 remap's optional touch-off). No arguments. Measures the tool in the
+; spindle on the setter at the G30 position and writes its length to the
+; tool table (G10 L1); reports nothing else. The setter must drive
+; motion.probe-input while a tool other than the probe is loaded.
+; Reference: #3010 is the distance from machine Z 0 down to where the bare
+; spindle nose trips the setter (measured by probe_spindle_nose), so the
+; nose trips at machine Z -#3010 and a tool that trips at machine Z m is
+;   length = m + #3010.
+; m comes from the G30 Z and the probed travel below it, so the result is
+; right whatever the G30 Z height (the nose macro measures the same way).
+; Checks first: a tool is loaded and it is not the probe #3014 (the probe
+; is calibrated on a reference surface instead), #3010 > 0, and the setter
+; settings (o<ferrum_setter_ready>). In diameter offset mode #3012 = 1 a
+; tool with a diameter in the tool table touches #5410 / 2 off centre in
+; direction #3013. Motion: spindle stop, G49, machine Z 0, G30 X/Y, down
+; to G30 Z, fast touch at #3004 within #3007, retract #3009, slow touch at
+; #3005 (0 skips it), back to machine Z 0. Feed override is off during the
+; run. Afterwards the modal state is as it was; a G43 that was in effect
+; is re-applied, so it now uses the new length. Works in machine units.
+o<tool_touch_off> sub
+o10 if [#<_task> EQ 0]
+    o<tool_touch_off> return
+o10 endif
+o100 if [#5400 LE 0]
+    (ABORT, Load the tool to measure first: no tool in the spindle)
+o100 endif
+o110 if [#5400 EQ #3014]
+    (ABORT, The probe is not measured on the tool setter: calibrate it on a reference surface)
+o110 endif
+o120 if [#3010 LE 0]
+    (ABORT, Measure the spindle nose reference height first)
+o120 endif
+o<ferrum_setter_ready> call
+
+#<tool> = #5400
+M5
+M73
+M50 P0
+o<ferrum_setter_touch> call [#5410 / 2]
+#<length> = [#<_value> + #3010]
+o200 if [#<length> LE 0]
+    (ABORT, Measured tool length is not positive: check the spindle nose reference height)
+o200 endif
+G10 L1 P#<tool> Z#<length>
+o<tool_touch_off> endsub
+M2

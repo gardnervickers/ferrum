@@ -1,0 +1,47 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Automatic stock scan: walks along an exterior lane until an exploratory
+; touch first misses. o<ferrum_stock_scan> call [probe axis] [probe dir]
+; [step axis] [step dir] [max span] [step] [reach]: repeat a guarded step
+; of [step] (the last one shortened to fit) along the step axis, then an
+; exploratory touch (ferrum_stock_touch) along the probe axis; stop at the
+; first miss and stay there. Aborts if [max span] is used up first.
+; Returns the distance stepped (in #<_value>).
+o<ferrum_stock_scan> sub
+#<probe_axis> = #1
+#<probe_dir> = #2
+#<step_axis> = #3
+#<step_dir> = #4
+#<span> = #5
+#<step> = #6
+#<reach> = #7
+o100 if [[#<probe_axis> EQ #<step_axis>] OR [ABS[#<probe_dir>] NE 1] OR [ABS[#<step_dir>] NE 1]]
+    (ABORT, Invalid automatic stock scan axes)
+o100 endif
+o101 if [[#<span> LE 0] OR [#<step> LE 0] OR [#<reach> LE 0]]
+    (ABORT, Invalid automatic stock scan bounds)
+o101 endif
+#<used> = 0
+#<done> = 0
+o110 while [#<done> EQ 0]
+    #<left> = [#<span> - #<used>]
+    o111 if [#<left> LE 0]
+        (ABORT, Automatic stock corner not found within max span)
+    o111 endif
+    #<advance> = #<step>
+    o112 if [#<advance> GT #<left>]
+        #<advance> = #<left>
+    o112 endif
+    o<ferrum_stock_context> call [0]
+    o113 if [#<step_axis> EQ 0]
+        o<ferrum_guarded_move> call [#<step_dir> * #<advance>] [0] [0]
+    o113 else
+        o<ferrum_guarded_move> call [0] [#<step_dir> * #<advance>] [0]
+    o113 endif
+    #<used> = [#<used> + #<advance>]
+    o<ferrum_stock_touch> call [#<probe_axis>] [#<probe_dir>] [#<reach>]
+    o114 if [#<_value> EQ 0]
+        #<done> = 1
+    o114 endif
+o110 endwhile
+o<ferrum_stock_scan> endsub [#<used>]
+M2

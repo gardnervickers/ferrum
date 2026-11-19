@@ -1,0 +1,7 @@
+# load module (opt-in: add "load" to [FERRUM]MODULES in ferrum.ini).
+# ferrum.load.value is a float input, 0 (idle) to 1 (full load). The
+# backplot colours the tool's trail by it: green, amber, red.
+#
+# Nothing is netted yet: the mill has no load signal. When one exists, scale
+# it to 0..1 here and net it, for example:
+#   net spindle-load-fraction => ferrum.load.value

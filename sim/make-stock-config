@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Build a simulator config for ferrum from one of LinuxCNC's own sample
+configs, as a stranger's machine: no mymill HAL, no Probe Basic, no
+ferrum.toml, nothing from this repo but the ferrum binary.
+
+    ferrum/sim/make-stock-config OUT_DIR LINUXCNC_INI [--remote PORT]
+
+LINUXCNC_INI is a sample config from a LinuxCNC source tree, for example
+configs/sim/axis/axis.ini (inch, XYZ), axis_mm.ini (mm, XYZ),
+gantry/gantry.ini (inch, XYZY gantry) or wrapped_rotary/wrapped_rotary.ini
+(mm, XYZA, no home switches). The files beside it are copied to OUT_DIR;
+the INI gets DISPLAY = ./display and PROGRAM_PREFIX = OUT_DIR/nc_files, and
+`--remote PORT` adds [FERRUM]REMOTE_PORT for driving ferrum over its
+websocket. The display script runs $FERRUM_BIN.
+
+Then: `linuxcnc OUT_DIR/<name>.ini` with LinuxCNC's rip-environment sourced.
+It is for the cloud/dev simulator only.
+"""
+import argparse
+import re
+import shutil
+from pathlib import Path
+
+FERRUM = Path(__file__).resolve().parents[1]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("out", type=Path)
+    ap.add_argument("ini", type=Path)
+    ap.add_argument("--remote", type=int)
+    a = ap.parse_args()
+    out = a.out.resolve()
+    src = a.ini.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "nc_files").mkdir(exist_ok=True)
+    for f in src.parent.iterdir():
+        if f.is_file() and f.suffix in (".hal", ".tbl", ".var", ".tcl", ".xml", ".ngc", ".nml"):
+            shutil.copy(f, out / f.name)
+    # The sample configs share these from configs/sim and configs/common.
+    sim = src.parent
+    while sim.name != "sim" and sim != sim.parent:
+        sim = sim.parent
+    for f in list(sim.glob("*.var")) + list(sim.glob("axis/*.tbl")) + list(sim.glob("axis/*.var")):
+        if not (out / f.name).exists():
+            shutil.copy(f, out / f.name)
+    text = src.read_text()
+    text = re.sub(r"(?m)^DISPLAY\s*=.*$", "DISPLAY = ./display", text, count=1)
+    text = re.sub(r"(?m)^PROGRAM_PREFIX\s*=.*$", f"PROGRAM_PREFIX = {out / 'nc_files'}", text)
+    if a.remote:
+        text += f"\n[FERRUM]\nREMOTE_PORT = {a.remote}\n"
+    (out / src.name).write_text(text)
+    disp = out / "display"
+    disp.write_text('#!/bin/sh\nexport SLINT_SCALE_FACTOR="${SLINT_SCALE_FACTOR:-1}"\n'
+                    f'exec "${{FERRUM_BIN:-{FERRUM}/target/release/ferrum}}" "$@"\n')
+    disp.chmod(0o755)
+    for f in (FERRUM / "testdata" / "nc_files").glob("*.ngc"):
+        shutil.copy(f, out / "nc_files" / f.name)
+    print(f"simulator config in {out}; run: linuxcnc {out / src.name}")
+
+
+if __name__ == "__main__":
+    main()

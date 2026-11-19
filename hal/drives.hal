@@ -1,0 +1,11 @@
+# drives module: servo HLFB state from mymill.hal. Each axis is ready once
+# its HLFB has stayed good for [HLFB]ARM_DELAY while enabled (the signal
+# that arms the fault monitor), and faulted when HLFB drops after that.
+net x-hlfb-monitor-arm => ferrum.drives.ready-x
+net y-hlfb-monitor-arm => ferrum.drives.ready-y
+net z-hlfb-monitor-arm => ferrum.drives.ready-z
+net a-hlfb-monitor-arm => ferrum.drives.ready-a
+net x-hlfb-fault => ferrum.drives.fault-x
+net y-hlfb-fault => ferrum.drives.fault-y
+net z-hlfb-fault => ferrum.drives.fault-z
+net a-hlfb-fault => ferrum.drives.fault-a

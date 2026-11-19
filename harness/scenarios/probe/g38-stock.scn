@@ -1,0 +1,11 @@
+title G38.2 from MDI trips on the probe input
+needs stock
+include ../common/ready.scn
+include ../common/work-zero.scn
+do mdi-send "G38.2 Z-${dist} F${feed}"
+sleep 0.5
+hal sim-probe 1
+idle 30
+hal sim-probe 0
+expect stat.probe_tripped == true
+expect stat.probed_position[2] < ${safe_z}

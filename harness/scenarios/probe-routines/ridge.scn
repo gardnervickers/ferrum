@@ -1,0 +1,50 @@
+title FIND ridge across X and across Y: width, centre to G54, Z at the ridge top
+needs probe-basic probe-geometry
+# Two ridges ${ridge_w} wide standing 10 on the PLATE (top ${feature_top}):
+# the X ridge at X ${xridge_x} (runs along Y), the Y ridge at Y ${yridge_y}
+# (runs along X). Start over the ridge's middle, the tip 5 above it; the
+# width hint (#3028 / #3029) typed in.
+#
+# Probe Basic's ridge macros cross to the far side by hint + #3023 measured
+# from the first touch's back-off point (contact - #3019), so they clear the
+# far face only when hint > width + D - #3023 + #3019, about width + 1.1
+# here; with the hint equal to the width the plunge lands on the ridge
+# ("unexpected contact"). An operator rounds the hint up: 15 for 12.
+include ../common/probe-start.scn
+do probe-shape "slot"
+do probe-opt "ridge"
+do probe-opt "X"
+do probe-wcs "G54"
+do edit "prun-3028"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "1"
+do keypad-key "5"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${xridge_x} Y${xridge_y}
+mdi G53 G1 Z${feature_above_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{X width} ~= ${ridge_w} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${xridge_x} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+expect stat.g5x_offset[2] ~= ${feature_top} +- ${geom_tol}
+
+include ../common/probe-wcs0.scn
+do probe-opt "Y"
+do edit "prun-3029"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "1"
+do keypad-key "5"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${yridge_x} Y${yridge_y}
+mdi G53 G1 Z${feature_above_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Y width} ~= ${ridge_w} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${yridge_y} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+expect stat.g5x_offset[2] ~= ${feature_top} +- ${geom_tol}
+mdi G53 G0 Z${travel_z}
+shot ridge-done

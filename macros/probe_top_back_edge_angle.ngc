@@ -1,0 +1,16 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND edge with ALSO MEASURE angle: the back edge of a block (Y+ face).
+; Start above the top, less than step-off #3023 in from the edge, with
+; #3024 of straight edge beyond the start towards -X. Touches the top,
+; then the face twice (moving -Y), #3024 apart; reports edge_delta #1011
+; and edge_angle #1012 (degrees, counter-clockwise positive). With
+; #3030 = 0 the active work offset gets Y0 at the first touch and Z0 at
+; the top; the other axis is not written. The work rotation is written
+; only with #3031 = 1. See ferrum_edge_angle.
+o<probe_top_back_edge_angle> sub
+o10 if [#<_task> EQ 0]
+    o<probe_top_back_edge_angle> return
+o10 endif
+o<ferrum_edge_angle> call [1] [1]
+o<probe_top_back_edge_angle> endsub
+M2

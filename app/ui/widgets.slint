@@ -1,0 +1,274 @@
+import { Theme } from "theme.slint";
+
+// The mockup's button. kind: "" | "go" | "hold" | "stop". With `hold`, the
+// press must last 800 ms (a misuse safeguard, see ARCHITECTURE.md).
+export component Btn inherits Rectangle {
+    in property <string> text;
+    in property <string> sub;
+    in property <string> icon;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    in property <string> kind;
+    in property <bool> hold;
+    // Flat: no plate until chosen (the nav tabs).
+    in property <bool> flat;
+    // The chosen plate is drawn by the parent, which slides it between
+    // buttons (the nav bar); this button only tints its label.
+    in property <bool> glide;
+    in property <length> font-size: 24px;
+    in property <string> family: Theme.display;
+    callback clicked();
+    // Fires on touch-down, before any hold or release (E-STOP trips on it).
+    callback pressed();
+    // Fires when the touch ends or is cancelled (continuous jog stops on it).
+    callback released();
+
+    property <bool> arming: touch.pressed && hold && enabled && !fired;
+    property <bool> fired;
+    // Whether the current touch began on a hold button; the label (and
+    // `hold`) can flip under the finger, so the release must not then act.
+    property <bool> touch-held;
+    preferred-height: 64px;
+    border-radius: Theme.radius-ctl;
+    property <bool> filled: kind == "go" || kind == "hold" || kind == "stop";
+    background: kind == "go" ? Theme.go : kind == "hold" ? Theme.hold : kind == "stop" ? Theme.stop
+        : kind == "tripped" ? #3a1414 : on && glide ? transparent : on ? Theme.sel-soft : flat ? transparent : Theme.raised;
+    border-color: kind == "go" ? Theme.go-border : kind == "hold" ? Theme.hold-border : kind == "stop" ? Theme.stop-border
+        : kind == "tripped" ? Theme.stop-border : on ? Theme.sel : Theme.raised-border;
+    border-width: kind == "tripped" ? 3px : on && glide ? 0 : on && !filled ? 2px : flat ? 0 : 1px;
+    opacity: enabled ? 1.0 : 0.38;
+    clip: true;
+    animate background, border-color, opacity { duration: Theme.quick; }
+    property <color> ink: filled || kind == "tripped" ? #ffffff : on ? Theme.sel-ink : flat ? Theme.muted : Theme.ink;
+
+    Rectangle {
+        background: touch.pressed && enabled ? #ffffff26 : transparent;
+        // Lights at once under the finger, fades when it lifts.
+        animate background { duration: touch.pressed ? 0ms : 200ms; }
+    }
+    Rectangle {
+        x: 0;
+        width: arming ? parent.width : 0;
+        background: #ffffff40;
+        animate width { duration: root.arming ? 800ms : 0ms; }
+    }
+    // The label is always centred; a HOLD/sub caption is a small tag in the
+    // top-right corner, so captioned and plain buttons line up side by side.
+    property <bool> captioned: hold || sub != "";
+    VerticalLayout {
+        alignment: center;
+        spacing: 4px;
+        padding-left: 10px;
+        padding-right: 10px;
+        if icon != "": HorizontalLayout {
+            alignment: center;
+            Path {
+                width: 30px;
+                height: 30px;
+                commands: icon;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                stroke: root.ink;
+                stroke-width: 2px;
+                fill: transparent;
+            }
+        }
+        Text {
+            text: root.text;
+            font-family: root.family;
+            font-size: root.font-size;
+            letter-spacing: 0.05 * root.font-size;
+            color: root.ink;
+            animate color { duration: Theme.quick; }
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+    if captioned: Text {
+        x: root.width - self.width - 9px;
+        y: 5px;
+        text: sub != "" ? sub : "HOLD";
+        font-family: Theme.display;
+        font-size: 13px;
+        letter-spacing: 1.4px;
+        color: filled ? #ffffffb0 : Theme.muted;
+    }
+    hold-timer := Timer {
+        interval: 800ms;
+        running: root.arming && !root.fired;
+        triggered => {
+            root.fired = true;
+            root.clicked();
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                // A hold counts only if the button was a hold button when the
+                // touch began: E-STOP turns into RESET under the finger, and
+                // keeping the finger down must not reset it.
+                root.fired = !root.hold;
+                root.touch-held = root.hold;
+                root.pressed();
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                root.released();
+            }
+        }
+        clicked => {
+            if !root.touch-held { root.clicked(); }
+        }
+    }
+}
+
+// A status pill: a coloured dot and a label on a quiet capsule.
+export component Pill inherits Rectangle {
+    in property <string> text;
+    in property <string> kind;
+    // The "on" half of a flashing pill: filled, so it is seen from across the shop.
+    in property <bool> lit;
+    // Flashing: `lit` toggles twice a second. Hard on/off, no fade: a fade
+    // would animate (and on the GPU redraw the whole screen) all the time.
+    in property <bool> blinking;
+    property <duration> fade: blinking ? 0ms : Theme.settle;
+    property <color> tone: kind == "good" ? Theme.good : kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : kind == "info" ? Theme.info : Theme.dim;
+    height: 38px;
+    horizontal-stretch: 0;
+    border-radius: 19px;
+    background: lit ? Theme.stop : kind == "bad" ? #ff8f8a24 : kind == "warn" ? #f3c4631c : Theme.panel;
+    animate background { duration: fade; }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 16px;
+        spacing: 9px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle { width: 9px; height: 9px; border-radius: 4.5px; background: lit ? Theme.ink : tone; animate background { duration: fade; } }
+        }
+        Text {
+            vertical-alignment: center;
+            text: root.text;
+            font-family: Theme.display;
+            font-size: 20px;
+            letter-spacing: 1.2px;
+            color: lit ? Theme.ink : kind == "" ? Theme.muted : tone;
+            animate color { duration: fade; }
+        }
+    }
+}
+
+export component Label inherits Text {
+    font-family: Theme.display;
+    font-size: 20px;
+    letter-spacing: 1.6px;
+    color: Theme.muted;
+}
+
+export component Card inherits Rectangle {
+    background: Theme.panel;
+    border-radius: Theme.radius;
+}
+
+// Segment of a segmented control: segments sit side by side (spacing 0) and
+// share one track; the chosen one is a tinted pill inside it. Mark the outer
+// segments `first` / `last` to round the ends of the track.
+export component Seg inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    in property <bool> first;
+    in property <bool> last;
+    in property <length> font-size: 24px;
+    callback clicked();
+    preferred-height: 52px;
+    min-width: 40px;
+    horizontal-stretch: 1;
+    opacity: enabled ? 1.0 : 0.38;
+    border-top-left-radius: first ? Theme.radius-ctl : 0;
+    border-bottom-left-radius: first ? Theme.radius-ctl : 0;
+    border-top-right-radius: last ? Theme.radius-ctl : 0;
+    border-bottom-right-radius: last ? Theme.radius-ctl : 0;
+    background: Theme.well;
+    Rectangle {
+        x: 3px; y: 3px;
+        width: parent.width - 6px;
+        height: parent.height - 6px;
+        border-radius: Theme.radius-sm;
+        // Unchosen segments keep a faint plate so each reads as a target.
+        background: root.on ? Theme.sel-soft : touch.pressed && root.enabled ? #ffffff24 : #ffffff0b;
+        border-width: 2px;
+        border-color: root.on ? Theme.sel : transparent;
+        animate background, border-color { duration: Theme.quick; }
+    }
+    Text {
+        width: parent.width;
+        height: parent.height;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        text: root.text;
+        font-family: Theme.display;
+        font-size: root.font-size;
+        letter-spacing: 0.05 * root.font-size;
+        color: root.on ? Theme.sel-ink : Theme.muted;
+        animate color { duration: Theme.quick; }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+}
+
+// A value well that opens the keypad when tapped.
+export component NumField inherits Rectangle {
+    in property <string> value;
+    in property <string> unit;
+    in property <bool> enabled: true;
+    callback edit();
+    height: 54px;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: touch.pressed ? Theme.sel : Theme.raised-border;
+    border-radius: Theme.radius-ctl;
+    animate border-color { duration: touch.pressed ? 0ms : 200ms; }
+    opacity: enabled ? 1 : 0.38;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 6px;
+        alignment: end;
+        Text { vertical-alignment: center; text: value; font-family: Theme.body; font-weight: 600; font-size: 28px; color: Theme.ink; }
+        if unit != "": Text { vertical-alignment: center; text: unit; font-family: Theme.body; font-size: 17px; color: Theme.dim; }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.edit(); } }
+}
+
+export component H3 inherits Text {
+    font-family: Theme.display;
+    font-size: 28px;
+    letter-spacing: 1.8px;
+    color: Theme.ink;
+}
+
+export component Note inherits Text {
+    font-family: Theme.body;
+    font-size: 19px;
+    color: Theme.muted;
+    wrap: word-wrap;
+}
+
+// Wraps something that has just appeared (a screen, a tab's panel): it
+// fades in and rises into place once, then sits still. The fade is a
+// layer only while it runs; at full opacity it draws directly again.
+export component Arrive inherits Rectangle {
+    // Start values are plain constants, set to their end values in init:
+    // Slint animates that assignment (a binding that flips in init would
+    // just start at its end value).
+    opacity: 0;
+    property <length> lift: 12px;
+    init => {
+        self.opacity = 1;
+        self.lift = 0px;
+    }
+    animate opacity, lift { duration: Theme.enter; easing: ease-out; }
+    Rectangle {
+        y: root.lift;
+        @children
+    }
+}

@@ -1,0 +1,52 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; One measurement on the tool setter: o<ferrum_setter_touch> call
+; [radius]. The setter sits at the G30 position (#5181..#5183, machine
+; coordinates). With diameter offset mode #3012 = 1 the spindle centre is
+; moved [radius] off the setter centre in direction #3013 (0 X-, 1 X+,
+; 2 Y-, 3 Y+), so that a cutter's or the nose's rim, not its centre, lands
+; on the setter; with #3012 = 0 [radius] is ignored.
+;   1. Tool length offset off (G49). Machine Z 0 at #3006, then machine
+;      X/Y to the touch point, then down to the G30 Z.
+;   2. Probe down at most #3007 at #3004 (no contact aborts); go to #3009
+;      above the contact. If #3005 > 0: probe down at most 2 x #3009 at
+;      #3005 (no contact aborts) and go to #3009 above that contact.
+;   3. Back up to machine Z 0.
+; Returns the machine Z at which the setter tripped, computed from the
+; G30 Z and the probed travel below it (so it does not depend on the work
+; offset), and leaves the trip Z in program coordinates (with G49) in
+; #<_ferrum_setter_trip>. Leaves G49 and G90 in effect: callers run it
+; under M73 and restore or apply the tool offset themselves.
+o<ferrum_setter_touch> sub
+#<radius> = #1
+#<dx> = 0
+#<dy> = 0
+o100 if [#3012 EQ 1]
+    #<dx> = [#<radius> * [[#3013 EQ 1] - [#3013 EQ 0]]]
+    #<dy> = [#<radius> * [[#3013 EQ 3] - [#3013 EQ 2]]]
+o100 endif
+G90 G94 G49
+G53 G1 Z0 F#3006
+G53 G1 X[#5181 + #<dx>] Y[#5182 + #<dy>] F#3006
+G53 G1 Z#5183 F#3006
+#<z_start> = #5422
+
+G91 G38.3 Z[0 - #3007] F#3004
+o200 if [#5070 EQ 0]
+    (ABORT, The tool setter did not trip within the setter max Z travel)
+o200 endif
+#<trip> = #5063
+G90 G1 Z[#<trip> + #3009] F#3006
+o210 if [#3005 GT 0]
+    G91 G38.3 Z[0 - 2 * #3009] F#3005
+    o220 if [#5070 EQ 0]
+        (ABORT, The tool setter did not trip on the slow touch)
+    o220 endif
+    #<trip> = #5063
+    G90 G1 Z[#<trip> + #3009] F#3006
+o210 endif
+G90
+#<_ferrum_setter_trip> = #<trip>
+#<machine_trip> = [#5183 + #<trip> - #<z_start>]
+G53 G1 Z0 F#3006
+o<ferrum_setter_touch> endsub [#<machine_trip>]
+M2

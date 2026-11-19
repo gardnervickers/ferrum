@@ -1,0 +1,189 @@
+# Ferrum requirements
+
+From the final mockup (`docs/mockup-v16.html`, artifact
+https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
+2026-11-13. Milestones are in ARCHITECTURE.md. `[x]` = built.
+
+## Frame (M1)
+
+- [x] E-STOP trips on first touch; RESET and POWER need the 800 ms hold.
+- [x] HOME ALL (hold) in the status bar while not homed; e-stop unhomes (VOLATILE_HOME).
+- [x] Homed pill never implies A is referenced (A has no switch: "A REF").
+- [x] Spindle and drawbar pills show commanded state.
+- [x] Top bar (2026-11-17): the mode pill plus one status pill. It reads ALL OK, or the worst row
+  and how many more ("NOT HOMED +1"); amber for a warning, flashing red for a fault. A tap opens
+  the list of every row (homing, probe, drives, drawbar, pendant, spindle) with a line under each
+  problem saying what it means. Modules still report rows through `Module::pills`. The message
+  has the rest of the bar.
+- [x] MOTION HELD: <reason> (motion.feed-inhibit = probe fault OR drives not ready).
+- [x] Prompt for M5 and a fresh start when spindle_drawbar_guard.rearm_required is set
+      (needs the current mymill.hal on the Pi; the Pi's copy predates the pin).
+- [x] Tapping an override % resets that row; rapid steps 25%.
+- [x] EXIT (hold) in the status bar ends the session; disabled while running.
+- [x] Popups cover only the middle, so E-STOP, power, feed hold, stop, cycle start stay usable.
+- [x] WHB04B pendant (module `pendant`, hal/pendant.hal): pill (PENDANT / ASLEEP / OFF); START/PAUSE
+      goes to Ferrum (CYCLE START with its checks when idle, FEED HOLD while running, resume when
+      paused) instead of halui, whose AUTO switch aborted a running MDI line or probe macro; the
+      driver's MANUAL/teleop/joint/MDI requests (every wheel step, HOME) reach halui only while
+      nothing runs; after an MDI line Ferrum no longer switches back over a mode the pendant picked.
+- [x] HOME per axis: an unhomed axis's DRO ZERO becomes HOME (hold); A is referenced where it stands.
+- [x] Message drawer for (abort), (MSG), (PRINT), (DEBUG) (tap the message line).
+
+## M2 Manual control
+
+- [x] Jog: step/continuous, speed in mm/s (DEFAULT_LINEAR_VELOCITY 50 is mm/s), A at its own 180°/s.
+- [x] "A: set reference here".
+- [x] MIST M7/M9; Z TO WORK Z0 and RETRACT 10, XY TO WORK 0 on hold.
+- [x] Power feed parity with powerfeed.py/custom_config.yml: own WCS (powerfeed.wcs-index),
+      remembered feed/distance/RPM, GOTO list with save/update/delete and XY preview.
+      END OF TRAVEL needs a hold and disables Z. (Settings and GOTO list persist in
+      ~/.local/state/ferrum/settings; Probe Basic kept GOTO points in memory only.)
+- [x] Spindle start preflight from powerfeed.py (_spindle_start_block_reason: probe selected,
+      drawbar requested/extended, rearm) as a clear message, for manual spindle start and the
+      warm-up; HAL still enforces it. (Unlike Probe Basic, missing pins mean no check, not a block:
+      the module that owns them is not loaded.)
+- [x] Jog, power feed, spindle, offsets, tools and probe locked while running or paused
+      (`manual-locked` = interpreter not idle).
+- [x] MDI with history; keypad overlay.
+- [x] MDI screen per mockup v17: command line, help line (library match), categories with
+      RECENT as history, code cards tagged MOVES, G-code keypad; library in ferrum/mdi.toml
+      ([FERRUM]MDI_LIBRARY overrides; a built-in copy is the fallback).
+
+## M3 Run and files
+
+- [x] Backplot from stand-alone rs274 (private HOME, copied var/tool files, REMAPs stripped) on a
+      background thread; tiny-skia software renderer; ISO/TOP/FRONT, colours per op, tool marker and trail.
+- [x] Backplot speed (M7): sub-pixel moves merge into polylines, and the toolpath image is drawn on a
+      worker thread (the old image stays up meanwhile). Mac: 200k moves 0.2 s, 1M moves ~1 s per view
+      change; frames with the tool marker stay ~2 ms. No GL renderer: the Pi has only llvmpipe, so GL
+      would also run on the CPU. Pi 5 (2026-11-13, bench example): view change 0.1 s at 20k moves,
+      0.5-0.6 s at 200k, 3-3.7 s at 1M (off the UI thread); a frame with the marker 4-7 ms.
+- [x] Run: G-CODE | MDI | JOG tabs; JOG keeps the backplot visible (mockup v18). JOG nav renamed MANUAL
+      (POWER FEED, GO TO, spindle card); MODULES accepts the old "jog" id.
+- [x] Files: no USB; browse PROGRAM_PREFIX (G-code and folders, newest first), preview, LOAD.
+- [x] Files: ops (name, tool) and estimated time per file from the interpreter, read in the background.
+- [x] Files: top-view preview of the selected file, fitted to its cuts, with work zero marked and
+      the extents in work coordinates; the op list (colour, tool, time) picks one op out; a
+      TOP VIEW / G-CODE tab keeps the program text. Drawn off the UI thread (`preview::software::top_view`).
+- [ ] Files: the top view is not sent to the browser screen (only the Run backplot is streamed).
+- [x] Run: G-code view follows the executing line; NEXT M6 finds the next tool change.
+- [x] CYCLE START has a static outline when it can resume.
+- [x] Travel check (`preview/src/preflight.rs`): every move of the loaded program, in machine
+  coordinates with today's work offsets and the interpreter's tool lengths, against [AXIS_X/Y/Z]
+  soft limits, and the tool tip against the table top of machine.toml. A banner under the backplot
+  says OK, or names the axis, distance, first line and op (tap: jump to the line, list all).
+  CYCLE START and RUN FROM SELECTED refuse a soft-limit overrun (from the start line on); the
+  table only warns. Moves after a program sets an offset itself are checked with today's value
+  and the banner says so. The preview numbers each line (N<line>) so moves carry source lines.
+  2026-11-17: a move is judged where it ends (a G43 shifts the work position without moving the
+  machine, which used to refuse any program with a tool length); G53 moves use the offsets the
+  interpreter read them with; moves after a job's FIND probing step are not judged (the banner
+  names the line); a file written again under the same name is read again.
+- [x] BLOCK DELETE toggle on RUN › G-CODE (LinuxCNC starts with it on). RUN FROM SELECTED refuses
+      when a "/" line comes before the start line.
+- [x] Run from line (RUN FROM SELECTED, hold): refused inside a job, after o-word code or
+  parameters, with cutter comp, G91 or a drilling cycle on, mid-arc, or with a different tool
+  loaded than the line expects. Runs a restart copy whose skipped lines are replaced by a preamble
+  (modes, work offset, G43, feed, spindle, coolant, then Z top, over the start, down), keeping line
+  numbers; the original loads again after. LinuxCNC's own run-from-line is not used: it runs the
+  M6 remap of a skipped tool change and leaves the spindle off (`restart.rs`).
+- [ ] Decide whether [FILTER] keeps .py.
+
+## M4 Tooling
+
+- [x] Tool change matches toolchange_dialog.py and m6_toolchange_optional_touch_off.ngc:
+      seated checkbox gates RESUME; RESUME + TOUCH OFF sets tool-touch-off-request-latch and
+      the remap runs tool_touch_off.ngc; disabled for T99; ABORT while released retracts the
+      drawbar; T200–249 warn "touch off likely required"; show the spindle nose reference state.
+- [x] Manual drawbar extend outside M6, and M61 Q0, on Tools.
+- [x] Tool table add/delete rows and scratch tools T200–249.
+- [x] Tool comments edited on an on-screen text keyboard (tap the comment).
+- [x] Offsets: columns match XYZR; ZERO HERE is one tap (Gardner, 2026-11-14), CLEAR needs a hold;
+      undo either from the timeline; active WCS tagged;
+      G92/G52 indicator with CLEAR.
+- [x] DRO: a ZERO button on each axis zeroes it in the active WCS with one tap.
+- [ ] Check on the Pi whether LinuxCNC rewrites PARAMETER_FILE after G10 while running;
+      inactive WCS rows come from it at startup and from edits made in ferrum.
+
+## M5 Probing and util
+
+- [x] Per-run probe values: write #30xx before the macro, restore defaults after success OR
+      abort (on_abort.ngc does not), and at startup.
+- [x] Preconditions from mymill_probe_coordinate_ready.ngc: no cutter comp, no rotated WCS,
+      zero G52/G92; check #3031 before offering.
+- [x] spindle-nose-reference-valid resets on any unhome; probe_spindle_nose.ngc needs T0 and an
+      invalid reference; show VALID/NEEDS PROBE in Util and tool change; gate CAL → SPINDLE NOSE on T0.
+- [x] Tool setter is G30 (#5181–5183) via set_g30_position.ngc; go-to G30 (Util) and PARK (MANUAL, o<go_to_home>).
+- [x] Probe Z on a top face: PROBE › FIND › TOP FACE Z runs probe_z_minus_wco.
+- [x] Probe screen per mockup (steppers, MORE, DEFAULTS, mode-matched label,
+      Write-to only in FIND); probe wired as T99.
+- [x] Probe screen redone (Gardner, 2026-11-13: "do I click START HERE or the edge?"): columns
+      1 WHAT (mode, shape) → 2 WHERE (picture whose spots are its only controls; labelled
+      option rows for edge angle, X+Y/X/Y and first side, ridge/slot, rotary target) →
+      3 SETTINGS (at most three values, rest under MORE) → 4 START. Fixed slots; touch ≥ 56 px.
+- [x] Warm-up with editable stage minutes and RPM CMD progress.
+- [x] Probe preview animation (the mockup's 1× loop, `probe_anim.rs`): the tip plays the selected
+      routine with a caption per step: top Z first where the macro does it, at-depth routines
+      without Z, YOU JOG between the two faces, the rotary turning in its end view. Runs only on
+      the PROBE screen and stops while a probe runs. Times are for reading, not the real feeds.
+- [ ] Warm-up holds the spindle override at 100 % and stops if it changes; util.py disables the
+      override instead (`lcnc::Command::SpindleOverrideEnable` exists now).
+- [ ] Check the macro EVAL result names and the probe_auto_stock_apply context check on the Pi.
+
+## M6 Job and conversational
+
+- [x] JOB page on job_session.py through ferrum/job_helper.py (python3, JSON lines): op list with
+      RUN/SKIP, NEW, OPEN, ADD STEP presets, move, HOLD DELETE, START AT OP (disables earlier ops,
+      needs a rebuild), STOP AFTER THIS OP, HOLD BUILD AND LOAD; run progress per op and for the job.
+- [x] `mymill-job` HAL component (stamp, skip-1..64, stop-after) mirrored from the session.
+- [x] Tool setter (2026-11-18): TOOLS › MEASURE loads the selected tool if needed and sets its length
+      (`o<ferrum_measure_tool>`); TOOLS › CHECK measures the loaded tool and stops when it is off its
+      table length by more than `#3037` (`o<ferrum_tool_check>`). Job op kind `toolcheck` runs the
+      same check; ADD STEP › TOOL CHECK AFTER EVERY TOOL puts one wherever a tool is put away.
+- [x] CYCLE START refuses a stale, unbuilt or edited job program (cycle_start_problem), the probe in
+      the spindle, and a motion block (Probe Basic's on_cycle_start_clicked checks).
+- [x] CONV: facing, XY coord, pattern (grid), hole circle, helical bore, thread mill (presets) from
+      the mill_ops generators; live summary or errors; ADD TO JOB; LOAD AS PROGRAM to PROGRAM_PREFIX.
+- [ ] Check on the Pi: python3 can import mymill_job/mymill_vcp from the config folder, and the
+      built program reads mymill-job.stamp from Ferrum's component. 2026-11-13: the Pi's config
+      checkout (131b64c) predates mymill_job, so JOB and CONV fail there until it is updated.
+- [x] Probe screen simplified (Gardner, 2026-11-18: "really busy"): no step headings; the three key
+      values are one-tap rows (keypad) and every other value, − / +, per-value RESET and the saved
+      defaults are under ALL SETTINGS; the target's choices sit beside the values so the picture has
+      the whole card; one slot says ready / why not, or offers LOAD PROBE when only the tool is in
+      the way; one ADD TO JOB button asks SET or CHECK; the screen's own STOP is gone (the bar's STOP
+      ends a probe run and puts its values back); the amber approach arrows only show without the
+      preview. Harness: `probe/screen`.
+- [x] Probing inside jobs: PROBE › FIND › ADD TO JOB › SET adds the set-up routine as a job op (stock center,
+      corners, edge, top, boss, bore, pocket, slot/ridge) that starts where the probe was taught;
+      ADD TO JOB › CHECK A SIZE adds a measure-only op (#3030 = 1) that reports through `MYMILL-MEASURE` and can
+      pause out of tolerance. The JOB page check strip sets what it measures, nominal, tolerance,
+      the op that cut it and pause/keep going; for a conversational helical bore it offers the tool
+      diameter correction (as a wear adjustment, logged on the timeline). `jobcore/src/probe.rs`.
+      2026-11-17: a FIND op starts at the taught machine position (the work offset it starts from
+      is the one it rewrites), a CHECK op at the taught work position (teach it with the offset
+      set); routine calls are skipped in the preview (`#<_task>`), so the rest of the job is still
+      drawn and checked; a check that pauses shows its message in full and its reading on the
+      running row; no tool correction is offered from an error over 0.5 mm or a missing result.
+- [x] "Queue is not empty after probing" (seen in the simulator, a job's auto stock walk): a timing
+      race inside LinuxCNC 2.9.10 between task and motion, not Ferrum or the job. It stops the
+      program before anything is written; starting again is the remedy and the error toast says
+      so. Cause, proof and the one-line LinuxCNC fix (not applied to the Pi):
+      `docs/reviews/2026-11-17-queue-not-empty-after-probing.md`.
+- [ ] Simulator ignores the skip and stop-after pins (it steps lines without interpreting).
+- [x] CAM ops (Fusion imports) into a job: JOB › ADD PROGRAM splits a Fusion program at its op-name comments (`jobcore/src/fusion.rs`). Anything it cannot account for (no op names, o-words or parameters, odd header lines, an op without tool, speed, M3/M4 or work offset before its first move, a first move that cuts) refuses the whole program with the reason; all ops are added or none.
+
+## M8 Remote web (see ARCHITECTURE.md, Remote access)
+
+- [x] Slint wasm build of the same UI (software renderer into a canvas, fills and resizes with
+      the window); Live/Actions mirrored over a websocket (uimirror generates the glue).
+- [x] `remote` on the Pi ([FERRUM]REMOTE_PORT): serves the bundle (gzip), streams property diffs
+      at 20 Hz and the backplot PNG at 4 Hz.
+- [x] Remote control enabled for now (Gardner, 2026-11-13); access policy (read-only default, grant) later.
+- [x] Remote jogs step-only (the Pi refuses CONT); remote E-STOP labelled as a request.
+- [x] Slow or dropped clients never stall the worker or the touchscreen (merged pending slot per client).
+- [ ] Access policy (read-only default, grant); show who is connected on the touchscreen.
+
+## Before calling parity done
+
+Not reviewed yet: vendor probe_basic main .ui, cust_probe, program_tools, docs/, mymill_job compiler.

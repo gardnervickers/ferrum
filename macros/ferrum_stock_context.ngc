@@ -1,0 +1,65 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Automatic stock probing context: o<ferrum_stock_context> call [mode].
+; Mode 1 records what an automatic stock measurement depends on, mode 0
+; aborts if any of it has changed since: units, active work system and its
+; X/Y/Z offsets, probe tool number and diameter, tool-offset mode, #3032,
+; #3014..#3019, the X/Y/Z offset transform and the absolute Z height (Z
+; must not move between measuring and applying). Both modes refuse cutter
+; compensation, a rotated work system and G52/G92 offsets. No motion.
+o<ferrum_stock_context> sub
+o100 if [#<_ccomp> NE 400]
+    (ABORT, Cancel cutter compensation before automatic stock probing)
+o100 endif
+o101 if [#[5210 + [#5220 * 20]] NE 0]
+    (ABORT, Automatic stock probing requires an unrotated work coordinate system)
+o101 endif
+o102 if [[#5211 NE 0] OR [#5212 NE 0] OR [#5213 NE 0] OR [#5214 NE 0] OR [#5215 NE 0] OR [#5216 NE 0] OR [#5217 NE 0] OR [#5218 NE 0] OR [#5219 NE 0]]
+    (ABORT, Clear G52 and G92 offsets before automatic stock probing)
+o102 endif
+#<base> = [5201 + [#5220 * 20]]
+o110 if [#1 EQ 1]
+    #<_ferrum_as_metric> = #<_metric>
+    #<_ferrum_as_wcs> = #5220
+    #<_ferrum_as_tool> = #5400
+    #<_ferrum_as_diameter> = #5410
+    #<_ferrum_as_cal> = #3032
+    #<_ferrum_as_tool_mode> = #<_tool_offset>
+    #<_ferrum_as_z> = #<_abs_z>
+    #<_ferrum_as_tx> = [#<_abs_x> - #<_x>]
+    #<_ferrum_as_ty> = [#<_abs_y> - #<_y>]
+    #<_ferrum_as_tz> = [#<_abs_z> - #<_z>]
+    #<_ferrum_as_wco_x> = #[#<base> + 0]
+    #<_ferrum_as_wco_y> = #[#<base> + 1]
+    #<_ferrum_as_wco_z> = #[#<base> + 2]
+    #<_ferrum_as_s3014> = #3014
+    #<_ferrum_as_s3015> = #3015
+    #<_ferrum_as_s3016> = #3016
+    #<_ferrum_as_s3017> = #3017
+    #<_ferrum_as_s3018> = #3018
+    #<_ferrum_as_s3019> = #3019
+o110 else
+    #<bad> = [[#<_metric> NE #<_ferrum_as_metric>] OR [#5220 NE #<_ferrum_as_wcs>]]
+    #<bad> = [#<bad> OR [#5400 NE #<_ferrum_as_tool>] OR [#5410 NE #<_ferrum_as_diameter>]]
+    o111 if [#<bad> OR [#3032 NE #<_ferrum_as_cal>]]
+        (ABORT, Automatic stock probe setup changed)
+    o111 endif
+    #<bad> = [[#3014 NE #<_ferrum_as_s3014>] OR [#3015 NE #<_ferrum_as_s3015>]]
+    #<bad> = [#<bad> OR [#3016 NE #<_ferrum_as_s3016>] OR [#3017 NE #<_ferrum_as_s3017>]]
+    o112 if [#<bad> OR [#3018 NE #<_ferrum_as_s3018>] OR [#3019 NE #<_ferrum_as_s3019>]]
+        (ABORT, Automatic stock probing parameters changed)
+    o112 endif
+    o113 if [#<_tool_offset> NE #<_ferrum_as_tool_mode>]
+        (ABORT, Automatic stock tool offset mode changed)
+    o113 endif
+    o114 if [[#[#<base> + 0] NE #<_ferrum_as_wco_x>] OR [#[#<base> + 1] NE #<_ferrum_as_wco_y>] OR [#[#<base> + 2] NE #<_ferrum_as_wco_z>]]
+        (ABORT, Automatic stock work offset changed)
+    o114 endif
+    #<bad> = [ABS[#<_abs_z> - #<_ferrum_as_z>] GT 0.0000001]
+    #<bad> = [#<bad> OR [ABS[[#<_abs_x> - #<_x>] - #<_ferrum_as_tx>] GT 0.0000001]]
+    #<bad> = [#<bad> OR [ABS[[#<_abs_y> - #<_y>] - #<_ferrum_as_ty>] GT 0.0000001]]
+    o115 if [#<bad> OR [ABS[[#<_abs_z> - #<_z>] - #<_ferrum_as_tz>] GT 0.0000001]]
+        (ABORT, Automatic stock coordinate or Z context changed)
+    o115 endif
+o110 endif
+o<ferrum_stock_context> endsub
+M2

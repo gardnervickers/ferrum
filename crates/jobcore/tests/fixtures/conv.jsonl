@@ -1,0 +1,88 @@
+// Requests before init, presets, threads and bad requests.
+{"cmd": "presets"}
+{"cmd": "thread", "name": "M6 x 1"}
+{"cmd": "thread", "name": "1/4-20 UNC", "units": "MM"}
+{"cmd": "thread", "name": "1/4-20 UNC", "units": "IN"}
+{"cmd": "thread", "name": "M8 x 1.25", "units": "IN"}
+{"cmd": "thread", "name": "nope"}
+{"cmd": "thread"}
+{"cmd": "poll"}
+{"cmd": "files"}
+{"cmd": "frobnicate"}
+{"cmd": 5}
+{"nocmd": true}
+[1, 2]
+{"cmd": "conv", "type": "face", "attrs": {}}
+{"cmd": "init", "folder": "jobs", "tool_table": "tool.tbl", "nc_folder": "nc", "probe_tool": 99, "max_forward_rpm": 4250.0, "max_reverse_rpm": 4250.0}
+// Face.
+{"cmd": "conv", "type": "face", "action": "check", "attrs": {"wcs": "G54", "coolant": "FLOOD", "units": "MM", "tool_number": 14, "spindle_rpm": 3200, "spindle_dir": "CW", "z_start": 0, "z_end": -2, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "step_over": 35, "step_down": 1, "x_start": 0, "x_end": 100, "y_start": 60, "y_end": 0}}
+{"cmd": "conv", "type": "face", "attrs": {"wcs": "G55", "coolant": "MIST", "units": "MM", "tool_number": 14, "spindle_rpm": 3200.5, "spindle_dir": "CW", "z_start": 0.25, "z_end": -1.3, "retract": 1.5, "z_feed": 100, "z_clear": 10, "xy_feed": 750.25, "step_over": 30.333, "step_down": 0.7, "x_start": -5, "x_end": 87.125, "y_start": 41.5, "y_end": -3}}
+{"cmd": "conv", "type": "face", "attrs": {"tool_number": 14, "spindle_rpm": 3200, "z_start": 0, "z_end": -2, "retract": 2, "z_clear": 3, "xy_feed": 600, "step_over": 60, "step_down": 1, "x_start": 0, "x_end": 100, "y_start": 60, "y_end": 0}}
+{"cmd": "conv", "type": "face", "attrs": {"tool_number": 21, "spindle_rpm": 9000, "z_start": 0, "z_end": 0, "retract": -1, "z_clear": 0, "xy_feed": 0, "step_over": 0, "step_down": 0, "x_start": 10, "x_end": 0, "y_start": 0, "y_end": 10}}
+{"cmd": "conv", "type": "face", "attrs": {"tool_number": "abc"}}
+{"cmd": "conv", "type": "face", "action": "add", "attrs": {"wcs": "g54", "coolant": "flood", "units": "MM", "tool_number": 14, "spindle_rpm": 3200, "spindle_dir": "cw", "z_start": 0, "z_end": -2, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "step_over": 35, "step_down": 1, "x_start": 0, "x_end": 100, "y_start": 60, "y_end": 0}}
+{"cmd": "conv", "type": "face", "action": "post", "name": "Top Face.ngc", "attrs": {"tool_number": 14, "spindle_rpm": 3200, "z_start": 0, "z_end": -2, "retract": 2, "z_clear": 10, "xy_feed": 600, "step_over": 35, "step_down": 1, "x_start": 0, "x_end": 100, "y_start": 60, "y_end": 0}}
+{"cmd": "conv", "type": "face", "action": "post", "name": "Top Face.ngc", "attrs": {"tool_number": 14, "spindle_rpm": 3200, "z_start": 0, "z_end": -2, "retract": 2, "z_clear": 10, "xy_feed": 600, "step_over": 35, "step_down": 1, "x_start": 0, "x_end": 100, "y_start": 60, "y_end": 0}}
+{"cmd": "conv", "type": "face", "action": "post", "name": "../a/b?c*d", "attrs": {"tool_number": 14, "spindle_rpm": 3200, "z_start": 0, "z_end": -2, "retract": 2, "z_clear": 10, "xy_feed": 600, "step_over": 35, "step_down": 1, "x_start": 0, "x_end": 100, "y_start": 60, "y_end": 0}}
+{"cmd": "conv", "type": "face", "action": "post", "attrs": {"tool_number": 14, "spindle_rpm": 3200, "z_start": 0, "z_end": -2, "retract": 2, "z_clear": 10, "xy_feed": 600, "step_over": 35, "step_down": 1, "x_start": 0, "x_end": 100, "y_start": 60, "y_end": 0}}
+// Drill, every cycle.
+{"cmd": "conv", "type": "drill", "cycle": "DRILL", "attrs": {"wcs": "G54", "coolant": "FLOOD", "units": "MM", "tool_number": 7, "spindle_rpm": 1800, "spindle_dir": "CW", "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "retract_mode": "G98", "holes": [[10, 10], [90, 10], [50.5, 33.25]]}}
+{"cmd": "conv", "type": "drill", "cycle": "PECK", "cycle_param": 2, "attrs": {"tool_number": 7, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10], [90, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "BREAK", "cycle_param": 0.5, "attrs": {"tool_number": 7, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "retract_mode": "G99", "holes": [[10, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "DWELL", "cycle_param": 0.25, "attrs": {"tool_number": 7, "spindle_rpm": 1800, "z_start": 0, "z_end": -3, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10], [20, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "TAP", "cycle_param": 1.25, "attrs": {"tool_number": 7, "spindle_rpm": 400, "spindle_dir": "CCW", "z_start": 0, "z_end": -10, "retract": 2, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10], [20, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "RIGID TAP", "cycle_param": 1.25, "attrs": {"tool_number": 7, "spindle_rpm": 400, "z_start": 0, "z_end": -10, "retract": 2, "z_clear": 10, "xy_feed": 600, "retract_mode": "G99", "holes": [[10, 10], [20, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "MANUAL", "attrs": {"tool_number": 7, "spindle_rpm": 400, "z_start": 0, "z_end": -10, "retract": 2, "z_feed": 50, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10], [20, 10], [30, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "PECK", "cycle_param": 0, "attrs": {"tool_number": 7, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 0, "z_feed": 0, "z_clear": 10, "xy_feed": 600, "retract_mode": "G99", "holes": []}}
+{"cmd": "conv", "type": "drill", "cycle": "FOO", "attrs": {"tool_number": 7, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 10, "z_clear": 10, "xy_feed": 600, "holes": [[1, 1]]}}
+{"cmd": "conv", "type": "drill", "cycle": "TAP", "attrs": {"tool_number": 0, "spindle_rpm": 5000, "z_start": 0, "z_end": -12, "retract": 2, "z_clear": 10, "xy_feed": 600, "holes": [[1, 1]]}}
+{"cmd": "conv", "type": "drill", "cycle": "DWELL", "cycle_param": -1, "attrs": {"tool_number": 7, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 10, "z_clear": 10, "xy_feed": 600, "holes": [[1, 1]]}}
+{"cmd": "conv", "type": "drill", "cycle": "PECK", "cycle_param": 2, "action": "add", "attrs": {"wcs": "G54", "coolant": "FLOOD", "units": "MM", "tool_number": 7, "spindle_rpm": 1800, "spindle_dir": "CW", "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "retract_mode": "G98", "holes": [[10, 10], [90, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "DRILL", "action": "add", "attrs": {"tool_number": 7, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "RIGID TAP", "cycle_param": 1.25, "action": "add", "attrs": {"tool_number": 7, "spindle_rpm": 400, "z_start": 0, "z_end": -10, "retract": 2, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10], [20, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "MANUAL", "action": "add", "attrs": {"tool_number": 7, "spindle_rpm": 400, "z_start": 0, "z_end": -10, "retract": 2, "z_feed": 50, "z_clear": 10, "xy_feed": 0, "holes": [[10, 10], [20, 10], [30, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "DRILL", "action": "add", "attrs": {"tool_number": 42, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "DRILL", "action": "add", "attrs": {"tool_number": 99, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10]]}}
+{"cmd": "conv", "type": "drill", "cycle": "DRILL", "action": "post", "name": "holes", "attrs": {"tool_number": 7, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10], [-7.12345, 3.00005]]}}
+// Helical bore.
+{"cmd": "conv", "type": "helical_bore", "attrs": {"wcs": "G54", "coolant": "OFF", "units": "MM", "tool_number": 12, "spindle_rpm": 4000, "spindle_dir": "CW", "z_start": 0, "z_end": -6, "retract": 2, "z_feed": 1, "z_clear": 10, "xy_feed": 300, "center": [50, 30], "diameter": 20, "ramp_angle": 2}}
+{"cmd": "conv", "type": "helical_bore", "attrs": {"tool_number": 12, "spindle_rpm": 4000, "z_start": 0, "z_end": -6, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [5, 3], "diameter": 9.5, "ramp_angle": 3.7}}
+{"cmd": "conv", "type": "helical_bore", "attrs": {"tool_number": 12, "spindle_rpm": 4000, "spindle_dir": "CCW", "z_start": 0, "z_end": -6, "retract": 2, "z_clear": 10, "xy_feed": 0, "center": [5, 3], "diameter": 6, "ramp_angle": 15}}
+{"cmd": "conv", "type": "helical_bore", "attrs": {"tool_number": 21, "spindle_rpm": 4000, "z_start": 0, "z_end": -6, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [5, 3], "diameter": 6, "ramp_angle": 0}}
+{"cmd": "conv", "type": "helical_bore", "action": "add", "attrs": {"tool_number": 12, "spindle_rpm": 4000, "z_start": 0, "z_end": -6, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [50, 30], "diameter": 12, "ramp_angle": 2}}
+{"cmd": "conv", "type": "helical_bore", "action": "post", "name": "bore", "attrs": {"tool_number": 12, "spindle_rpm": 4000, "z_start": 0, "z_end": -6, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [50, 30], "diameter": 12, "ramp_angle": 2}}
+// Thread mill.
+{"cmd": "conv", "type": "thread_mill", "attrs": {"wcs": "G54", "coolant": "MIST", "units": "MM", "tool_number": 17, "spindle_rpm": 4000, "spindle_dir": "CW", "z_start": 0, "z_end": -8, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [50, 30], "diameter": 16, "pitch": 1.5, "radial_passes": 2, "hand": "RH"}}
+{"cmd": "conv", "type": "thread_mill", "attrs": {"tool_number": 17, "spindle_rpm": 4000, "z_start": 0, "z_end": -8, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [50, 30], "diameter": 10, "pitch": 1.5, "radial_passes": 3.7, "hand": "LH", "pre_drill": 8.5}}
+{"cmd": "conv", "type": "thread_mill", "attrs": {"tool_number": 17, "spindle_rpm": 4000, "z_start": 0, "z_end": -8, "retract": 2, "z_clear": 1, "xy_feed": 300, "center": [50, 30], "diameter": 5, "pitch": 0, "radial_passes": 0, "hand": "XH"}}
+{"cmd": "conv", "type": "thread_mill", "attrs": {"tool_number": 17, "spindle_rpm": 4000, "z_start": 0, "z_end": -8, "retract": 2, "z_clear": 2.5, "xy_feed": 300, "center": [50, 30], "diameter": 6, "pitch": 1, "radial_passes": 1, "hand": "RH"}}
+{"cmd": "conv", "type": "thread_mill", "action": "add", "attrs": {"tool_number": 17, "spindle_rpm": 4000, "z_start": 0, "z_end": -8, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [50, 30], "diameter": 16, "pitch": 1.5, "radial_passes": 2, "hand": "RH", "pre_drill": 14.5}}
+{"cmd": "conv", "type": "thread_mill", "action": "add", "attrs": {"tool_number": 17, "spindle_rpm": 4000, "z_start": 0, "z_end": -8, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [50, 30], "diameter": 16, "pitch": 1.5, "radial_passes": 1, "hand": "LH", "pre_drill": null}}
+{"cmd": "conv", "type": "thread_mill", "action": "post", "name": "thread.NGC", "attrs": {"tool_number": 17, "spindle_rpm": 4000, "z_start": 0, "z_end": -8, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [50, 30], "diameter": 16, "pitch": 1.5, "radial_passes": 2, "hand": "RH"}}
+{"cmd": "conv", "type": "pocket", "attrs": {}}
+{"cmd": "conv", "type": "face", "attrs": {"tool_number": 14, "spindle_rpm": 6000, "z_start": 0, "z_end": -2, "retract": 2, "z_clear": 10, "xy_feed": 600, "step_over": 35, "step_down": 1, "x_start": 0, "x_end": 100, "y_start": 60, "y_end": 0}}
+// Steps and editing.
+{"cmd": "add_step"}
+{"cmd": "add_step", "index": 3}
+{"cmd": "add_step", "index": -1}
+{"cmd": "add_step", "index": 9}
+{"cmd": "add_step", "message": "Check the part (twice) ; ok"}
+{"cmd": "add_step", "message": "   "}
+{"cmd": "add_step", "message": 5}
+{"cmd": "move", "id": "$OP1", "offset": 3}
+{"cmd": "move", "id": "$OP8", "offset": -100}
+{"cmd": "move", "id": "deadbeef", "offset": 1}
+{"cmd": "move", "id": "$OP2"}
+{"cmd": "set_enabled", "id": "$OP2", "enabled": false}
+{"cmd": "set_enabled", "id": "nope", "enabled": true}
+{"cmd": "start_at", "id": "$OP4"}
+{"cmd": "remove", "id": "$OP5"}
+{"cmd": "remove", "id": 17}
+{"cmd": "remove"}
+{"cmd": "stop_after", "on": true}
+{"cmd": "build"}
+{"cmd": "stop_after", "on": true}
+{"cmd": "stop_after", "on": false}
+{"cmd": "set_enabled", "id": "$OP1", "enabled": true}
+{"cmd": "build"}
+{"cmd": "files"}

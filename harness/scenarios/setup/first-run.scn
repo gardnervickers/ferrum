@@ -1,0 +1,71 @@
+title No ferrum.toml: SETUP opens first, saves settings, FINISH writes the file
+needs stock
+allow-error Out of range
+wait prop.connected == true within 30
+expect prop.screen == "setup"
+expect prop.setup-first == true
+expect prop.setup-steps.len == 6
+expect prop.setup-title == "MACHINE"
+sleep 0.5
+shot machine
+# A setting is saved at once and waits for the next start.
+do setup-go 1
+expect prop.setup-title == "SPINDLE"
+do setup-tap spindle.reverse
+wait prop.setup-pending contains "1 saved change" within 5
+expect prop.setup-rows contains "Applies when LinuxCNC next starts"
+do edit setup-spindle.max_rpm
+expect prop.keypad-open == true
+do keypad-key CLR
+do keypad-key "9"
+do keypad-key "9"
+do keypad-key "9"
+do keypad-key "9"
+do keypad-key "9"
+do keypad-key "9"
+do keypad-done true
+expect prop.keypad-open == true      # 999999 is out of range: the keypad stays
+expect prop.keypad-error == true
+do keypad-key CLR
+do keypad-key "4"
+do keypad-key "0"
+do keypad-key "0"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+wait prop.setup-pending contains "2 saved changes" within 5
+expect prop.setup-rows contains "4000"
+sleep 0.5
+shot spindle
+# A choice opens the picker.
+do setup-go 2
+do setup-tap toolchange.style
+wait prop.pick-open == true within 5
+do pick 2                            # FERRUM'S DIALOG
+wait prop.setup-pending contains "3 saved changes" within 5
+# The probe input, live.
+do setup-go 3
+expect prop.setup-rows contains "OPEN"
+hal sim-probe 1
+wait prop.setup-rows contains "TRIPPED" within 5
+sleep 0.5
+shot probe-live
+hal sim-probe 0
+wait prop.setup-rows !contains "TRIPPED" within 5
+# The tool setter position, from SET POSITION HERE.
+include ../common/ready.scn
+screen setup
+do setup-go 4
+mdi G53 G0 X1 Y2
+idle
+sleep 0.5                             # ferrum sees the move finished
+do setup-tap set-g30
+wait prop.ut-g30 contains "1.0" within 10
+wait prop.setup-rows contains "1.0" within 5
+sleep 0.5
+shot setter
+# FINISH writes ferrum.toml and goes to RUN.
+do setup-go 5
+do setup-finish
+wait prop.screen == "run" within 5
+expect prop.setup-first == false

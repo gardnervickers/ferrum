@@ -1,0 +1,56 @@
+// Job files: new, open, restore, hand-written and broken files, CAM ops.
+{"cmd": "init", "folder": "$TMP/jobs", "tool_table": "$TMP/tool.tbl", "nc_folder": "nc", "probe_tool": 14, "max_forward_rpm": null}
+{"cmd": "new"}
+{"cmd": "add_step", "index": 1}
+{"cmd": "new"}
+{"cmd": "files"}
+{"cmd": "open", "path": "$TMP/jobs/JOB_01-02_0304.job"}
+{"cmd": "open", "path": "$TMP/jobs/JOB_01-02_0304_1.job"}
+{"cmd": "open", "path": "jobs/missing.job"}
+{"cmd": "open", "path": "jobs"}
+{"cmd": "open"}
+{"_write": "jobs/bad.job", "text": "{\"format\": \"mymill-job\", \"version\": 1,\n \"name\": \"x\", \"ops\": [1,]}"}
+{"cmd": "open", "path": "jobs/bad.job"}
+{"_write": "jobs/v2.job", "text": "{\"format\": \"mymill-job\", \"version\": 2, \"name\": \"x\", \"ops\": []}"}
+{"cmd": "open", "path": "jobs/v2.job"}
+{"_write": "jobs/other.job", "text": "[1, 2]"}
+{"cmd": "open", "path": "jobs/other.job"}
+{"_write": "jobs/fields.job", "text": "{\"format\": \"mymill-job\", \"version\": 1.0, \"name\": \"x\", \"extra\": 1, \"ops\": []}"}
+{"cmd": "open", "path": "jobs/fields.job"}
+{"_write": "jobs/ops.job", "text": "{\"format\": \"mymill-job\", \"version\": 1, \"name\": \" \", \"ops\": [{\"id\": \"0000000a\", \"name\": \"a\", \"kind\": \"step\", \"params\": {\"message\": \"m\"}}, {\"id\": \"0000000a\", \"name\": \"b\", \"kind\": \"step\", \"params\": {\"message\": \"m\"}}]}"}
+{"cmd": "open", "path": "jobs/ops.job"}
+{"_write": "jobs/badop.job", "text": "{\"format\": \"mymill-job\", \"version\": 1, \"name\": \"x\", \"ops\": [{\"id\": \"XYZ\", \"name\": 3, \"kind\": \"laser\", \"enabled\": 1, \"params\": [], \"needs\": [\"\"], \"colour\": \"red\"}]}"}
+{"cmd": "open", "path": "jobs/badop.job"}
+{"_write": "jobs/badop2.job", "text": "{\"format\": \"mymill-job\", \"version\": 1, \"name\": \"x\", \"ops\": [{\"id\": \"XYZ\", \"name\": 3, \"kind\": \"laser\", \"enabled\": 1, \"params\": [], \"needs\": [\"\"]}]}"}
+{"cmd": "open", "path": "jobs/badop2.job"}
+// A hand-written job with CAM ops, needs and provides, ints and floats.
+{"_write": "jobs/Bracket (v2).job", "text": "{\"format\": \"mymill-job\", \"version\": 1, \"name\": \"Bracket (v2)/a\", \"ops\": [\n{\"id\": \"000000a1\", \"name\": \"Find stock\", \"kind\": \"cam\", \"provides\": [\"wcs:G54\"], \"params\": {\"source\": \"probe.ngc\", \"setup\": {\"units\": \"MM\", \"wcs\": \"G54\", \"tool\": 3, \"rpm\": 4000, \"coolant\": \"OFF\"}, \"body\": [\"G0 X0 Y0\"]}},\n{\"id\": \"000000a2\", \"name\": \"Adaptive\", \"kind\": \"cam\", \"params\": {\"source\": \"part.ngc\", \"setup\": {\"units\": \"MM\", \"wcs\": \"G54\", \"tool\": 3, \"rpm\": 4000.5, \"spindle_dir\": \"CW\", \"coolant\": \"FLOOD\", \"feed\": 900}, \"body\": [\"G0 X10 Y10\", \"G0 Z5 (comment)\", \"G1 Z-1 F300 ; tail\", \"o100 if [#1 GT 0]\", \"G3 X50 Y20 I0 J10\", \"o100 endif\", \"S4000 M3\", \"G43 H3\", \"G0 Z15\"]}},\n{\"id\": \"000000a3\", \"name\": \"Inch op\", \"kind\": \"cam\", \"params\": {\"source\": \"inch.ngc\", \"setup\": {\"units\": \"IN\", \"wcs\": \"G55\", \"tool\": 7, \"rpm\": 2000, \"spindle_dir\": \"CCW\", \"coolant\": \"MIST\"}, \"body\": [\"G0 X1 Y1\", \"G20\"]}},\n{\"id\": \"000000a4\", \"name\": \"Tap after\", \"kind\": \"conversational\", \"needs\": [\"op:000000a2\", \"op:000000ff\"], \"params\": {\"type\": \"drill\", \"wcs\": \"G55\", \"coolant\": \"OFF\", \"units\": \"MM\", \"tool_number\": 7, \"spindle_rpm\": 1800, \"spindle_dir\": \"CW\", \"z_start\": 0, \"z_end\": -12, \"retract\": 2, \"z_feed\": 100, \"z_clear\": 10, \"xy_feed\": 600, \"holes\": [[10, 10], [90, 10.5]], \"retract_mode\": \"G98\", \"cycle\": \"PECK\", \"cycle_param\": 2}},\n{\"id\": \"000000a5\", \"name\": \"Set G55\", \"kind\": \"step\", \"enabled\": false, \"provides\": [\"wcs:G55\"], \"params\": {\"message\": \"Probe G55 é\"}}\n]}\n"}
+{"cmd": "open", "path": "jobs/Bracket (v2).job"}
+{"cmd": "build"}
+{"cmd": "set_enabled", "id": "000000a1", "enabled": false}
+{"cmd": "set_enabled", "id": "000000a5", "enabled": true}
+{"cmd": "move", "id": "000000a5", "offset": -4}
+{"cmd": "build"}
+{"cmd": "cycle_start", "stat": {"file": "$LOAD"}}
+{"cmd": "files"}
+// Bodies that break the contract.
+{"_write": "jobs/rules.job", "text": "{\"format\": \"mymill-job\", \"version\": 1, \"name\": \"Rules\", \"ops\": [\n{\"id\": \"000000b1\", \"name\": \"Bad\", \"kind\": \"cam\", \"params\": {\"setup\": {\"units\": \"MM\", \"wcs\": \"G54\", \"tool\": 3, \"rpm\": 6000.0}, \"body\": [\"G0 X0 Y0\", \"M30\", \"M2\", \"T5 M6\", \"T5\", \"G10 L2 P1 X0\", \"G92 X0\", \"G55\", \"G20\", \"G43 H7\", \"G49\", \"G38.2 Z-10 F100\", \"G33.1 Z-10 K1\", \"S5000 M3\", \"S[#1*2] M3\", \"o<job_op1> if [1]\", \"o100 sub\", \"o100 do\", \"%\", \"T[#1] M6\", \"#1=2 M30\", \"#<x> = [1 + 2] T4\", \"M#5\", \"G43 H#2\", \"/M30\", \"N100 G10 L20 P1 X0\", \"G92.15\", \"o101 if [1]\"]}},\n{\"id\": \"000000b2\", \"name\": \"Probe\", \"kind\": \"cam\", \"params\": {\"setup\": {\"units\": \"mm\", \"wcs\": \"G60\", \"tool\": 1.5, \"rpm\": 0, \"spindle_dir\": \"X\", \"coolant\": \"ON\", \"feed\": -1}, \"body\": [\"G0 X0\"]}},\n{\"id\": \"000000b3\", \"name\": \"Probe2\", \"kind\": \"cam\", \"params\": {\"setup\": {\"units\": \"MM\", \"wcs\": \"G54\", \"tool\": 14, \"rpm\": 100}, \"body\": []}},\n{\"id\": \"000000b4\", \"name\": \"NoSetup\", \"kind\": \"cam\", \"params\": {\"body\": [\"G0 X0\"]}},\n{\"id\": \"000000b5\", \"name\": \"Setup keys\", \"kind\": \"cam\", \"params\": {\"setup\": {\"units\": \"MM\", \"speed\": 1}, \"body\": [\"G0 X0\"]}},\n{\"id\": \"000000b6\", \"name\": \"Body\", \"kind\": \"cam\", \"params\": {\"setup\": {\"units\": \"MM\", \"wcs\": \"G54\", \"tool\": 42, \"rpm\": 100}, \"body\": \"G0\"}},\n{\"id\": \"000000b7\", \"name\": \"Empty step\", \"kind\": \"step\", \"params\": {\"message\": \"((()))\"}},\n{\"id\": \"000000b8\", \"name\": \"Conv\", \"kind\": \"conversational\", \"params\": {\"type\": \"drill\", \"speed\": 1}},\n{\"id\": \"000000b9\", \"name\": \"Conv2\", \"kind\": \"conversational\", \"params\": {\"type\": \"laser\"}},\n{\"id\": \"000000ba\", \"name\": \"Conv3\", \"kind\": \"conversational\", \"params\": {\"type\": \"face\", \"wcs\": \"G54\", \"coolant\": \"OFF\", \"units\": \"MM\", \"tool_number\": 14, \"spindle_rpm\": 3200, \"spindle_dir\": \"CW\", \"z_start\": 0, \"z_end\": 1, \"retract\": 2, \"z_feed\": 100, \"z_clear\": 10, \"xy_feed\": 600, \"step_over\": 35, \"step_down\": 1, \"x_start\": 0, \"x_end\": 100, \"y_start\": 60, \"y_end\": 0}}\n]}\n"}
+{"cmd": "open", "path": "jobs/rules.job"}
+{"cmd": "build"}
+{"cmd": "remove", "id": "000000b1"}
+// The open job comes back after a restart; an empty job does not.
+{"cmd": "init", "folder": "$TMP/jobs", "tool_table": "$TMP/tool.tbl", "nc_folder": "nc"}
+{"cmd": "new"}
+{"cmd": "init", "folder": "$TMP/jobs", "tool_table": "$TMP/tool.tbl", "nc_folder": "nc"}
+{"cmd": "open", "path": "jobs/Bracket (v2).job"}
+{"cmd": "init", "folder": "jobs", "tool_table": "tool.tbl"}
+{"cmd": "init", "folder": "tool.tbl", "tool_table": "tool.tbl"}
+{"cmd": "init", "tool_table": "tool.tbl"}
+{"cmd": "poll"}
+{"cmd": "init", "folder": "jobs2"}
+{"cmd": "add_step"}
+{"cmd": "init", "folder": "jobs2", "tool_table": "nope.tbl"}
+{"cmd": "init", "folder": "jobs", "tool_table": "tool.tbl"}
+{"cmd": "build"}
+{"cmd": "init", "folder": "jobs", "tool_table": "nope.tbl"}
+{"cmd": "conv", "type": "face", "attrs": {}}

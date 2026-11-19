@@ -1,0 +1,10 @@
+title One jog step on X moves exactly one step
+include ../common/ready.scn
+screen manual
+expect prop.jog-steps contains "${jog_label}"
+do jog-step-set "${jog_label}"
+expect prop.jog-step == "${jog_label}"
+do jog-start 0 1
+idle 20
+expect stat.position[0] ~= ${jog_x_after}
+shot after-jog

@@ -1,0 +1,19 @@
+title Load a program from FILES, run it, end where it should
+include ../common/ready.scn
+include ../common/work-zero.scn
+screen files
+tap files name h_square.ngc files-tap
+do files-load
+wait stat.file contains h_square.ngc within 10
+screen run
+wait prop.plot-summary contains " OP" within 30     # preview and travel check done
+expect prop.plot-check-level == 0                   # nothing past a limit
+wait prop.can-start == true within 10
+do cycle-start
+wait stat.interp_state != 1 within 10
+shot running
+idle 120
+expect stat.position[0] ~= ${safe_x}
+expect stat.position[1] ~= ${safe_y}
+expect prop.running == false
+shot finished

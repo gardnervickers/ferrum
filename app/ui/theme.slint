@@ -1,0 +1,91 @@
+// The design tokens: colours, type, spacing and radii. Screens take every
+// colour and size from here so the look stays one system (see docs/DESIGN.md).
+import "../fonts/BebasNeue-Regular.ttf";
+import "../fonts/BarlowCondensed-Regular.ttf";
+import "../fonts/BarlowCondensed-Medium.ttf";
+import "../fonts/BarlowCondensed-SemiBold.ttf";
+// Arrows, ⌫, ✓ and the like (a DejaVu Sans subset): the text fonts lack them
+// and the browser build has no system fallback fonts.
+import "../fonts/MillSymbols.ttf";
+
+export global Theme {
+    // Surfaces, darkest to lightest. Depth comes from these steps, not from
+    // borders: page < panel < panel2 < raised.
+    out property <color> page: #0b0d0f;
+    out property <color> frame: #0f1215;
+    out property <color> bar: #0b0d0f;
+    out property <color> panel: #171b1f;
+    out property <color> panel2: #1e2328;
+    out property <color> raised: #272d33;
+    out property <color> raised-border: #343b43;
+    out property <color> line: #242a30;
+    out property <color> well: #090b0c;
+
+    // Text.
+    out property <color> ink: #eef1f3;
+    out property <color> muted: #9ba6ae;
+    out property <color> dim: #7c8892;
+
+    // The one accent. Selected things are a tint with an accent edge and
+    // accent text, never a slab of solid colour.
+    out property <color> sel: #7f8fff;
+    out property <color> sel-soft: #7f8fff26;
+    out property <color> sel-ink: #c9d0ff;
+
+    // Machine actions keep their solid colours: these are the only filled
+    // buttons on the screen, so they are found at a glance.
+    out property <color> go: #1f8a4d;
+    out property <color> go-border: #3ccb7c;
+    out property <color> hold: #9a6a0c;
+    out property <color> hold-border: #f0b23c;
+    out property <color> stop: #a1302c;
+    out property <color> stop-border: #ee5a54;
+
+    // Status tones (pills, messages, flags).
+    out property <color> good: #6fdc9c;
+    out property <color> warn: #f3c463;
+    out property <color> bad: #ff8f8a;
+    out property <color> info: #8cc4ef;
+    // Their quiet backgrounds, for a row or tag that carries a status.
+    out property <color> good-soft: #6fdc9c1f;
+    out property <color> warn-soft: #f3c4631f;
+    out property <color> bad-soft: #ff8f8a24;
+    out property <color> info-soft: #8cc4ef1f;
+    // Behind a dialog.
+    out property <color> scrim: #050708b8;
+
+    // Type: Bebas Neue for labels and buttons, Barlow Condensed for values and text.
+    out property <string> display: "Bebas Neue";
+    out property <string> body: "Barlow Condensed";
+
+    // Motion: short transitions on a change of state, nothing at idle.
+    // `quick` for presses and toggles, `settle` for bars and status colours,
+    // `enter` for something arriving (a screen, a dialog, a list), `glide`
+    // for the nav plate moving to the chosen tab. Every animation is a
+    // one-off on a change the user made or the machine reported: none
+    // loops, and none reads fast data (DRO numbers, the current line,
+    // progress), or it would redraw the screen at every status update.
+    out property <duration> quick: 140ms;
+    out property <duration> settle: 220ms;
+    out property <duration> enter: 180ms;
+    out property <duration> glide: 200ms;
+
+    // Spacing and corners.
+    out property <length> gap: 14px;
+    out property <length> pad: 16px;
+    out property <length> radius: 12px;
+    out property <length> radius-ctl: 10px;
+    out property <length> radius-sm: 7px;
+}
+
+// The window's layout width, for screens that rearrange in a narrower
+// window (a desktop window narrower than 16:9; the Pi is always 1920).
+// Layouts go down to 1440 wide; below that the whole UI shrinks.
+export global Layout {
+    in-out property <length> width: 1920px;
+    // Narrower than the design: side columns and fixed controls tighten.
+    out property <bool> compact: width < 1800px;
+    // The DRO column and the Run screen's side panel.
+    out property <length> left: compact ? 420px : 520px;
+    out property <length> side: compact ? 440px : 545px;
+}

@@ -1,0 +1,150 @@
+import { Theme, Layout } from "theme.slint";
+import { Live, Actions, WarmStage, StatusRow } from "state.slint";
+import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
+import { Brand, Lockup } from "brand.slint";
+
+component Cell inherits Rectangle {
+    in property <string> key;
+    in property <string> value;
+    in property <string> kind;
+    height: 74px;
+    min-width: 0px;
+    background: Theme.panel2;
+    border-radius: Theme.radius-ctl;
+    VerticalLayout {
+        padding-left: 12px;
+        padding-top: 6px;
+        Label { text: key; font-size: 17px; }
+        Text {
+            text: value;
+            font-family: Theme.display;
+            font-size: 28px;
+            color: kind == "good" ? Theme.good : kind == "warn" ? Theme.warn : kind == "bad" ? Theme.bad : Theme.ink;
+            overflow: elide;
+        }
+    }
+}
+
+export component UtilScreen inherits Rectangle {
+    HorizontalLayout {
+        padding: 14px;
+        spacing: 14px;
+        Card {
+            width: Layout.compact ? 560px : 680px;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                H3 { text: "SPINDLE WARM-UP"; }
+                Note { text: Live.wu-note; }
+                Btn {
+                    text: "TOOL HOLDER SECURE";
+                    sub: Live.wu-secure ? "CONFIRMED" : "TAP TO CONFIRM";
+                    on: Live.wu-secure;
+                    enabled: !Live.wu-running;
+                    clicked => { Actions.wu-secure(); }
+                }
+                // Same widths as the rows below (the card is 680 px, 560 compact), so
+                // every row splits at the same x.
+                HorizontalLayout {
+                    spacing: 12px;
+                    for st[i] in Live.wu-stages: Rectangle {
+                        max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1;
+                        height: 124px;
+                        border-radius: Theme.radius-ctl;
+                        background: st.state == "run" ? Theme.good-soft : Theme.panel2;
+                        border-width: st.state == "run" ? 2px : 0;
+                        border-color: Theme.go-border;
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 4px;
+                            Label { text: "STAGE " + (i + 1) + (st.state == "done" ? " · DONE" : st.state == "run" ? " · NOW" : ""); font-size: 17px; }
+                            Rectangle {
+                                height: 38px;
+                                background: rt.pressed ? Theme.raised : Theme.well;
+                                border-radius: Theme.radius-sm;
+                                Text { text: st.rpm + " RPM"; font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink; }
+                                rt := TouchArea { enabled: !Live.wu-running; clicked => { Actions.edit("wu-rpm-" + i); } }
+                            }
+                            Rectangle {
+                                height: 38px;
+                                background: mt.pressed ? Theme.raised : Theme.well;
+                                border-radius: Theme.radius-sm;
+                                Text { text: st.minutes + " MIN"; font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink; }
+                                mt := TouchArea { enabled: !Live.wu-running; clicked => { Actions.edit("wu-min-" + i); } }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    height: 14px;
+                    border-radius: Theme.radius-ctl;
+                    background: Theme.well;
+                    Rectangle { x: 0; width: parent.width * Live.wu-progress; border-radius: Theme.radius-ctl; background: Theme.go-border; }
+                }
+                Label { height: 26px; overflow: elide; text: Live.wu-text; }
+                // Fixed slot so START/STOP never move.
+                Text { height: 26px; overflow: elide; font-family: Theme.body; font-size: 19px; color: Theme.warn; text: !Live.wu-running ? Live.wu-ready : ""; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
+                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
+                }
+                H3 { text: "SPINDLE AND TOOL SETTER"; }
+                // Gone when empty, or it takes a share of the free height.
+                if Live.ut-has-blast || Live.ut-has-nose: HorizontalLayout {
+                    spacing: 12px;
+                    if Live.ut-has-blast: Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
+                    if Live.ut-has-nose: Btn {
+                        width: 320px;
+                        text: "PROBE SPINDLE NOSE";
+                        clicked => {
+                            Actions.probe-mode("cal");
+                            Actions.probe-shape("nose");
+                            Actions.navigate("probe");
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "GO TO G30"; sub: "TOOL SETTER"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-go-g30(); } }
+                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "SET G30 HERE"; hold: true; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-set-g30(); } }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    if Live.ut-has-nose: Cell { max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
+                    Cell { max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1; key: "SETTER"; value: Live.ut-setter; }
+                    Cell { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; key: "G30 POSITION"; value: Live.ut-g30; }
+                }
+                Rectangle { vertical-stretch: 1; }
+            }
+        }
+        Card {
+            horizontal-stretch: 1;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                H3 { text: "MACHINE STATUS"; }
+                GridLayout {
+                    spacing: 10px;
+                    for r[i] in Live.ut-status: Cell { col: mod(i, 3); row: floor(i / 3); key: r.key; value: r.value; kind: r.kind; }
+                }
+                Note { text: "From LinuxCNC status and the machine's HAL signals."; }
+                Rectangle { vertical-stretch: 1; }
+                // The product's mark and version, quietly at the foot.
+                HorizontalLayout {
+                    spacing: 20px;
+                    Lockup { size: 64px; }
+                    Text {
+                        horizontal-stretch: 1;
+                        horizontal-alignment: right;
+                        vertical-alignment: bottom;
+                        text: "v" + Brand.version;
+                        font-family: Theme.body;
+                        font-size: 20px;
+                        color: Theme.dim;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,182 @@
+import { Theme, Layout } from "theme.slint";
+import { Live, Actions, JobOp } from "state.slint";
+import { Btn, Card, Label, H3, Note, Pill } from "widgets.slint";
+import { ListView } from "std-widgets.slint";
+
+component Bar inherits Rectangle {
+    in property <float> value;
+    in property <string> text;
+    height: 30px;
+    background: Theme.well;
+    border-radius: Theme.radius-sm;
+    clip: true;
+    Rectangle { x: 0; width: parent.width * clamp(root.value, 0, 1); background: Theme.go; }
+    Text { text: root.text; font-family: Theme.display; font-size: 20px; letter-spacing: 1px; color: Theme.ink; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+component OpRow inherits Rectangle {
+    in property <JobOp> op;
+    in property <int> index;
+    height: 84px;
+    border-radius: Theme.radius-ctl;
+    background: op.selected ? Theme.sel-soft : op.state == "current" ? Theme.good-soft : Theme.panel2;
+    animate background { duration: Theme.quick; }
+    border-width: op.selected ? 2px : 0px;
+    border-color: Theme.sel;
+    property <bool> faded: op.state == "skipped" || op.state == "done";
+    TouchArea { clicked => { Actions.job-select(root.index); } }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 14px;
+        spacing: 14px;
+        VerticalLayout {
+            alignment: center;
+            width: 120px;
+            if op.state != "done" && op.state != "current": Btn {
+                height: 64px;
+                // Whether the op is part of the job (not "run it now").
+                font-size: 20px;
+                text: op.enabled ? "INCLUDED" : "SKIPPED";
+                on: op.enabled;
+                enabled: op.can-toggle;
+                clicked => { Actions.job-toggle(root.index); }
+            }
+            if op.state == "done" || op.state == "current": Text {
+                text: op.state == "done" ? "DONE" : "NOW";
+                horizontal-alignment: center;
+                font-family: Theme.display;
+                font-size: 30px;
+                color: op.state == "done" ? Theme.muted : Theme.good;
+            }
+        }
+        Text { width: 44px; vertical-alignment: center; horizontal-alignment: center; text: op.pos; font-family: Theme.display; font-size: 34px; color: faded ? Theme.dim : Theme.muted; }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle {
+                    width: 76px;
+                    height: 30px;
+                    border-radius: Theme.radius-sm;
+                    background: op.kind == "step" ? Theme.warn-soft : op.kind == "cam" ? Theme.info-soft : Theme.sel-soft;
+                    Text {
+                        text: op.badge;
+                        font-family: Theme.display;
+                        font-size: 20px;
+                        letter-spacing: 1px;
+                        color: op.kind == "step" ? Theme.warn : op.kind == "cam" ? Theme.info : Theme.sel-ink;
+                    }
+                }
+                Text { horizontal-stretch: 1; vertical-alignment: center; text: op.name; font-family: Theme.display; font-size: 28px; letter-spacing: 1px; color: faded ? Theme.dim : Theme.ink; overflow: elide; }
+                if op.stop-after: Pill { text: "STOP AFTER"; kind: "warn"; height: 32px; }
+            }
+            if op.state != "current": Text { text: op.detail; font-family: Theme.body; font-size: 20px; color: faded ? Theme.dim : Theme.muted; overflow: elide; }
+            if op.state == "current": Bar { value: op.progress; text: op.progress-text; }
+        }
+    }
+}
+
+export component JobScreen inherits Rectangle {
+    property <bool> has-sel: Live.job-selected >= 0;
+    property <bool> locked: Live.job-running;
+    Card {
+        x: 14px;
+        y: 14px;
+        width: parent.width - 28px;
+        height: parent.height - 28px;
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 14px;
+                H3 { horizontal-stretch: 1; vertical-alignment: center; text: Live.job-title; overflow: elide; }
+                if Live.job-running: Bar { width: 360px; value: Live.job-fraction; text: "JOB " + round(Live.job-fraction * 100) + "%"; }
+                Pill { text: Live.job-state; kind: Live.job-tone; }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                background: Theme.well;
+                border-radius: Theme.radius-ctl;
+                ListView {
+                    for op[i] in Live.job-ops: Rectangle {
+                        height: 92px;
+                        OpRow { x: 8px; y: 4px; width: parent.width - 16px; op: op; index: i; }
+                    }
+                }
+            }
+            if Live.job-check: Rectangle {
+                height: 156px;
+                background: Theme.panel2;
+                border-radius: Theme.radius-ctl;
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text { width: 96px; vertical-alignment: center; text: "CHECK"; font-family: Theme.display; font-size: 26px; letter-spacing: 1px; color: Theme.muted; }
+                        Btn { horizontal-stretch: 1; font-size: 21px; sub: "MEASURES"; text: Live.job-check-value; enabled: !locked && Live.job-check-values > 1; clicked => { Actions.job-check-value(); } }
+                        Btn { horizontal-stretch: 1; font-size: 21px; sub: "NOMINAL"; text: Live.job-check-nominal; enabled: !locked; clicked => { Actions.edit("jc-nominal"); } }
+                        Btn { horizontal-stretch: 1; font-size: 21px; sub: "TOLERANCE"; text: Live.job-check-tol; enabled: !locked; clicked => { Actions.edit("jc-tol"); } }
+                        Btn { horizontal-stretch: 2; font-size: 21px; sub: "CUT BY"; text: Live.job-check-op; enabled: !locked; clicked => { Actions.job-check-link(); } }
+                        Btn { horizontal-stretch: 1; font-size: 21px; sub: "IF OUT"; text: Live.job-check-pause ? "PAUSE" : "KEEP GOING"; on: Live.job-check-pause; enabled: !locked; clicked => { Actions.job-check-pause(); } }
+                    }
+                    // Always both, so nothing moves when a reading arrives.
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                            text: Live.job-check-last;
+                            font-family: Theme.display;
+                            font-size: 26px;
+                            letter-spacing: 1px;
+                            overflow: elide;
+                            color: Live.job-check-tone == "good" ? Theme.good : Live.job-check-tone == "bad" ? Theme.bad : Theme.muted;
+                        }
+                        Btn {
+                            width: 440px;
+                            font-size: 21px;
+                            kind: Live.job-check-adjust != "" ? "go" : "";
+                            hold: true;
+                            sub: "TOOL CORRECTION";
+                            text: Live.job-check-adjust != "" ? Live.job-check-adjust : "NONE TO MAKE";
+                            enabled: !locked && Live.job-check-adjust != "";
+                            clicked => { Actions.job-check-adjust(); }
+                        }
+                    }
+                }
+            }
+            // Two lines: a refused program says why, and that needs room.
+            Text {
+                height: 56px;
+                vertical-alignment: center;
+                text: Live.job-note;
+                font-family: Theme.body;
+                font-size: 20px;
+                wrap: word-wrap;
+                overflow: elide;
+                color: Live.job-note-tone == "error" ? Theme.bad : Live.job-note-tone == "warn" ? Theme.warn : Live.job-note-tone == "ready" ? Theme.good : Theme.muted;
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Btn { max-width: 150px; preferred-width: 150px; min-width: 90px; horizontal-stretch: 1; text: "NEW"; enabled: !locked; clicked => { Actions.job-new(); } }
+                Btn { max-width: 150px; preferred-width: 150px; min-width: 90px; horizontal-stretch: 1; text: "OPEN"; enabled: !locked; clicked => { Actions.job-open(); } }
+                Btn { max-width: 190px; preferred-width: 190px; min-width: 114px; horizontal-stretch: 1; text: "ADD STEP"; enabled: !locked; clicked => { Actions.job-add-step(); } }
+                Btn { max-width: 230px; preferred-width: 230px; min-width: 138px; horizontal-stretch: 1; text: "ADD PROGRAM"; enabled: !locked; clicked => { Actions.job-add-program(); } }
+                Btn { max-width: 96px; preferred-width: 96px; min-width: 58px; horizontal-stretch: 1; text: "▲"; enabled: !locked && has-sel; clicked => { Actions.job-move(-1); } }
+                Btn { max-width: 96px; preferred-width: 96px; min-width: 58px; horizontal-stretch: 1; text: "▼"; enabled: !locked && has-sel; clicked => { Actions.job-move(1); } }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { max-width: 190px; preferred-width: 190px; min-width: 114px; horizontal-stretch: 1; text: "DELETE OP"; hold: true; enabled: !locked && has-sel; clicked => { Actions.job-delete(); } }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Btn { max-width: 260px; preferred-width: 260px; min-width: 156px; horizontal-stretch: 1; text: "START AT OP"; enabled: !locked && has-sel; clicked => { Actions.job-start-at(); } }
+                Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "STOP AFTER THIS OP"; on: Live.job-stop-requested; enabled: Live.job-running; clicked => { Actions.job-stop-after(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { max-width: 460px; preferred-width: 460px; min-width: 276px; horizontal-stretch: 1; hold: true; text: "BUILD AND LOAD"; enabled: !locked && Live.job-ops.length > 0; clicked => { Actions.job-build(); } }
+            }
+        }
+    }
+}

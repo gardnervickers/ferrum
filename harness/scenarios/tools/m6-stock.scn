@@ -1,0 +1,8 @@
+title M6 on a machine without a tool-change dialog
+needs tc-loop
+include ../common/ready.scn
+mdi T2 M6
+expect stat.tool_in_spindle == 2
+wait prop.tool == "T2" within 5
+mdi G43
+expect stat.tool_offset[2] > 0

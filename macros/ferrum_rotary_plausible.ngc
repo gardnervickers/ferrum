@@ -1,0 +1,29 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Rotary radius check: o<ferrum_rotary_plausible> call [radius] [nominal
+; radius] [where]. Aborts if the radius is not positive or differs from the
+; nominal by more than max(0.25 x nominal, 2 mm). [where] names the touch
+; in the message: 0 top at A start, 1 side at A+90, 2 side at A-90, 3 top
+; at A+90, 4 top at A+180, 5 top at A+270. No motion.
+o<ferrum_rotary_plausible> sub
+#<tol> = [0.25 * #2]
+o100 if [#<tol> LT [2 * #<_ferrum_mm>]]
+    #<tol> = [2 * #<_ferrum_mm>]
+o100 endif
+o110 if [[#1 GT 0] AND [ABS[#1 - #2] LE #<tol>]]
+    o<ferrum_rotary_plausible> return
+o110 endif
+o120 if [#3 EQ 0]
+    (ABORT, Top radius at A start is not positive or too far from the diameter estimate; check WCS Y0 Z0 on the rotary axis)
+o120 elseif [#3 EQ 1]
+    (ABORT, A+90 side radius is too far from the diameter estimate)
+o120 elseif [#3 EQ 2]
+    (ABORT, A-90 side radius is too far from the diameter estimate)
+o120 elseif [#3 EQ 3]
+    (ABORT, A+90 top radius is too far from the diameter estimate)
+o120 elseif [#3 EQ 4]
+    (ABORT, A+180 top radius is too far from the diameter estimate)
+o120 else
+    (ABORT, A+270 top radius is too far from the diameter estimate)
+o120 endif
+o<ferrum_rotary_plausible> endsub
+M2

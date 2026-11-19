@@ -1,0 +1,5 @@
+MillSymbols.ttf is a subset of DejaVu Sans 2.37 (https://dejavu-fonts.github.io/),
+renamed as required by its license. DejaVu changes are in the public domain; the
+glyphs derive from Bitstream Vera, under the Bitstream Vera Fonts license (free
+to use, copy, modify and redistribute; modified versions must be renamed and must
+not be sold by themselves). See https://dejavu-fonts.github.io/License.html.

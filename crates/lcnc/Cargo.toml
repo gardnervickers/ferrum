@@ -1,0 +1,25 @@
+[package]
+name = "lcnc"
+version = "0.1.0"
+description = "Typed Rust bindings for LinuxCNC: status, commands and operator messages over NML, and userspace HAL components"
+keywords = ["linuxcnc", "cnc", "nml", "hal"]
+categories = ["api-bindings", "hardware-support"]
+readme = "README.md"
+edition.workspace = true
+publish.workspace = true
+build = "build.rs"
+links = "lcnc_shim"
+
+[features]
+default = ["nml", "hal"]
+# Status, commands and messages over NML. Compiles a small C++ shim against
+# LinuxCNC's headers; see README for where they are looked for.
+nml = ["dep:cc"]
+# Userspace HAL components (dlopen of liblinuxcnchal at run time).
+hal = ["dep:libloading"]
+
+[dependencies]
+libloading = { version = "0.8", optional = true }
+
+[build-dependencies]
+cc = { version = "1", optional = true }

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Run ferrum natively (macOS or Linux) against the simulated machine.
+# The window opens at most of the screen; the 1920x1080 layout scales to fit it.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [ "$(uname)" = Darwin ]; then
+  ICONV="$(nix build --no-link --print-out-paths nixpkgs#libiconv | tail -1)"
+  export RUSTFLAGS="${RUSTFLAGS:-} -L $ICONV/lib"
+fi
+exec cargo run -- --sim --windowed "$@"

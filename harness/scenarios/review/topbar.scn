@@ -1,0 +1,21 @@
+title Top bar message room, for a reviewer's eyes
+allow-error not homed
+# The widest bar: powered on, not homed (HOME ALL shown, status pill red).
+wait prop.connected == true within 30
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10
+mdi (MSG, Remove the probe and close the guard before starting the spindle)
+sleep 1
+shot not-homed-long-message
+do home-all
+wait prop.homed == true within 120
+idle 30
+screen run
+mdi (MSG, Remove the probe and close the guard before starting the spindle)
+sleep 1
+shot homed-long-message
+mdi (MSG, Stock set)
+sleep 2
+shot homed-short-message-settled

@@ -1,0 +1,88 @@
+title CONV on an inch machine: a facing program in inches, saved, loaded and run
+needs inch stock tc-dialog
+include ../common/ready.scn
+# G54 Z0 low enough that T2 (1/2 in end mill, 1.8 long) faces inside Z travel.
+mdi G54
+mdi G10 L2 P1 X${safe_x} Y${safe_y} Z-4
+screen conv
+do conv-type "face"
+# The program and every field are in the machine's units.
+do conv-section "setup"
+expect prop.conv-fields[1].value == IN
+do conv-section "depth"
+expect prop.conv-fields[0].unit == in
+expect prop.conv-levels[0].value == 0.5
+do conv-section "tool"
+expect prop.conv-fields[2].unit == in/min
+# T2 from the inch tool table: its diameter is in inches.
+do conv-field "tool_number"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "2"
+do keypad-done true
+wait prop.keypad-open == false within 5
+expect prop.conv-tool contains Ø0.5
+# The starting step over (1.4 in, for a face mill) is wider than a 1/2 in tool.
+expect prop.conv-error == true
+expect prop.conv-summary contains (0.5000)
+do conv-field "step_over"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "0"
+do keypad-key "."
+do keypad-key "3"
+do keypad-done true
+wait prop.keypad-open == false within 5
+do conv-section "shape"
+do conv-field "x_end"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "2"
+do keypad-done true
+wait prop.keypad-open == false within 5
+do conv-field "y_end"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "1"
+do keypad-key "±"
+do keypad-done true
+wait prop.keypad-open == false within 5
+expect prop.conv-error == false
+expect prop.conv-summary contains Facing 2 x 1 with T2: 1 depth pass x 4 stepover passes
+# Switching the program to MM converts the operation; back to IN restores it.
+do conv-section "setup"
+do conv-field "units"
+wait prop.pick-open == true within 5
+tap pick-items - MM pick
+do conv-section "shape"
+expect prop.conv-fields[1].value == 50.8
+expect prop.conv-fields[1].unit == mm
+expect prop.conv-summary contains Facing 50.8 x 25.4 with T2: 1 depth pass x 4 stepover passes
+do conv-section "setup"
+do conv-field "units"
+wait prop.pick-open == true within 5
+tap pick-items - IN pick
+do conv-section "shape"
+expect prop.conv-fields[1].value == 2
+expect prop.conv-fields[1].unit == in
+shot conv-face
+do conv-load
+wait stat.file contains conv-face within 10
+wait prop.screen == run within 5
+expect prop.gcode-lines[1] == N20 G20
+expect prop.gcode-lines contains G0 Z0.5000
+expect prop.gcode-lines contains G1 X2.0000
+do cycle-start
+wait stat.interp_state != 1 within 10
+# T2 M6: ferrum's tool change dialog.
+wait prop.tc-open == true within 60
+expect prop.tc-tool contains T2
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+idle 180
+expect stat.tool_in_spindle == 2
+# Ran in inches (G20).
+expect stat.program_units == 1
+shot conv-face-done
+expect ui-errors.len == 0

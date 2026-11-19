@@ -1,0 +1,3 @@
+#!/bin/sh
+# A stock 3-axis metric machine (LinuxCNC sim style, no Probe Basic, no mymill HAL).
+exec python3 "$(dirname "$0")/../stock.py" "$1" --units mm --axes XYZ

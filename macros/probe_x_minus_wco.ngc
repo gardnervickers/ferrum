@@ -1,0 +1,23 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND single edge (ferrum's RIGHT EDGE). The probe starts at probing depth
+; beside the right face, within #3018 of it, and moves -X to touch
+; it once (o<ferrum_edge>: fast touch, back off #3019, slow touch). The
+; edge is the contact minus the effective tip radius #5410 / 2 - #3032 and
+; is reported as x_minus_probed_position / #1005. With #3030 = 0
+; the active work offset's X is set so that the edge reads 0; no other
+; axis is written. No Z motion. Ends #3019 off the face at the same Z, with
+; the modal state as it was.
+o<probe_x_minus_wco> sub
+o10 if [#<_task> EQ 0]
+    o<probe_x_minus_wco> return
+o10 endif
+o<ferrum_probe_ready> call
+M73
+M50 P0
+G90 G94
+o<ferrum_edge> call [0] [-1] [#3018]
+o20 if [#3030 EQ 0]
+    G10 L20 P0 X[#5420 - #<_ferrum_edge>]
+o20 endif
+o<probe_x_minus_wco> endsub
+M2

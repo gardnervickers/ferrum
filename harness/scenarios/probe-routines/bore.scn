@@ -1,0 +1,25 @@
+title FIND bore (round pocket) centre: diameter and G54 X Y at the sim bore's middle
+needs probe-basic probe-geometry
+# Bore D${bore_d} at (${bore_x},${bore_y}) in the PLATE, floor -270. Start in
+# its middle, the tip 5 below the plate top; diameter hint #3025 typed in.
+include ../common/probe-start.scn
+do probe-shape "bore"
+do probe-wcs "G54"
+do edit "prun-3025"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "3"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${bore_x} Y${bore_y}
+mdi G53 G1 Z${plate_depth_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Diameter} ~= ${bore_d} +- ${geom_tol}
+expect prop.pr-result{X width} ~= ${bore_d} +- ${geom_tol}
+expect prop.pr-result{Y width} ~= ${bore_d} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${bore_x} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${bore_y} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot bore-done

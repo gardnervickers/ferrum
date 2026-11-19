@@ -1,0 +1,5 @@
+# Park at a safe spot and make it G54's origin.
+mdi G53 G0 Z${safe_z}
+mdi G53 G0 X${safe_x} Y${safe_y}
+mdi G10 L20 P1 X0 Y0 Z0
+expect stat.g5x_offset[0] ~= ${safe_x}

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# clang for the Pi: GNU target, the Pi's own glibc/libstdc++ from ./sysroot.
+# Used as the Rust linker and as CC/CXX for build scripts.
+here="$(cd "$(dirname "$0")/.." && pwd)"
+driver=clang
+case "$(basename "$0")" in *c++|*cxx) driver=clang++ ;; esac
+# nixpkgs' clang does not add the Debian dynamic linker on its own.
+link=(-fuse-ld=lld -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1)
+for a in "$@"; do case "$a" in -c|-S|-E|-shared) link=() ;; esac; done
+exec "$driver" --target=aarch64-linux-gnu --sysroot="$here/sysroot" -Qunused-arguments "${link[@]}" "$@"

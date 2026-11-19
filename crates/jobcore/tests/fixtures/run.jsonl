@@ -1,0 +1,68 @@
+// Building, running, stop after, cycle start guard and stale builds.
+{"cmd": "init", "folder": "jobs", "tool_table": "tool.tbl", "nc_folder": "nc", "max_forward_rpm": 4250, "max_reverse_rpm": 3000.0}
+{"cmd": "build"}
+{"cmd": "stop_after", "on": true}
+{"cmd": "conv", "type": "face", "action": "add", "attrs": {"wcs": "G54", "coolant": "FLOOD", "units": "MM", "tool_number": 14, "spindle_rpm": 3200, "spindle_dir": "CW", "z_start": 0, "z_end": -2, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "step_over": 35, "step_down": 1, "x_start": 0, "x_end": 100, "y_start": 60, "y_end": 0}}
+{"cmd": "add_step", "message": "Flip the part"}
+{"cmd": "conv", "type": "drill", "cycle": "PECK", "cycle_param": 2, "action": "add", "attrs": {"wcs": "G55", "coolant": "OFF", "units": "MM", "tool_number": 7, "spindle_rpm": 1800, "z_start": 0, "z_end": -12, "retract": 2, "z_feed": 100, "z_clear": 10, "xy_feed": 600, "holes": [[10, 10], [90, 10]]}}
+{"cmd": "conv", "type": "thread_mill", "action": "add", "attrs": {"units": "IN", "tool_number": 17, "spindle_rpm": 4000, "z_start": 0, "z_end": -0.3, "retract": 0.1, "z_clear": 2, "xy_feed": 12, "center": [1, 1], "diameter": 16, "pitch": 1.5, "radial_passes": 2, "hand": "RH"}}
+{"cmd": "conv", "type": "helical_bore", "action": "add", "attrs": {"tool_number": 12, "spindle_rpm": 3500, "spindle_dir": "CCW", "z_start": 0, "z_end": -6, "retract": 2, "z_clear": 10, "xy_feed": 300, "center": [50, 30], "diameter": 12, "ramp_angle": 2}}
+{"cmd": "build"}
+{"cmd": "cycle_start", "stat": {"file": "$TMP/$LOAD", "idle": true}}
+{"cmd": "cycle_start", "stat": {"file": "$LOAD", "idle": true}, "line": 40}
+{"cmd": "cycle_start", "stat": {"file": "$TMP/$LOAD", "idle": false}, "line": 40}
+{"cmd": "poll", "stat": {"file": "$TMP/$LOAD", "idle": false, "motion_line": 3, "current_line": 3}}
+{"cmd": "poll", "stat": {"file": "$TMP/$LOAD", "idle": false, "motion_line": "$OPLINE1+5", "current_line": "$OPLINE1+6"}}
+{"cmd": "stop_after", "on": true}
+{"cmd": "poll", "stat": {"file": "$TMP/$LOAD", "idle": false, "motion_line": 0, "current_line": "$OPLINE2+3", "paused": true}}
+{"cmd": "set_enabled", "id": "$OP1", "enabled": false}
+{"cmd": "set_enabled", "id": "$OP2", "enabled": false}
+{"cmd": "set_enabled", "id": "$OP4", "enabled": false}
+{"cmd": "set_enabled", "id": "zzzzzzzz", "enabled": false}
+{"cmd": "move", "id": "$OP4", "offset": -1}
+{"cmd": "add_step"}
+{"cmd": "build"}
+{"cmd": "new"}
+{"cmd": "start_at", "id": "$OP3"}
+{"cmd": "poll", "stat": {"file": "$TMP/$LOAD", "idle": false, "motion_line": "$STOPLINE3", "current_line": "$STOPLINE3"}}
+{"cmd": "poll", "stat": {"file": "$TMP/$LOAD", "idle": false, "motion_line": "$OPLINE3+20"}, "publish": true}
+{"cmd": "poll", "stat": {"file": "$TMP/$LOAD", "idle": false, "motion_line": "$OPLINE1+1000000"}}
+{"cmd": "stop_after", "on": true}
+{"cmd": "poll", "stat": {"file": "$TMP/$LOAD", "idle": true, "motion_line": 0}}
+{"cmd": "poll", "stat": {"file": "$TMP/other.ngc", "idle": false, "motion_line": 50}}
+{"cmd": "set_enabled", "id": "$OP4", "enabled": true}
+{"cmd": "cycle_start", "stat": {"file": "$TMP/$LOAD"}}
+// Hand edits, copies and other programs.
+{"_write": "plain.ngc", "text": "G0 X0\nM30\n"}
+{"cmd": "cycle_start", "stat": {"file": "plain.ngc"}}
+{"cmd": "cycle_start", "stat": {"file": "plain.ngc"}, "line": 12}
+{"cmd": "cycle_start", "stat": {"file": "missing.ngc"}}
+{"cmd": "cycle_start", "stat": {"file": null}}
+{"cmd": "cycle_start", "stat": {}}
+{"cmd": "cycle_start"}
+{"_copy": "$LOAD", "to": "copy.ngc"}
+{"cmd": "cycle_start", "stat": {"file": "copy.ngc"}}
+{"_replace": "$LOAD", "old": "F600", "new": "F6000"}
+{"cmd": "cycle_start", "stat": {"file": "$LOAD"}}
+{"cmd": "build"}
+{"cmd": "cycle_start", "stat": {"file": "$LOAD"}}
+// The tool table changes under the build.
+{"_replace": "tool.tbl", "old": "D+4.000000   ; 150 Series", "new": "D+4.100000   ; 150 Series"}
+{"cmd": "poll", "publish": true}
+{"cmd": "cycle_start", "stat": {"file": "$LOAD"}}
+{"_replace": "tool.tbl", "old": "D+4.100000   ; 150 Series", "new": "D+4.000000   ; 150 Series"}
+{"_replace": "tool.tbl", "old": "Z+109.232434", "new": "Z+120.5"}
+{"cmd": "poll", "publish": true}
+{"_replace": "tool.tbl", "old": "T14    P14", "new": "X14    P14"}
+{"cmd": "poll", "publish": true}
+{"_replace": "tool.tbl", "old": "X14    P14", "new": "T14    P14"}
+{"_copy": "tool.tbl", "to": "tool.bak"}
+{"_remove": "tool.tbl"}
+{"cmd": "poll", "publish": true}
+{"cmd": "add_step"}
+{"_copy": "tool.bak", "to": "tool.tbl"}
+{"cmd": "poll", "publish": true}
+{"cmd": "remove", "id": "$OP1"}
+{"cmd": "cycle_start", "stat": {"file": "$LOAD"}}
+{"cmd": "build"}
+{"cmd": "files"}

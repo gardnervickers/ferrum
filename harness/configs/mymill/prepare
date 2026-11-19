@@ -1,0 +1,6 @@
+#!/bin/sh
+# Gardner's PM-728VT: mymill.ini/mymill.hal/subroutines with Probe Basic's
+# macros, via ferrum/sim/make-config (only the 7i76E and pendant are faked).
+set -e
+REPO="$(cd "$(dirname "$0")/../../../.." && pwd)"
+python3 "$REPO/ferrum/sim/make-config" "$1" --probe-basic "$REPO/vendor/probe_basic" >/dev/null

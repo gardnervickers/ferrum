@@ -1,0 +1,12 @@
+[package]
+name = "machine"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+# ferrum's machine layer over the `lcnc` crate: the Machine trait (LinuxCNC
+# or the in-process simulator), and the worker thread with ferrum's mode
+# rules (MDI returns, macro mode restore, program-start modes).
+[dependencies]
+lcnc = { path = "../lcnc" }
+preview = { path = "../preview" }

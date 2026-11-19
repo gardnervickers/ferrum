@@ -1,0 +1,33 @@
+title FIND rect pocket centre: widths and G54 X Y at the sim pocket's middle
+needs probe-basic probe-geometry
+# Pocket ${pocket_w} x ${pocket_h} at (${pocket_x},${pocket_y}) in the PLATE,
+# floor -270. Start in its middle, the tip 5 below the plate top. The size
+# hints (#3026, #3027) are typed in as an operator would.
+include ../common/probe-start.scn
+do probe-shape "pocket"
+do probe-target "ctr"
+do probe-wcs "G54"
+do edit "prun-3026"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "4"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+do edit "prun-3027"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "3"
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${pocket_x} Y${pocket_y}
+mdi G53 G1 Z${plate_depth_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{X width} ~= ${pocket_w} +- ${geom_tol}
+expect prop.pr-result{Y width} ~= ${pocket_h} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${pocket_x} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${pocket_y} +- ${geom_tol}
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot rect-pocket-done

@@ -1,0 +1,29 @@
+title Probe values: ferrum's are in LinuxCNC once homed; a SETUP edit applies at once
+# A stock machine starts from ferrum's starting values (the parameter file
+# has none); mymill keeps probe_basic.var's. #3014 is the probe's tool.
+include ../common/ready.scn
+sleep 4                                   # the write runs 3 s after things go still
+idle 30
+mdi (DEBUG,P3015=#3015 P3019=#3019 P3014=#3014)
+wait prop.messages contains "P3015=${seed_slow}" within 5
+expect prop.messages contains "P3019=${seed_xy_clear}"
+expect prop.messages contains "P3014=99"
+# SETUP › PROBE: the values are listed, and an edit goes to LinuxCNC.
+screen setup
+do setup-go 3
+expect prop.setup-rows contains "Slow feed (the touch)"
+do edit setup-probe.defaults.slow_feed
+expect prop.keypad-open == true
+do keypad-key CLR
+do keypad-key "3"
+do keypad-key "7"
+do keypad-done true
+wait prop.keypad-open == false within 5
+wait prop.setup-rows contains "37" within 5
+sleep 0.5
+shot setup-probe-values
+sleep 2
+idle 30
+mdi (DEBUG,P3015=#3015)
+wait prop.messages contains "P3015=37" within 5
+expect ui-errors.len == 0

@@ -1,0 +1,15 @@
+title FIND top face Z on the sim PLATE writes only Z of G54
+needs probe-basic probe-geometry
+# A clear spot of the PLATE top (${plate_top}); start with the tip 10 above it.
+include ../common/probe-start.scn
+do probe-shape "top"
+do probe-target "top"
+do probe-wcs "G54"
+mdi G53 G0 X${ztop_x} Y${ztop_y}
+mdi G53 G1 Z${plate_above_mz} F2000
+include ../common/probe-run.scn
+expect stat.g5x_offset[2] ~= ${plate_top} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot z-top-done

@@ -1,0 +1,16 @@
+[package]
+name = "jobcore"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+# The JOB page's rules, the job compiler and the conversational G-code
+# generators, ported from ferrum/job_helper.py and the Python it imported
+# (mymill_job, mymill_vcp/job_session.py, probe_basic's mill_ops.py and
+# thread_presets.py). Replies, job files, programs and stamps match the
+# Python byte for byte; tests/conformance.rs checks recorded Python output.
+
+[dependencies]
+serde_json = "1"
+regex = "1"
+libc = "0.2"

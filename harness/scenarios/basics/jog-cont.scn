@@ -1,0 +1,11 @@
+title Continuous jog moves while held and stops on release
+include ../common/ready.scn
+screen manual
+do jog-step-set "CONT"
+do jog-start 0 1
+sleep 0.5
+expect stat.current_vel > 0
+do jog-stop 0
+idle 10
+expect stat.position[0] > ${home_x}
+expect stat.current_vel == 0

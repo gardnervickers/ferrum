@@ -1,0 +1,383 @@
+import { Theme, Layout } from "theme.slint";
+import { Live, Actions, GotoRow } from "state.slint";
+import { Btn, Seg, Card, Label, NumField, H3, Note } from "widgets.slint";
+
+// Hold-to-move button: continuous jogs run while pressed, steps fire once.
+component JogBtn inherits Btn {
+    in property <int> axis;
+    in property <int> dir;
+    font-size: 32px;
+    enabled: Live.power && !Live.manual-locked;
+    pressed => { Actions.jog-start(axis, dir); }
+    released => { if Live.jog-step == "CONT" { Actions.jog-stop(axis); } }
+}
+
+// Jog controls for the Run screen's JOG tab, beside the backplot.
+export component JogPanel inherits VerticalLayout {
+    spacing: 14px;
+    property <length> cw: 94px;
+    property <length> ch: 100px;
+    property <length> colw: 86px;
+    HorizontalLayout {
+        spacing: 0px;
+        Label { width: 70px; vertical-alignment: center; text: "STEP"; }
+        for s[i] in Live.jog-steps: Seg {
+            text: s;
+            first: i == 0;
+            last: i == Live.jog-steps.length - 1;
+            // A browser can only step: a lost release must not leave an axis moving.
+            enabled: !(Live.remote && s == "CONT");
+            on: Live.jog-step == s && !(Live.remote && s == "CONT");
+            clicked => { Actions.jog-step-set(s); }
+        }
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 14px;
+        padding-top: 6px;
+        GridLayout {
+            spacing: 14px;
+            Row {
+                Rectangle { width: cw; height: ch; }
+                JogBtn { width: cw; height: ch; text: "▲ Y+"; axis: 1; dir: 1; font-size: 26px; }
+                Rectangle { width: cw; }
+            }
+            Row {
+                JogBtn { height: ch; text: "◀ X−"; axis: 0; dir: -1; font-size: 26px; }
+                Btn {
+                    height: ch; text: "STOP"; kind: "stop"; font-size: 24px;
+                    clicked => { Actions.jog-stop(0); Actions.jog-stop(1); Actions.jog-stop(2); if Live.has-rot { Actions.jog-stop(Live.rot-axis); } }
+                }
+                JogBtn { height: ch; text: "X+ ▶"; axis: 0; dir: 1; font-size: 26px; }
+            }
+            Row {
+                Rectangle { height: ch; }
+                JogBtn { height: ch; text: "▼ Y−"; axis: 1; dir: -1; font-size: 26px; }
+                Rectangle { }
+            }
+        }
+        VerticalLayout {
+            spacing: 14px;
+            width: colw;
+            JogBtn { height: ch; text: "▲ Z+"; axis: 2; dir: 1; font-size: 26px; }
+            Rectangle { height: ch; }
+            JogBtn { height: ch; text: "▼ Z−"; axis: 2; dir: -1; font-size: 26px; }
+        }
+        if Live.has-rot: VerticalLayout {
+            spacing: 14px;
+            width: colw;
+            JogBtn { height: ch; text: Live.rot-letter + "+ ↻"; axis: Live.rot-axis; dir: 1; font-size: 26px; }
+            Rectangle { height: ch; }
+            JogBtn { height: ch; text: Live.rot-letter + "− ↺"; axis: Live.rot-axis; dir: -1; font-size: 26px; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        Label { width: 130px; vertical-alignment: center; text: "JOG SPEED"; }
+        NumField { width: 190px; value: Live.jog-speed; unit: Live.unit + "/s"; edit => { Actions.edit("jog-speed"); } }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    if Live.has-rot: HorizontalLayout {
+        spacing: 10px;
+        Label { width: 130px; vertical-alignment: center; text: Live.rot-letter + " SPEED"; }
+        NumField { width: 190px; value: Live.jog-speed-a; unit: "°/s"; edit => { Actions.edit("jog-speed-a"); } }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    Rectangle { vertical-stretch: 1; }
+    if Live.has-rot && !Live.rot-switch: HorizontalLayout {
+        spacing: 12px;
+        Note { horizontal-stretch: 1; vertical-alignment: center; text: Live.rot-letter + " has no home switch. Set " + Live.rot-letter + "0 (machine) at the current position."; }
+        Btn {
+            width: 200px;
+            height: 64px;
+            text: "SET " + Live.rot-letter + " REF HERE";
+            hold: true;
+            enabled: Live.power && !Live.manual-locked;
+            clicked => { Actions.set-a-reference(); }
+        }
+    }
+    Note { text: "The backplot follows the tool while you jog. Power feed, go to and spindle live on MANUAL."; }
+}
+
+component WcsRow inherits HorizontalLayout {
+    spacing: 0px;
+    Label { width: 120px; vertical-alignment: center; text: "WCS"; }
+    for c[i] in Live.wcs-codes: Seg {
+        text: c;
+        first: i == 0;
+        last: i == Live.wcs-codes.length - 1;
+        font-size: 20px;
+        on: Live.pf-wcs == c;
+        enabled: !Live.running;
+        clicked => { Actions.pf-wcs-set(c); }
+    }
+}
+
+component StatusLine inherits Rectangle {
+    height: 52px;
+    background: Theme.well;
+    border-radius: Theme.radius-ctl;
+    Text {
+        x: 14px;
+        width: parent.width - 28px;
+        vertical-alignment: center;
+        overflow: elide;
+        text: Live.pf-status;
+        font-family: Theme.body;
+        font-size: 21px;
+        color: Live.pf-status-error ? Theme.bad : Theme.muted;
+    }
+}
+
+// End-of-travel moves need the hold; distance moves are one tap.
+component FeedBtn inherits Btn {
+    in property <int> axis;
+    in property <int> dir;
+    height: 110px;
+    font-size: 32px;
+    hold: Live.pf-mode == "eot";
+    enabled: Live.pf-ready && Live.pf-axis-enabled[axis];
+    clicked => { Actions.pf-move(axis, dir); }
+}
+
+component PowerFeedPanel inherits VerticalLayout {
+    spacing: 14px;
+    WcsRow { }
+    HorizontalLayout {
+        spacing: 0px;
+        Label { width: 120px; vertical-alignment: center; text: "MODE"; }
+        Seg { first: true; text: "DISTANCE"; on: Live.pf-mode == "dist"; enabled: !Live.running; clicked => { Actions.pf-mode-set("dist"); } }
+        Seg { last: true; text: "END OF TRAVEL"; on: Live.pf-mode == "eot"; enabled: !Live.running; clicked => { Actions.pf-mode-set("eot"); } }
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        Label { width: Layout.compact ? 130px : 150px; vertical-alignment: center; text: "FEED " + Live.unit-up + "/MIN"; }
+        NumField { width: Layout.compact ? 140px : 170px; value: Live.pf-feed; edit => { Actions.edit("pf-feed"); } }
+        Rectangle { width: Layout.compact ? 12px : 30px; }
+        Label { width: Layout.compact ? 130px : 150px; vertical-alignment: center; text: "DISTANCE " + Live.unit-up; }
+        NumField { width: Layout.compact ? 140px : 170px; value: Live.pf-dist; enabled: Live.pf-mode == "dist"; edit => { Actions.edit("pf-dist"); } }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 40px;
+        GridLayout {
+            spacing: 12px;
+            Row {
+                Rectangle { width: 130px; height: 110px; }
+                FeedBtn { width: 130px; text: "▲ Y+"; axis: 1; dir: 1; }
+                Rectangle { width: 130px; }
+            }
+            Row {
+                FeedBtn { text: "◀ X−"; axis: 0; dir: -1; }
+                Btn { height: 110px; text: "STOP FEED"; kind: "stop"; font-size: 24px; clicked => { Actions.motion-stop(); } }
+                FeedBtn { text: "X+ ▶"; axis: 0; dir: 1; }
+            }
+            Row {
+                Rectangle { height: 110px; }
+                FeedBtn { text: "▼ Y−"; axis: 1; dir: -1; }
+                Rectangle { }
+            }
+        }
+        VerticalLayout {
+            spacing: 12px;
+            width: 130px;
+            FeedBtn { text: "▲ Z+"; axis: 2; dir: 1; }
+            Label {
+                height: 110px;
+                text: Live.pf-mode == "eot" ? "Z: DIST\nONLY" : "";
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            FeedBtn { text: "▼ Z−"; axis: 2; dir: -1; }
+        }
+    }
+    Note {
+        text: Live.pf-mode == "eot"
+            ? "Hold to feed X or Y to " + (Live.unit == "in" ? "0.04 in" : "1 mm") + " short of the soft limit. Z moves by distance only."
+            : "Feeds the axis by the distance at the set rate, in the selected WCS. The active WCS is unchanged afterwards.";
+    }
+    Rectangle { vertical-stretch: 1; }
+    StatusLine { }
+}
+
+component GotoPanel inherits VerticalLayout {
+    spacing: 14px;
+    WcsRow { }
+    HorizontalLayout {
+        spacing: 16px;
+        VerticalLayout {
+            spacing: 12px;
+            width: 400px;
+            HorizontalLayout {
+                spacing: 10px;
+                Label { width: 190px; vertical-alignment: center; text: "TARGET X (WORK)"; }
+                NumField { value: Live.gt-x; edit => { Actions.edit("gt-x"); } }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Label { width: 190px; vertical-alignment: center; text: "TARGET Y (WORK)"; }
+                NumField { value: Live.gt-y; edit => { Actions.edit("gt-y"); } }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Label { width: 190px; vertical-alignment: center; text: "FEED " + Live.unit-up + "/MIN"; }
+                NumField { value: Live.gt-feed; edit => { Actions.edit("gt-feed"); } }
+            }
+            Label { text: "SAVED LOCATIONS"; }
+            Rectangle {
+                vertical-stretch: 1;
+                min-height: 140px;
+                background: Theme.well;
+                border-radius: Theme.radius-ctl;
+                clip: true;
+                Flickable {
+                    content-height: glist.preferred-height;
+                    glist := VerticalLayout {
+                        padding: 6px;
+                        spacing: 4px;
+                        alignment: start;
+                        for g[i] in Live.gotos: Rectangle {
+                            height: 48px;
+                            border-radius: Theme.radius-sm;
+                            background: i == Live.goto-selected ? Theme.sel-soft : gt.pressed ? Theme.raised : transparent;
+                            border-width: i == Live.goto-selected ? 2px : 0;
+                            border-color: Theme.sel;
+                            animate background { duration: Theme.quick; }
+                            Text {
+                                x: 12px;
+                                vertical-alignment: center;
+                                text: g.name + "   X" + g.x + "  Y" + g.y;
+                                font-family: Theme.body;
+                                font-size: 23px;
+                                color: Theme.ink;
+                            }
+                            gt := TouchArea { clicked => { Actions.goto-select(i); } }
+                        }
+                        if Live.gotos.length == 0: Note { text: "SAVE stores the target above."; }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Btn { text: "SAVE"; clicked => { Actions.goto-save(); } }
+                Btn { text: "UPDATE"; enabled: Live.goto-selected >= 0; clicked => { Actions.goto-update(); } }
+                Btn { text: "DELETE"; hold: true; enabled: Live.goto-selected >= 0; clicked => { Actions.goto-delete(); } }
+            }
+        }
+        // XY preview in the selected WCS: saved points, target (ring), origin (cross).
+        Rectangle {
+            horizontal-stretch: 1;
+            background: Theme.well;
+            border-radius: Theme.radius-ctl;
+            clip: true;
+            property <length> side: min(self.width, self.height) - 30px;
+            property <length> ox: (self.width - side) / 2;
+            property <length> oy: (self.height - side) / 2;
+            Rectangle { x: ox + side * Live.gt-ox - 12px; y: oy + side * Live.gt-oy; width: 24px; height: 2px; background: Theme.dim; }
+            Rectangle { x: ox + side * Live.gt-ox; y: oy + side * Live.gt-oy - 12px; width: 2px; height: 24px; background: Theme.dim; }
+            for g[i] in Live.gotos: Rectangle {
+                x: ox + side * g.px - 7px;
+                y: oy + side * g.py - 7px;
+                width: 14px;
+                height: 14px;
+                border-radius: Theme.radius-ctl;
+                background: i == Live.goto-selected ? Theme.sel : Theme.muted;
+                Text {
+                    x: 18px;
+                    y: -6px;
+                    text: g.name;
+                    font-family: Theme.body;
+                    font-size: 18px;
+                    color: Theme.muted;
+                }
+            }
+            Rectangle {
+                x: ox + side * Live.gt-px - 13px;
+                y: oy + side * Live.gt-py - 13px;
+                width: 26px;
+                height: 26px;
+                border-radius: 13px;
+                border-width: 3px;
+                border-color: Theme.warn;
+            }
+            Text { x: 10px; y: 8px; text: Live.pf-wcs + " XY"; font-family: Theme.display; font-size: 22px; color: Theme.dim; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 40px;
+        Btn { height: 84px; text: "GO TO XY"; kind: "go"; hold: true; enabled: Live.pf-ready; clicked => { Actions.goto-go(); } }
+        Btn { height: 84px; text: "STOP MOVE"; kind: "stop"; clicked => { Actions.motion-stop(); } }
+    }
+    StatusLine { }
+}
+
+component SpindleCard inherits Card {
+    VerticalLayout {
+        padding: 14px;
+        spacing: 10px;
+        H3 { text: "SPINDLE"; }
+        HorizontalLayout {
+            spacing: 10px;
+            Label { vertical-alignment: center; text: "RPM"; horizontal-stretch: 1; }
+            NumField { width: 190px; value: Live.spindle-rpm; enabled: !Live.manual-locked; edit => { Actions.edit("spindle-rpm"); } }
+        }
+        HorizontalLayout {
+            spacing: 32px;
+            Btn { text: "CW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(1); } }
+            Btn { text: "STOP"; kind: "stop"; enabled: Live.power; clicked => { Actions.spindle(0); } }
+            if Live.spindle-reverse: Btn { text: "CCW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(-1); } }
+        }
+        H3 { text: "WORK ZERO"; }
+        Note { text: "Sets the active WCS so the tool tip is 0 on every axis. Tap ZERO beside an axis on the DRO to zero just that one."; }
+        Btn {
+            height: 84px;
+            text: "ZERO XYZ HERE";
+            enabled: Live.power && Live.homed && !Live.manual-locked;
+            clicked => { Actions.zero-xyz(); }
+        }
+        H3 { text: "RETURN"; }
+        HorizontalLayout {
+            spacing: 10px;
+            Btn {
+                text: "Z TO WORK Z0"; hold: true; font-size: Layout.compact ? 19px : 24px;
+                enabled: Live.power && Live.homed && !Live.manual-locked;
+                clicked => { Actions.z-to-work-zero(); }
+            }
+            Btn {
+                text: "RETRACT " + (Live.unit == "in" ? "0.4" : "10") + ", XY TO WORK 0"; hold: true; font-size: Layout.compact ? 17px : 21px;
+                enabled: Live.power && Live.homed && !Live.manual-locked;
+                clicked => { Actions.retract-xy-to-zero(); }
+            }
+        }
+        Btn {
+            text: "PARK AT MACHINE HOME"; hold: true; font-size: Layout.compact ? 19px : 24px;
+            enabled: Live.power && Live.homed && !Live.manual-locked;
+            clicked => { Actions.park(); }
+        }
+        Rectangle { vertical-stretch: 1; }
+    }
+}
+
+// MANUAL: power feed and go to, with spindle, mist, zero and the returns.
+export component ManualScreen inherits Rectangle {
+    VerticalLayout {
+        padding: 14px;
+        spacing: 14px;
+        HorizontalLayout {
+            width: 420px;
+            spacing: 0px;
+            Seg { first: true; text: "POWER FEED"; on: Live.jog-tab != "goto"; clicked => { Live.jog-tab = "feed"; } }
+            Seg { last: true; text: "GO TO"; on: Live.jog-tab == "goto"; clicked => { Live.jog-tab = "goto"; } }
+        }
+        HorizontalLayout {
+            spacing: 14px;
+            Card {
+                width: Layout.compact ? 640px : 800px;
+                if Live.jog-tab != "goto": PowerFeedPanel { x: 14px; y: 14px; width: parent.width - 28px; height: parent.height - 28px; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
+                if Live.jog-tab == "goto": GotoPanel { x: 14px; y: 14px; width: parent.width - 28px; height: parent.height - 28px; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
+            }
+            SpindleCard { horizontal-stretch: 1; }
+        }
+    }
+}

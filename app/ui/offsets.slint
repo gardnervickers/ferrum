@@ -1,0 +1,158 @@
+import { Theme, Layout } from "theme.slint";
+import { Live, Actions, OffsetRow, HistoryRow } from "state.slint";
+import { Btn, Seg, Card, Label, H3, Note, Pill } from "widgets.slint";
+import { ListView } from "std-widgets.slint";
+
+// One change in the timeline: when, what, the values before and after, why.
+component HistoryLine inherits Rectangle {
+    in property <HistoryRow> r;
+    in property <bool> on;
+    callback tapped();
+    height: 64px;
+    background: on ? Theme.sel-soft : ht.pressed ? Theme.raised : transparent;
+    animate background { duration: Theme.quick; }
+    if on: Rectangle { x: 0; width: 4px; background: Theme.sel; }
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+    ht := TouchArea { clicked => { root.tapped(); } }
+    HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        spacing: 16px;
+        Text { width: 150px; vertical-alignment: center; text: r.when; font-family: Theme.body; font-size: 21px; color: Theme.muted; }
+        Text { width: 84px; vertical-alignment: center; text: r.what; font-family: Theme.display; font-size: 26px; letter-spacing: 1px; color: r.tool ? Theme.info : Theme.ink; }
+        Text { horizontal-stretch: 1; vertical-alignment: center; text: r.change; font-family: Theme.body; font-weight: 500; font-size: 22px; color: Theme.ink; overflow: elide; }
+        Text { width: 300px; vertical-alignment: center; horizontal-alignment: right; text: r.cause; font-family: Theme.body; font-size: 20px; color: Theme.muted; overflow: elide; }
+    }
+}
+
+// A value in its own box, so the tap target is visible and values from
+// neighbouring columns never share one.
+component Cell inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled;
+    in property <bool> dim;
+    callback tapped();
+    horizontal-stretch: 1;
+    Rectangle {
+        x: 6px;
+        y: 6px;
+        width: parent.width - 12px;
+        height: parent.height - 12px;
+        border-radius: Theme.radius-ctl;
+        background: ta.pressed && root.enabled ? Theme.raised : #ffffff08;
+        border-width: 1px;
+        border-color: ta.pressed && root.enabled ? Theme.sel : #ffffff14;
+        Text {
+            x: 0;
+            width: parent.width - 14px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            text: root.text;
+            font-family: Theme.body;
+            font-size: 26px;
+            color: dim ? Theme.dim : Theme.ink;
+        }
+    }
+    ta := TouchArea { enabled: root.enabled; clicked => { root.tapped(); } }
+}
+
+export component OffsetsScreen inherits Rectangle {
+    property <bool> locked: Live.manual-locked || !Live.power;
+    VerticalLayout {
+        padding: 14px;
+        spacing: 14px;
+        Card {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 12px;
+                HorizontalLayout {
+                    height: 44px;
+                    spacing: 12px;
+                    H3 { vertical-alignment: center; text: "WORK OFFSETS"; }
+                    HorizontalLayout {
+                        width: 320px;
+                        spacing: 0px;
+                        Seg { first: true; height: 44px; font-size: 20px; text: "TABLE"; on: Live.offsets-view != "timeline"; clicked => { Live.offsets-view = "table"; } }
+                        Seg { last: true; height: 44px; font-size: 20px; text: "TIMELINE"; on: Live.offsets-view == "timeline"; clicked => { Live.offsets-view = "timeline"; } }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    if Live.offsets-g92 != "": Pill { text: Live.offsets-g92 + " ACTIVE"; kind: "warn"; }
+                    if Live.offsets-g92 != "": Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; height: 44px; font-size: 20px; text: "CLEAR G92"; enabled: !locked; clicked => { Actions.offsets-clear-g92(); } }
+                    Label { width: 420px; horizontal-alignment: right; vertical-alignment: center; text: Live.offsets-view == "timeline" ? "NEWEST FIRST · TAP A CHANGE TO SELECT IT" : "TAP A ROW · TAP A VALUE TO EDIT"; }
+                }
+                if Live.offsets-view == "timeline": Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.well;
+                    border-radius: Theme.radius-ctl;
+                    clip: true;
+                    ListView {
+                        y: 4px;
+                        height: floor((parent.height - 8px) / 64px) * 64px;
+                        for r[i] in Live.history: HistoryLine { r: r; on: i == Live.history-selected; tapped => { Actions.history-select(i); } }
+                    }
+                    if Live.history.length == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: "No changes yet. Every change to a work offset or a tool's length and diameter is listed here."; }
+                }
+                if Live.offsets-view == "timeline": HorizontalLayout {
+                    height: 64px;
+                    spacing: 12px;
+                    Note { horizontal-stretch: 1; vertical-alignment: center; text: Live.history-restore-note; }
+                    Btn { max-width: 300px; preferred-width: 300px; min-width: 180px; horizontal-stretch: 1; text: Live.history-restore-label; sub: "HOLD"; hold: true; enabled: !locked && Live.history-selected >= 0; clicked => { Actions.history-restore(); } }
+                }
+                if Live.offsets-view != "timeline": HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    Label { width: 220px; text: "WCS"; }
+                    // The A column only on a machine with an A axis.
+                    for c in Live.has-a ? ["X", "Y", "Z", "A", "ROT"] : ["X", "Y", "Z", "ROT"]: Rectangle {
+                        horizontal-stretch: 1;
+                        height: 24px;
+                        Label { x: 0; width: parent.width - 20px; horizontal-alignment: right; text: c; }
+                    }
+                }
+                if Live.offsets-view != "timeline": Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.well;
+                    border-radius: Theme.radius-ctl;
+                    VerticalLayout {
+                        for o[i] in Live.offsets: Rectangle {
+                            vertical-stretch: 1;
+                            background: i == Live.offsets-selected ? Theme.sel-soft : rt.pressed ? Theme.raised : transparent;
+                            border-radius: Theme.radius-sm;
+                            border-width: i == Live.offsets-selected ? 2px : 0;
+                            border-color: Theme.sel;
+                            animate background { duration: Theme.quick; }
+                            rt := TouchArea { clicked => { Actions.offsets-select(i); } }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                HorizontalLayout {
+                                    width: 220px;
+                                    spacing: 12px;
+                                    Text { vertical-alignment: center; text: o.wcs; font-family: Theme.display; font-size: 28px; color: Theme.ink; }
+                                    if o.active: VerticalLayout { alignment: center; Pill { text: "ACTIVE"; kind: "good"; } }
+                                }
+                                Cell { text: o.x; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-x"); } }
+                                Cell { text: o.y; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-y"); } }
+                                Cell { text: o.z; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-z"); } }
+                                if Live.has-a: Cell { text: o.a; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-a"); } }
+                                Cell { text: o.rot; dim: !o.used; enabled: !locked; tapped => { Actions.offsets-select(i); Actions.edit("off-r"); } }
+                            }
+                        }
+                    }
+                }
+                if Live.offsets-view != "timeline": HorizontalLayout {
+                    spacing: 12px;
+                    Btn { max-width: 240px; preferred-width: 240px; min-width: 144px; horizontal-stretch: 1; text: "MAKE " + Live.offsets-sel-label + " ACTIVE"; enabled: !locked && !Live.offsets[Live.offsets-selected].active; clicked => { Actions.offsets-activate(); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO X HERE"; enabled: !locked; clicked => { Actions.offsets-zero(0); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Y HERE"; enabled: !locked; clicked => { Actions.offsets-zero(1); } }
+                    Btn { max-width: 180px; preferred-width: 180px; min-width: 108px; horizontal-stretch: 1; text: "ZERO Z HERE"; enabled: !locked; clicked => { Actions.offsets-zero(2); } }
+                    Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; text: "CLEAR " + Live.offsets-sel-label; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Btn { max-width: 190px; preferred-width: 190px; min-width: 114px; horizontal-stretch: 1; text: "CLEAR ALL"; sub: "HOLD"; hold: true; enabled: !locked; clicked => { Actions.offsets-clear-all(); } }
+                }
+            }
+        }
+        Note { text: "Changes go through MDI (G10 L2 / L20, G5x, G92.1). The active row is live from LinuxCNC; inactive rows come from the parameter file at startup and from edits made here."; }
+    }
+}

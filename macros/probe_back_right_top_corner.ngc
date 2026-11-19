@@ -1,0 +1,14 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND outside corner, the back right corner of a block (X+ Y+ corner).
+; Start above the top near the corner, less than step-off #3023 in from
+; both faces, within #3020 of the top. Touches the top, then the X face
+; (moving -X) and the Y face (moving -Y) at probing depth, and ends over the
+; corner at the clearance plane. With #3030 = 0 the active work offset
+; gets X0 Y0 at the corner and Z0 at the top. See ferrum_outside_corner.
+o<probe_back_right_top_corner> sub
+o10 if [#<_task> EQ 0]
+    o<probe_back_right_top_corner> return
+o10 endif
+o<ferrum_outside_corner> call [1] [1]
+o<probe_back_right_top_corner> endsub
+M2

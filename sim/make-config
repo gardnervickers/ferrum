@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Build a LinuxCNC *simulator* config for ferrum from the mill's own files.
+
+    ferrum/sim/make-config OUT_DIR [--probe-basic DIR] [--macros DIR]
+
+OUT_DIR gets mymill.ini and mymill.hal rewritten for the simulator, the
+repo's ferrum.ini, and links to subroutines, python, scripts and ferrum.
+What changes from the real config:
+- The 7i76E is replaced by sim_card.py (same pin names) and each joint's
+  position command is looped straight back as its feedback (no stepgens, no
+  PID). Every other line of mymill.hal runs as written: the drawbar and
+  spindle interlocks, HLFB arming, probe manager, touch-off latches.
+- `--macros DIR` puts DIR first on [RS274NGC]SUBROUTINE_PATH, so its
+  probe macros (ferrum/macros) are found before the mill's subroutines and
+  Probe Basic's; any routine it lacks still comes from those.
+- Homing is immediate (no switch search), the pendant HAL file is replaced by
+  a stand-in driver (sim_pendant.py) with the nets ferrum cares about,
+  and PROGRAM_PREFIX points at OUT_DIR/nc_files.
+Then: `linuxcnc OUT_DIR/ferrum.ini` with LinuxCNC's rip-environment sourced.
+It never talks to the mill; it is for the cloud/dev simulator only.
+"""
+import argparse
+import os
+import re
+import shutil
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+
+
+def ini(text: str, out: Path, macros: Path | None = None) -> str:
+    lines, section = [], ""
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("["):
+            section = s
+        key = s.split("=", 1)[0].strip()
+        if section == "[HAL]" and key in ("HALFILE", "POSTGUI_HALFILE"):
+            if key == "HALFILE" and "mymill.hal" in s:
+                lines.append("HALFILE = mymill.hal")
+                lines.append("HALFILE = sim_pendant.hal")
+            continue
+        if section == "[HMOT]":
+            continue
+        if section == "[RS274NGC]" and key == "SUBROUTINE_PATH" and macros is not None:
+            lines.append(f"SUBROUTINE_PATH = {macros}:{s.split('=', 1)[1].strip()}")
+            continue
+        if key == "PROGRAM_PREFIX":
+            lines.append(f"PROGRAM_PREFIX = {out / 'nc_files'}")
+            continue
+        lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
+def hal(text: str) -> str:
+    out = []
+    for line in text.splitlines():
+        s = line.strip()
+        if re.match(r"loadrt (hostmot2|hm2_eth|pid)\b", s) or s.startswith("addf hm2_7i76e") or "pid." in s:
+            continue
+        if re.match(r"setp\s+hm2_7i76e\.0\.(watchdog|dpll|stepgen)", s) or "stepgen" in s:
+            continue
+        m = re.match(r"net (\w)-pos-cmd\s+<=\s+joint\.(\d)\.motor-pos-cmd", s)
+        if m:
+            a, j = m.groups()
+            out.append(f"net {a}-pos-cmd <= joint.{j}.motor-pos-cmd => joint.{j}.motor-pos-fb")
+            if a in "xyz":
+                out.append(f"net {a}-pos-cmd => hm2_7i76e.0.sim.{a}")
+            continue
+        if re.match(r"net \w-(pos-fb|output)\b", s):
+            continue
+        out.append(line)
+        if s.startswith("loadrt [EMCMOT]EMCMOT"):
+            out.append("loadusr -Wn sim_card ./sim_card.py")
+    return "\n".join(out) + "\n"
+
+
+# The pendant nets of xhc-whb04b-6.hal that matter to ferrum, on the
+# stand-in driver (sim_pendant.py).
+SIM_PENDANT_HAL = """loadusr -Wn whb ./sim_pendant.py
+net pdnt.mode.auto      whb.halui.mode.auto      halui.mode.auto
+net pdnt.mode.manual    whb.halui.mode.manual    halui.mode.manual
+net pdnt.mode.mdi       whb.halui.mode.mdi       halui.mode.mdi
+net pdnt.mode.joint     whb.halui.mode.joint     halui.mode.joint
+net pdnt.mode.teleop    whb.halui.mode.teleop    halui.mode.teleop
+net pdnt.mode.is-auto   halui.mode.is-auto       whb.halui.mode.is-auto
+net pdnt.mode.is-manual halui.mode.is-manual     whb.halui.mode.is-manual
+net pdnt.mode.is-mdi    whb.halui.mode.is-mdi
+net pdnt.mode.is-joint  halui.mode.is-joint      whb.halui.mode.is-joint
+net pdnt.mode.is-teleop halui.mode.is-teleop     whb.halui.mode.is-teleop
+net pdnt.program.pause  whb.halui.program.pause  halui.program.pause
+net pdnt.program.run    whb.halui.program.run    halui.program.run
+net pdnt.program.stop   whb.halui.program.stop   halui.program.stop
+"""
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("out", type=Path)
+    ap.add_argument("--probe-basic", type=Path, help="probe_basic checkout, if vendor/probe_basic is empty")
+    ap.add_argument("--macros", type=Path, help="a folder of probe macros searched before all others")
+    a = ap.parse_args()
+    out = a.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "nc_files").mkdir(exist_ok=True)
+    macros = a.macros.resolve() if a.macros else None
+    if macros is not None and not macros.is_dir():
+        ap.error(f"--macros {macros}: no such folder")
+    (out / "mymill.ini").write_text(ini((REPO / "mymill.ini").read_text(), out, macros))
+    (out / "mymill.hal").write_text(hal((REPO / "mymill.hal").read_text()))
+    # The display is whatever ferrum build FERRUM_BIN names (NML backend).
+    gui = (REPO / "ferrum.ini").read_text().replace("DISPLAY = ./ferrum/run", "DISPLAY = ./display")
+    gui = re.sub(r"(?m)^PROGRAM_PREFIX = .*$", f"PROGRAM_PREFIX = {out / 'nc_files'}", gui)
+    (out / "ferrum.ini").write_text(gui)
+    shutil.copy(REPO / "ferrum.toml", out / "ferrum.toml")
+    disp = out / "display"
+    disp.write_text('#!/bin/sh\nexport SLINT_SCALE_FACTOR="${SLINT_SCALE_FACTOR:-1}"\n'
+                    f'exec "${{FERRUM_BIN:-{REPO}/ferrum/target/release/ferrum}}" "$@"\n')
+    disp.chmod(0o755)
+    for f in (REPO / "ferrum" / "testdata" / "nc_files").glob("*.ngc"):
+        shutil.copy(f, out / "nc_files" / f.name)
+    shutil.copy(HERE / "sim_card.py", out / "sim_card.py")
+    shutil.copy(HERE / "sim_pendant.py", out / "sim_pendant.py")
+    (out / "sim_pendant.hal").write_text(SIM_PENDANT_HAL)
+    for f in ("tool.tbl", "probe_basic.var"):
+        if not (out / f).exists():
+            shutil.copy(REPO / f, out / f)
+    links = ["subroutines", "python", "scripts", "ferrum", "hal_components", "mymill_vcp", "mymill_job"]
+    for name in links:
+        p = out / name
+        if not p.exists():
+            p.symlink_to(REPO / name)
+    vendor = REPO / "vendor" / "probe_basic"
+    pb = a.probe_basic or vendor
+    (out / "vendor").mkdir(exist_ok=True)
+    if not (out / "vendor" / "probe_basic").exists():
+        (out / "vendor" / "probe_basic").symlink_to(pb.resolve())
+    print(f"simulator config in {out}; run: linuxcnc {out / 'ferrum.ini'}")
+
+
+if __name__ == "__main__":
+    main()

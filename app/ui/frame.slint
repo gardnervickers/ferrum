@@ -1,0 +1,580 @@
+// The fixed machine frame: status bar, DRO column, nav and cycle bar.
+import { Theme, Layout } from "theme.slint";
+import { Live, Actions, DroRow, DroPos } from "state.slint";
+import { Btn, Pill, Label, Card } from "widgets.slint";
+import { Brand } from "brand.slint";
+
+// The product's mark, small, for the top bar: the Fe tile and the name.
+// Static (it never animates or changes), so it costs nothing at idle.
+component TopMark inherits HorizontalLayout {
+    in property <bool> name: true;
+    spacing: 10px;
+    alignment: start;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 38px;
+            height: 38px;
+            border-radius: 6px;
+            border-width: 2px;
+            border-color: Brand.rust;
+            background: Theme.panel;
+            Text {
+                text: Brand.symbol;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-family: Theme.body;
+                font-weight: 600;
+                font-size: 22px;
+                color: Brand.rust;
+            }
+        }
+    }
+    if root.name: Text {
+        vertical-alignment: center;
+        text: Brand.name;
+        font-family: Theme.display;
+        font-size: 26px;
+        letter-spacing: 2px;
+        color: Theme.dim;
+    }
+}
+
+export component StatusBar inherits Rectangle {
+    background: Theme.bar;
+    property <bool> blink;
+    // A new message shows bright for a moment, then settles to grey, so a
+    // change up here catches the eye once and then stays quiet.
+    property <string> message: Live.message;
+    property <bool> fresh;
+    changed message => { if self.message != "" { self.fresh = true; fresh-timer.restart(); } }
+    fresh-timer := Timer {
+        interval: 1200ms;
+        running: root.fresh;
+        triggered => { root.fresh = false; }
+    }
+    Timer {
+        interval: 500ms;
+        running: Live.status-flash;
+        triggered => { root.blink = !root.blink; }
+    }
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 10px;
+        alignment: stretch;
+        // E-STOP trips on the first touch; RESET and POWER need the 800 ms hold.
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                height: 56px;
+                width: 190px;
+                font-size: 22px;
+                text: Live.estop ? "RESET E-STOP" : "E-STOP";
+                kind: Live.estop ? "tripped" : "stop";
+                hold: Live.estop;
+                // From a browser the network can drop it: the hardware chain is the e-stop.
+                sub: Live.remote && !Live.estop ? "REMOTE REQUEST" : "";
+                enabled: Live.connected;
+                pressed => { if !Live.estop { Actions.estop-trip(); } }
+                clicked => { if Live.estop { Actions.estop-reset(); } }
+            }
+        }
+        Rectangle { width: 20px; }
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                height: 56px;
+                width: 176px;
+                font-size: 22px;
+                text: Live.power ? "POWER ON" : "POWER OFF";
+                on: Live.power;
+                hold: true;
+                enabled: Live.connected && !Live.estop;
+                clicked => { Actions.power(); }
+            }
+        }
+        if Live.connected && Live.power && !Live.homed && Live.home-all-ok: VerticalLayout {
+            alignment: center;
+            Btn {
+                height: 56px;
+                width: 170px;
+                font-size: 22px;
+                text: "HOME ALL";
+                kind: "hold";
+                hold: true;
+                clicked => { Actions.home-all(); }
+            }
+        }
+        // The mode (E-STOP, AUTO, MDI...): a fixed width keeps what follows
+        // from shifting as it changes.
+        VerticalLayout {
+            alignment: center;
+            Pill { text: Live.mode-pill.text; kind: Live.mode-pill.kind; min-width: 132px; }
+        }
+        // One pill for everything else: ALL OK, or what is wrong (flashing
+        // for a fault). A tap opens the full list.
+        if Live.connected: VerticalLayout {
+            alignment: center;
+            status := Rectangle {
+                height: 38px;
+                horizontal-stretch: 0;
+                HorizontalLayout {
+                    Pill {
+                        text: Live.status-text + (Live.status-open ? "  ▲" : "  ▼");
+                        kind: Live.status-kind;
+                        min-width: 150px;
+                        lit: Live.status-flash && root.blink;
+                        blinking: Live.status-flash;
+                    }
+                }
+                TouchArea {
+                    clicked => {
+                        Live.status-x = status.absolute-position.x / 1px;
+                        Live.status-open = !Live.status-open;
+                    }
+                }
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            overflow: elide;
+            text: Live.message;
+            font-family: Theme.body;
+            font-size: 21px;
+            color: Live.message-error ? Theme.bad : root.fresh ? Theme.ink : Theme.muted;
+            animate color { duration: root.fresh ? 0ms : 800ms; easing: ease-out; }
+            // Tapping the latest message opens the full log.
+            TouchArea { clicked => { Live.drawer-open = true; } }
+        }
+        Rectangle { width: 8px; }
+        // The name only where the bar has room for it beside the message.
+        TopMark { name: !Layout.compact; }
+        Text {
+            width: 84px;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            text: Live.clock;
+            font-family: Theme.display;
+            font-size: 24px;
+            color: Theme.muted;
+        }
+        // Closing the display ends the LinuxCNC session; never mid-program.
+        VerticalLayout {
+            width: Live.remote ? 0px : 110px;
+            alignment: center;
+            if !Live.remote: Btn {
+                width: 110px;
+                height: 48px;
+                text: "EXIT";
+                font-size: 20px;
+                hold: true;
+                enabled: !Live.running;
+                clicked => { Actions.exit(); }
+            }
+        }
+    }
+}
+
+// A small caption and its value under the DRO number. Fixed widths, so
+// nothing shifts as the digits change.
+component DroSub inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <length> value-width;
+    width: value-width + 40px;
+    // Bebas caps sit high in their line box; 2px down puts them on the value's baseline.
+    Text { x: 0; y: 2px; height: parent.height; vertical-alignment: center; text: label; font-family: Theme.display; font-size: 14px; letter-spacing: 1.4px; color: Theme.dim; }
+    Text { x: 40px; width: value-width; height: parent.height; vertical-alignment: center; horizontal-alignment: right; text: value; font-family: Theme.body; font-weight: 500; font-size: 19px; color: Theme.muted; }
+}
+
+component DroLine inherits Rectangle {
+    in property <DroRow> data;
+    in property <DroPos> pos;
+    in property <bool> last;
+    // Space the ZERO button takes from the number's left edge.
+    property <length> zero-w: Layout.compact ? 76px : 88px;
+    // Just zeroed: the number lights in the accent and settles back, so a
+    // tap on ZERO is seen to land on this axis. Only this flag animates:
+    // the number itself changes at every status and must not.
+    // It lights when the new value arrives (not on the tap, which would
+    // light the old number), or after 400 ms if the axis already read 0.
+    property <bool> zeroed;
+    property <bool> armed;
+    property <string> work: pos.work;
+    changed work => { if self.armed { self.armed = false; self.zeroed = true; } }
+    Timer {
+        interval: 400ms;
+        running: root.armed;
+        triggered => { root.armed = false; root.zeroed = true; }
+    }
+    Timer {
+        interval: 300ms;
+        running: root.zeroed;
+        triggered => { root.zeroed = false; }
+    }
+    height: 85px;
+    if !last: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+    // The axis letter is amber until the axis is homed.
+    Text {
+        x: 2px;
+        y: 10px;
+        text: data.axis;
+        font-family: Theme.display;
+        font-size: 46px;
+        color: data.homed ? Theme.sel : Theme.warn;
+        animate color { duration: 400ms; }
+    }
+    // One tap: this axis reads 0 in the active work system (G10 L20 P0).
+    // No hold: the old value is on the OFFSETS timeline to put back.
+    if data.homed || !Live.power: Btn {
+        x: 50px;
+        y: 12px;
+        width: root.zero-w;
+        height: 56px;
+        text: "ZERO";
+        font-size: Layout.compact ? 20px : 22px;
+        enabled: Live.power && data.homed && !Live.manual-locked;
+        clicked => {
+            Actions.dro-zero(data.axis);
+            root.armed = true;
+        }
+    }
+    // Not homed: the same spot homes just this axis (hold, it moves).
+    // A has no switch, so "homing" it sets its reference where it stands.
+    if !data.homed && Live.power && Live.per-axis-home: Btn {
+        x: 50px;
+        y: 12px;
+        // Wider than ZERO so the HOLD tag clears the word.
+        width: root.zero-w + 36px;
+        height: 56px;
+        text: "HOME";
+        kind: "hold";
+        hold: true;
+        font-size: Layout.compact ? 20px : 22px;
+        enabled: Live.connected && !Live.running;
+        clicked => { Actions.home-axis(data.axis); }
+    }
+    Text {
+        x: 50px + root.zero-w + 8px;
+        y: 1px;
+        width: parent.width - self.x;
+        horizontal-alignment: right;
+        overflow: elide;
+        text: pos.work;
+        font-family: Theme.body;
+        font-weight: 600;
+        font-size: 60px;
+        color: root.zeroed ? Theme.sel : Theme.ink;
+        animate color { duration: root.zeroed ? 0ms : 600ms; easing: ease-out; }
+    }
+    HorizontalLayout {
+        x: 52px;
+        y: 60px;
+        width: parent.width - 52px;
+        height: 22px;
+        alignment: end;
+        spacing: 22px;
+        DroSub { label: "MACH"; value: pos.mach; value-width: 74px; }
+        DroSub { label: "DTG"; value: pos.dtg; value-width: 62px; }
+    }
+}
+
+component Kv inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    height: 64px;
+    background: Theme.panel;
+    border-radius: Theme.radius-ctl;
+    VerticalLayout {
+        padding-left: 14px;
+        padding-right: 12px;
+        padding-top: 7px;
+        spacing: 1px;
+        alignment: start;
+        Text { text: label; font-family: Theme.display; font-size: 15px; letter-spacing: 1.5px; color: Theme.dim; }
+        Text { text: value; font-family: Theme.body; font-weight: 600; font-size: 27px; color: Theme.ink; overflow: elide; }
+    }
+}
+
+component OverrideRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> which;
+    in property <int> pct;
+    in property <int> limit;
+    in property <int> step: 10;
+    spacing: 10px;
+    height: 50px;
+    Label { width: 84px; vertical-alignment: center; text: label; font-size: 18px; }
+    Btn { width: 64px; min-height: 50px; text: "−"; font-size: 28px; clicked => { Actions.override(which, -step); } }
+    Rectangle {
+        horizontal-stretch: 1;
+        Rectangle {
+            height: 8px;
+            border-radius: 4px;
+            background: Theme.well;
+            Rectangle {
+                x: 0;
+                width: parent.width * Math.min(1.0, pct / Math.max(1, root.limit));
+                border-radius: 4px;
+                background: pct == 100 ? Theme.sel : Theme.warn;
+                animate width { duration: Theme.settle; easing: ease-out; }
+                animate background { duration: Theme.settle; }
+            }
+        }
+        // 100% mark
+        Rectangle {
+            x: parent.width * 100 / Math.max(1, root.limit) - 1px;
+            width: 2px;
+            height: 20px;
+            border-radius: 1px;
+            background: Theme.muted;
+        }
+    }
+    Btn { width: 64px; min-height: 50px; text: "+"; font-size: 28px; clicked => { Actions.override(which, step); } }
+    // Tapping the percentage resets the row to 100%.
+    Text {
+        width: 72px;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        text: pct + "%";
+        TouchArea { clicked => { Actions.override-reset(which); } }
+        font-family: Theme.body;
+        font-weight: 600;
+        font-size: 27px;
+        color: pct == 100 ? Theme.ink : Theme.warn;
+        animate color { duration: Theme.settle; }
+    }
+}
+
+export component LeftColumn inherits Rectangle {
+    Rectangle { x: parent.width - 1px; width: 1px; background: Theme.line; }
+    VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 10px;
+        Rectangle {
+            background: Theme.panel;
+            border-radius: Theme.radius;
+            VerticalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 6px;
+                padding-bottom: 6px;
+                for r[i] in Live.dro: DroLine { data: r; pos: Live.dro-pos[i]; last: i == Live.dro.length - 1; }
+            }
+        }
+        GridLayout {
+            spacing: 8px;
+            Row {
+                Kv { label: "WCS"; value: Live.wcs; }
+                Kv { label: "TOOL"; value: Live.tool; }
+                Kv { label: "TOOL DIA"; value: Live.tool-dia; }
+            }
+            Row {
+                Kv { label: "FEED " + Live.unit-up + "/MIN"; value: Live.feed; }
+                Kv { label: "SPINDLE RPM"; value: Live.rpm; }
+                Kv { label: "CYCLE TIME"; value: Live.cycle-time; }
+            }
+        }
+        // One line, always: a wrapped second line would push the quick
+        // buttons below the column.
+        Text {
+            text: Live.modal;
+            font-family: Theme.body;
+            font-size: 18px;
+            letter-spacing: 0.3px;
+            color: Theme.dim;
+            overflow: elide;
+        }
+        Card {
+            VerticalLayout {
+                padding: 12px;
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 6px;
+                OverrideRow { label: "FEED"; which: "feed"; pct: Live.feed-pct; limit: Live.feed-max; }
+                OverrideRow { label: "RAPID"; which: "rapid"; pct: Live.rapid-pct; limit: 100; step: 25; }
+                OverrideRow { label: "SPINDLE"; which: "spindle"; pct: Live.spindle-pct; limit: Live.spindle-max; }
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+        // Used all the time, so on every screen.
+        VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                if Live.quick-mist: Btn {
+                    height: 54px; font-size: 22px;
+                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+                    text: "MIST"; on: Live.mist;
+                    enabled: Live.connected && Live.power;
+                    clicked => { Actions.mist-toggle(); }
+                }
+                if Live.quick-flood: Btn {
+                    height: 54px; font-size: 22px;
+                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+                    text: "FLOOD"; on: Live.flood;
+                    enabled: Live.connected && Live.power;
+                    clicked => { Actions.flood-toggle(); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                // Released: tap to clamp. Clamped: hold to release (spindle
+                // off, nothing running); releasing also clears the tool.
+                if Live.quick-drawbar && Live.tools-drawbar != "NOT FITTED": Btn {
+                    height: 54px; font-size: 22px;
+                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+                    text: Live.tools-drawbar == "EXTENDED" ? "CLAMP TOOL" : "RELEASE TOOL";
+                    kind: Live.tools-drawbar == "EXTENDED" ? "hold" : "";
+                    hold: Live.tools-drawbar != "EXTENDED";
+                    sub: Live.tools-drawbar == "EXTENDED" ? "" : "HOLD";
+                    enabled: Live.tools-drawbar == "EXTENDED" ? Live.tools-can-retract : Live.tools-can-extend;
+                    clicked => { Actions.tools-drawbar(Live.tools-drawbar != "EXTENDED"); }
+                }
+                if Live.quick-home: Btn {
+                    height: 54px; font-size: 22px;
+                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+                    text: "HOME ALL"; sub: "HOLD"; hold: true;
+                    enabled: Live.connected && Live.power && !Live.running;
+                    clicked => { Actions.home-all(); }
+                }
+            }
+        }
+    }
+}
+
+export component BottomBar inherits Rectangle {
+    // The cycle buttons narrow in a compact window; their text shrinks to fit.
+    property <length> cycle-w: Layout.compact ? 150px : 180px;
+    property <length> cycle-font: Layout.compact ? 27px : 32px;
+    // Nav tab geometry, shared by the tabs and the sliding plate.
+    property <length> nav-pad: Layout.compact ? 8px : 14px;
+    // Ten tabs (SETUP after nine screens) narrow to clear SINGLE BLOCK.
+    property <bool> nav-many: Live.nav.length > 9;
+    property <length> nav-w: Layout.compact ? (nav-many ? 74px : 80px) : (nav-many ? 96px : 104px);
+    property <length> nav-gap: Layout.compact ? 4px : (nav-many ? 6px : 8px);
+    // Which tab is chosen (-1: none). Kept by the tabs themselves.
+    property <int> nav-index: -1;
+    background: Theme.bar;
+    Rectangle { y: 0; height: 1px; background: Theme.line; }
+    // The chosen tab's plate glides to a newly chosen tab, so the eye
+    // follows the move from one screen to the next. It moves only on a tap.
+    Rectangle {
+        x: root.nav-pad + max(0, root.nav-index) * (root.nav-w + root.nav-gap);
+        y: (parent.height - 96px) / 2;
+        width: root.nav-w;
+        height: 96px;
+        visible: root.nav-index >= 0;
+        border-radius: Theme.radius-ctl;
+        background: Theme.sel-soft;
+        border-width: 2px;
+        border-color: Theme.sel;
+        animate x { duration: Theme.glide; easing: ease-out; }
+    }
+    HorizontalLayout {
+        padding-left: root.nav-pad;
+        padding-right: 8px;
+        spacing: root.nav-gap;
+        for n[i] in Live.nav: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: root.nav-w;
+                height: 96px;
+                Btn {
+                    property <bool> chosen: Live.screen == n.id;
+                    init => { if self.chosen { root.nav-index = i; } }
+                    changed chosen => {
+                        if self.chosen { root.nav-index = i; } else if root.nav-index == i { root.nav-index = -1; }
+                    }
+                    glide: true;
+                    width: parent.width;
+                    height: parent.height;
+                    font-size: Layout.compact ? 20px : 24px;
+                    flat: true;
+                    icon: n.icon;
+                    text: n.label;
+                    on: self.chosen;
+                    clicked => { Actions.navigate(n.id); }
+                }
+                // A count in the corner, over the icon's right.
+                if n.badge > 0: Rectangle {
+                    x: parent.width - self.width - 8px;
+                    y: 8px;
+                    width: max(26px, badge-text.preferred-width + 12px);
+                    height: 26px;
+                    border-radius: 13px;
+                    background: Theme.warn;
+                    badge-text := Text {
+                        text: n.badge;
+                        font-family: Theme.display;
+                        font-size: 18px;
+                        color: Theme.frame;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout {
+            alignment: center;
+            spacing: 8px;
+            Btn {
+                width: Layout.compact ? 136px : 150px; height: 44px; font-size: Layout.compact ? 18px : 20px;
+                text: "SINGLE BLOCK"; on: Live.single-block;
+                clicked => { Actions.single-block(); }
+            }
+            Btn {
+                width: Layout.compact ? 136px : 150px; height: 44px; font-size: Layout.compact ? 18px : 20px;
+                text: "M01 STOP"; on: Live.optional-stop;
+                enabled: Live.connected;
+                clicked => { Actions.optional-stop(); }
+            }
+        }
+        Rectangle { width: Layout.compact ? 12px : 24px; }
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                width: cycle-w; height: 100px; font-size: cycle-font; kind: "hold"; text: "FEED HOLD";
+                enabled: Live.running && !Live.paused;
+                clicked => { Actions.feed-hold(); }
+            }
+        }
+        Rectangle { width: Layout.compact ? 12px : 24px; }
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                width: cycle-w; height: 100px; font-size: cycle-font; kind: "stop"; text: "STOP";
+                enabled: Live.connected;
+                clicked => { Actions.stop(); }
+            }
+        }
+        Rectangle { width: Layout.compact ? 8px : 18px; }
+        VerticalLayout {
+            alignment: center;
+            // A static ring (no flashing) says CYCLE START will resume.
+            Rectangle {
+                width: cycle-w + 12px; height: 112px;
+                border-radius: 15px;
+                border-width: 4px;
+                border-color: Live.paused ? Theme.good : transparent;
+                animate border-color { duration: Theme.settle; }
+                Btn {
+                    x: 6px; y: 6px;
+                    width: cycle-w; height: 100px; font-size: cycle-font; kind: "go";
+                    text: Live.paused ? "RESUME" : "CYCLE START";
+                    enabled: Live.can-start;
+                    clicked => { Actions.cycle-start(); }
+                }
+            }
+        }
+    }
+}

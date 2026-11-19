@@ -1,0 +1,617 @@
+import { Theme, Layout } from "theme.slint";
+import { Live, Actions, MdiCard } from "state.slint";
+import { Card, Label, Btn, Seg, Note, H3 } from "widgets.slint";
+import { ListView } from "std-widgets.slint";
+import { JogPanel } from "jog.slint";
+
+// Placeholder for screens that later milestones fill in.
+// A screen that is off on this machine, and why.
+export component Blocked inherits Rectangle {
+    in property <string> title;
+    in property <string> text;
+    Card {
+        x: 14px;
+        y: 14px;
+        width: parent.width - 28px;
+        height: parent.height - 28px;
+        VerticalLayout {
+            alignment: center;
+            padding-left: 120px;
+            padding-right: 120px;
+            spacing: 18px;
+            Text {
+                horizontal-alignment: center;
+                text: title + " IS OFF ON THIS MACHINE";
+                font-family: Theme.display;
+                font-size: 40px;
+                letter-spacing: 2px;
+                color: Theme.warn;
+            }
+            Text {
+                horizontal-alignment: center;
+                text: root.text;
+                wrap: word-wrap;
+                font-family: Theme.body;
+                font-size: 26px;
+                color: Theme.muted;
+            }
+        }
+    }
+}
+
+export component Placeholder inherits Rectangle {
+    in property <string> title;
+    in property <string> note;
+    Card {
+        x: 14px;
+        y: 14px;
+        width: parent.width - 28px;
+        height: parent.height - 28px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+            Text {
+                horizontal-alignment: center;
+                text: title;
+                font-family: Theme.display;
+                font-size: 48px;
+                letter-spacing: 2px;
+                color: Theme.ink;
+            }
+            Text {
+                horizontal-alignment: center;
+                text: note;
+                font-family: Theme.body;
+                font-size: 24px;
+                color: Theme.muted;
+            }
+        }
+    }
+}
+
+component KeyBtn inherits Btn {
+    height: 54px;
+    // Equal columns whatever the label.
+    preferred-width: 0;
+    min-width: 0;
+    horizontal-stretch: 1;
+    font-size: self.text == "SPACE" || self.text == "CLR" ? 20px : 28px;
+    enabled: Live.power && !Live.manual-locked;
+    clicked => { Actions.mdi-key(self.text); }
+}
+
+// MDI (mockup v17, stacked to fit the Run screen's right panel beside the
+// backplot): command line, help, library by category, G-code keypad.
+component MdiPanel inherits VerticalLayout {
+    spacing: 12px;
+    // As Probe Basic: MDI needs the machine on, homed and idle.
+    property <bool> unlocked: Live.power && Live.homed && !Live.manual-locked;
+    HorizontalLayout {
+        spacing: 12px;
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 72px;
+            background: Theme.well;
+            border-width: 1px;
+            border-color: input.has-focus ? Theme.sel : Theme.raised-border;
+            border-radius: Theme.radius-ctl;
+            clip: true;
+            // A long line slides left so its end (where typing happens) stays in view.
+            input := TextInput {
+                x: min(16px, parent.width - 16px - self.preferred-width);
+                width: max(parent.width - 32px, self.preferred-width);
+                vertical-alignment: center;
+                text <=> Live.mdi-text;
+                font-family: Theme.display;
+                font-size: 36px;
+                letter-spacing: 1px;
+                color: Theme.ink;
+                enabled: unlocked;
+                edited => { Actions.mdi-edited(); }
+                accepted => { Actions.mdi-send(self.text); }
+            }
+        }
+        Btn {
+            width: 130px;
+            height: 72px;
+            text: "SEND";
+            kind: "go";
+            font-size: 28px;
+            enabled: unlocked && Live.mdi-text != "";
+            clicked => { Actions.mdi-send(Live.mdi-text); }
+        }
+    }
+    Text {
+        height: 28px;
+        overflow: elide;
+        text: Live.manual-locked ? "MDI is locked while a program runs or is paused." : Live.mdi-help;
+        font-family: Theme.body;
+        font-size: 19px;
+        color: Theme.muted;
+    }
+    HorizontalLayout {
+        spacing: 0px;
+        for c[i] in Live.mdi-categories: Seg {
+            text: c;
+            first: i == 0;
+            last: i == Live.mdi-categories.length - 1;
+            on: Live.mdi-category == c;
+            clicked => { Actions.mdi-category-set(c); }
+        }
+    }
+        Flickable {
+            vertical-stretch: 1;
+            content-height: grid.preferred-height;
+            grid := VerticalLayout {
+                spacing: 10px;
+                alignment: start;
+                for row in (Live.mdi-cards.length + 1) / 2: HorizontalLayout {
+                    spacing: 10px;
+                    for col in 2: Rectangle {
+                        property <int> i: row * 2 + col;
+                        property <MdiCard> card: Live.mdi-cards[i];
+                        horizontal-stretch: 1;
+                        // Three rows fit above the keypad, so none is cut in half.
+                        height: 60px;
+                        border-radius: Theme.radius-ctl;
+                        background: i >= Live.mdi-cards.length ? transparent : ct.pressed && unlocked ? Theme.sel-soft : Theme.raised;
+                        border-width: i >= Live.mdi-cards.length ? 0 : 1px;
+                        border-color: Theme.raised-border;
+                        opacity: unlocked ? 1 : 0.38;
+                        if i < Live.mdi-cards.length: VerticalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            alignment: center;
+                            spacing: 2px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Text { text: card.label; font-family: Theme.display; font-size: 24px; letter-spacing: 1px; color: Theme.ink; overflow: elide; }
+                                if card.moves: Text { vertical-alignment: center; text: "· MOVES"; font-family: Theme.display; font-size: 18px; color: Theme.warn; }
+                            }
+                            if card.desc != "": Text { text: card.desc; font-family: Theme.body; font-size: 17px; color: Theme.muted; overflow: elide; }
+                        }
+                        // What a tap would pick, lit.
+                if Live.cube-hot != "": Path {
+                    width: parent.width; height: parent.height;
+                    viewbox-width: 100; viewbox-height: 100;
+                    commands: Live.cube-hot;
+                    fill: Theme.sel.with-alpha(ct.pressed ? 0.55 : 0.35);
+                    stroke: Theme.sel;
+                    stroke-width: 1.5px;
+                }
+                ct := TouchArea {
+                    changed has-hover => { if !self.has-hover && !self.pressed { Actions.plot-cube-hover(-1, -1); } }
+                            enabled: unlocked && i < Live.mdi-cards.length;
+                            clicked => { Actions.mdi-pick(card.fill); }
+                        }
+                    }
+                }
+                if Live.mdi-cards.length == 0: Note { text: Live.mdi-category == "RECENT" ? "Commands you send appear here." : "No entries in this category."; }
+            }
+        }
+        GridLayout {
+                spacing: 8px;
+                Row { for k in ["G", "M", "X", "Y", "Z"]: KeyBtn { text: k; } }
+                Row { for k in ["A", "F", "S", "T", "H"]: KeyBtn { text: k; } }
+                Row { for k in ["P", "Q", "L", "R", "."]: KeyBtn { text: k; } }
+                Row { for k in ["7", "8", "9", "−", "⌫"]: KeyBtn { text: k; } }
+                Row { for k in ["4", "5", "6", "SPACE", "CLR"]: KeyBtn { text: k; } }
+                Row { for k in ["1", "2", "3", "0"]: KeyBtn { text: k; } }
+        }
+}
+
+// One G-code line; fixed height so the ListView only creates visible rows.
+component GLine inherits Rectangle {
+    in property <int> n;
+    in property <string> code;
+    in property <bool> current;
+    in property <bool> picked;
+    callback tapped();
+    height: 32px;
+    // A tapped line fades in. The executing line moves many times a second,
+    // so its tint has no animation: an animated binding that read `current`
+    // would cost the whole screen an extra frame at every line.
+    Rectangle { background: picked ? Theme.raised : transparent; animate background { duration: Theme.quick; } }
+    Rectangle { background: current ? Theme.sel-soft : transparent; }
+    if current: Rectangle { x: 0; width: 4px; background: Theme.sel; }
+    HorizontalLayout {
+        padding-left: 8px;
+        spacing: 14px;
+        Text { width: 62px; horizontal-alignment: right; vertical-alignment: center; text: n; font-family: Theme.body; font-size: 18px; color: current ? Theme.sel-ink : Theme.dim; }
+        Text { vertical-alignment: center; text: code; font-family: Theme.body; font-weight: current ? 600 : 400; font-size: 21px; color: current ? Theme.ink : Theme.muted; overflow: elide; }
+    }
+    TouchArea { clicked => { root.tapped(); } }
+}
+
+component ProgramCard inherits Card {
+    VerticalLayout {
+        padding: Theme.pad;
+        spacing: 12px;
+        HorizontalLayout {
+            height: 34px;
+            H3 { horizontal-stretch: 1; vertical-alignment: center; text: Live.program == "" ? "NO PROGRAM LOADED" : Live.program; color: Live.program == "" ? Theme.muted : Theme.ink; overflow: elide; }
+            spacing: 10px;
+            // Right-aligned as a pair: a growing count only eats into the title's slack.
+            Rectangle {
+                width: line-cap.preferred-width;
+                line-cap := Label { y: 2px; height: parent.height; vertical-alignment: center; text: "LINE"; font-size: 16px; color: Theme.dim; }
+            }
+            Text {
+                vertical-alignment: center;
+                horizontal-alignment: right;
+                text: min(Live.line, Live.gcode-count) + " / " + Live.gcode-count;
+                font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink;
+            }
+            // Time left while running, the estimate before: the same pair
+            // as LINE, a fixed width so the ticking clock doesn't nudge it.
+            if Live.time-left != "": Rectangle {
+                width: 22px;
+            }
+            if Live.time-left != "": Rectangle {
+                width: time-cap.preferred-width;
+                time-cap := Label { y: 2px; height: parent.height; vertical-alignment: center; text: Live.time-label; font-size: 16px; color: Theme.dim; }
+            }
+            if Live.time-left != "": Text {
+                min-width: 92px;
+                vertical-alignment: center;
+                horizontal-alignment: right;
+                text: Live.time-left;
+                font-family: Theme.body; font-weight: 600; font-size: 24px; color: Theme.ink;
+            }
+        }
+        Rectangle {
+            height: 6px;
+            border-radius: 3px;
+            background: Theme.well;
+            Rectangle {
+                x: 0;
+                // By time while a run is timed, else by line.
+                width: Live.time-fraction >= 0 ? parent.width * Live.time-fraction
+                    : Live.gcode-count == 0 ? 0 : parent.width * min(1, Live.line / Live.gcode-count);
+                border-radius: 3px;
+                background: Theme.sel;
+                // No easing: it moves with every line in a run, and an
+                // animated width would cost an extra frame each time.
+            }
+        }
+        plot-area := Rectangle {
+            vertical-stretch: 1;
+            background: Theme.well;
+            border-radius: Theme.radius-ctl;
+            clip: true;
+            // Report the size a few times a second; Rust redraws only when it
+            // changes. (`changed width` misses the first layout.)
+            Timer {
+                interval: 250ms;
+                running: true;
+                triggered => { Actions.plot-resize(plot-area.width / 1px, plot-area.height / 1px); }
+            }
+            changed width => { Actions.plot-resize(plot-area.width / 1px, plot-area.height / 1px); }
+            changed height => { Actions.plot-resize(plot-area.width / 1px, plot-area.height / 1px); }
+            Image { x: Live.plot-dx * 1px; y: Live.plot-dy * 1px; width: parent.width; height: parent.height; source: Live.plot; image-fit: fill; }
+            // Drag to pan, wheel to zoom about the pointer, double tap to fit.
+            pan := TouchArea {
+                // Pans sent to the mill and not yet in its image: the oldest
+                // (a, numbered a-seq) and the sum of any after it (b, up to
+                // b-seq). The image is shifted by these plus the live drag.
+                property <int> seq;
+                property <int> a-seq;
+                property <length> a-x;
+                property <length> a-y;
+                property <int> b-seq;
+                property <length> b-x;
+                property <length> b-y;
+                property <bool> dragging;
+                // Whether this press and the one before were drags: a quick
+                // second drag must not count as a double tap.
+                property <bool> cur-drag;
+                property <bool> last-drag;
+                property <int> landed: Live.plot-landed;
+                // How much of the current drag has already been sent as pans.
+                property <length> sent-x;
+                property <length> sent-y;
+                function show() {
+                    Live.plot-dx = (self.a-x + self.b-x + (self.dragging ? self.mouse-x - self.pressed-x - self.sent-x : 0)) / 1px;
+                    Live.plot-dy = (self.a-y + self.b-y + (self.dragging ? self.mouse-y - self.pressed-y - self.sent-y : 0)) / 1px;
+                }
+                // Send the unsent part of the drag as one numbered pan.
+                function send() {
+                    let dx = self.mouse-x - self.pressed-x - self.sent-x;
+                    let dy = self.mouse-y - self.pressed-y - self.sent-y;
+                    if dx == 0 && dy == 0 { return; }
+                    self.seq = max(self.seq, Live.plot-pan-seq) + 1;
+                    if self.a-seq == 0 {
+                        self.a-seq = self.seq; self.a-x = dx; self.a-y = dy;
+                    } else {
+                        self.b-seq = self.seq; self.b-x += dx; self.b-y += dy;
+                    }
+                    self.sent-x += dx;
+                    self.sent-y += dy;
+                    Actions.plot-pan(dx / self.width, dy / self.height, self.seq);
+                }
+                changed landed => {
+                    if self.b-seq != 0 && Live.plot-pan-seq >= self.b-seq {
+                        self.a-seq = 0; self.a-x = 0; self.a-y = 0;
+                        self.b-seq = 0; self.b-x = 0; self.b-y = 0;
+                    } else if self.a-seq != 0 && Live.plot-pan-seq >= self.a-seq {
+                        self.a-seq = self.b-seq; self.a-x = self.b-x; self.a-y = self.b-y;
+                        self.b-seq = 0; self.b-x = 0; self.b-y = 0;
+                    }
+                    self.show();
+                }
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down {
+                        self.dragging = false;
+                        self.sent-x = 0;
+                        self.sent-y = 0;
+                        self.last-drag = self.cur-drag;
+                        self.cur-drag = false;
+                    } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                        if self.dragging {
+                            self.send();
+                            self.dragging = false;
+                            self.show();
+                        }
+                    }
+                }
+                moved => {
+                    if self.pressed && (self.dragging || abs(self.mouse-x - self.pressed-x) + abs(self.mouse-y - self.pressed-y) > 8px) {
+                        self.dragging = true;
+                        self.cur-drag = true;
+                        // Render while dragging: one pan in flight at a time,
+                        // so a slow redraw (the Pi, a big program) only makes
+                        // the updates less frequent. Until it lands the
+                        // last image slides with the finger.
+                        if self.a-seq == 0 {
+                            self.send();
+                        }
+                        self.show();
+                    }
+                }
+                scroll-event(e) => {
+                    if e.delta-y == 0 { return reject; }
+                    Actions.plot-zoom(e.delta-y > 0 ? 1.2 : 1 / 1.2, self.mouse-x / self.width, self.mouse-y / self.height);
+                    accept
+                }
+                double-clicked => { if !self.cur-drag && !self.last-drag { Actions.plot-fit(); } }
+            }
+            // With no program the table and the tool still show, so the
+            // note sits along the bottom instead of over them.
+            if Live.program == "": Note { x: 96px; y: parent.height - self.height - 24px; width: parent.width - 260px; text: "No program loaded. Load one on FILES."; }
+            // Zoom down the left edge, the camera caption beside it.
+            VerticalLayout {
+                x: 12px; y: 12px; width: 68px;
+                spacing: 8px;
+                alignment: start;
+                Btn { height: 56px; font-size: 32px; text: "+"; clicked => { Actions.plot-zoom(1.5, 0.5, 0.5); } }
+                Btn { height: 56px; font-size: 32px; text: "−"; clicked => { Actions.plot-zoom(1 / 1.5, 0.5, 0.5); } }
+                Rectangle { height: 6px; }
+                Btn { height: 56px; font-size: 20px; text: "FIT"; clicked => { Actions.plot-fit(); } }
+                Btn { height: 56px; font-size: 20px; text: "CLEAR"; clicked => { Actions.plot-clear-trail(); } }
+            }
+            Text {
+                x: 96px; y: 14px;
+                text: Live.plot-view + (Live.plot-summary == "" ? "" : "  ·  " + Live.plot-summary);
+                font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim;
+            }
+            // Load legend: only when a load module is fitted.
+            if Live.program != "" && Live.plot-load != "": HorizontalLayout {
+                x: 96px; y: 40px;
+                width: 260px;
+                height: 22px;
+                alignment: start;
+                spacing: 8px;
+                Text { vertical-alignment: center; text: "LOAD"; font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px; color: Theme.dim; }
+                // Fixed width: the reading must not nudge the scale beside it.
+                Text { width: 44px; vertical-alignment: center; horizontal-alignment: right; text: Live.plot-load; font-family: Theme.body; font-weight: 600; font-size: 19px; color: Theme.ink; }
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 2px;
+                        for c in [#6fdc9c, #b1d080, #f3c463, #f18f5c, #ee5a54]: Rectangle { width: 18px; height: 6px; border-radius: 3px; background: c; }
+                    }
+                }
+            }
+            // View cube: drag to orbit, tap a face, edge or corner to look
+            // from there.
+            cube := Rectangle {
+                x: parent.width - self.width - 10px; y: 10px;
+                width: 150px; height: 150px;
+                for f in Live.cube-faces: Path {
+                    width: parent.width; height: parent.height;
+                    viewbox-width: 100; viewbox-height: 100;
+                    commands: f.path;
+                    fill: f.on ? Theme.sel.mix(Theme.raised, 0.25) : Theme.panel2.mix(#3a424b, 1 - f.facing * 0.7);
+                    stroke: f.on ? Theme.sel : Theme.raised-border;
+                    stroke-width: f.on ? 2px : 1px;
+                }
+                for f in Live.cube-faces: Path {
+                    width: parent.width; height: parent.height;
+                    viewbox-width: 100; viewbox-height: 100;
+                    commands: f.grid;
+                    stroke: f.on ? Theme.sel : Theme.raised-border;
+                    stroke-width: 1px;
+                }
+                for f in Live.cube-faces: Text {
+                    visible: f.labelled;
+                    x: f.lx / 100 * parent.width - 40px; y: f.ly / 100 * parent.height - 10px;
+                    width: 80px; height: 20px;
+                    horizontal-alignment: center; vertical-alignment: center;
+                    text: f.label;
+                    font-family: Theme.display; font-size: 15px; letter-spacing: 1.2px;
+                    color: f.on ? Theme.sel-ink : Theme.muted;
+                }
+                // What a tap would pick, lit.
+                if Live.cube-hot != "": Path {
+                    width: parent.width; height: parent.height;
+                    viewbox-width: 100; viewbox-height: 100;
+                    commands: Live.cube-hot;
+                    fill: Theme.sel.with-alpha(ct.pressed ? 0.55 : 0.35);
+                    stroke: Theme.sel;
+                    stroke-width: 1.5px;
+                }
+                ct := TouchArea {
+                    changed has-hover => { if !self.has-hover && !self.pressed { Actions.plot-cube-hover(-1, -1); } }
+                    property <bool> dragging;
+                    // Finger travel already turned into orbit.
+                    property <length> done-x;
+                    property <length> done-y;
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down {
+                            self.dragging = false; self.done-x = 0; self.done-y = 0;
+                            Actions.plot-cube-hover(self.mouse-x / self.width, self.mouse-y / self.height);
+                        } else if e.kind == PointerEventKind.move && !self.pressed {
+                            Actions.plot-cube-hover(self.mouse-x / self.width, self.mouse-y / self.height);
+                        } else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) && !self.has-hover {
+                            Actions.plot-cube-hover(-1, -1);
+                        }
+                    }
+                    moved => {
+                        if !self.pressed { return; }
+                        if !self.dragging {
+                            Actions.plot-cube-hover(self.mouse-x / self.width, self.mouse-y / self.height);
+                        }
+                        if !self.dragging && abs(self.mouse-x - self.pressed-x) + abs(self.mouse-y - self.pressed-y) < 8px { return; }
+                        self.dragging = true;
+                        let dx = self.mouse-x - self.pressed-x - self.done-x;
+                        let dy = self.mouse-y - self.pressed-y - self.done-y;
+                        if abs(dx) + abs(dy) < 2px { return; }
+                        self.done-x += dx;
+                        self.done-y += dy;
+                        // A degree for about every 1.25 px of finger travel.
+                        Actions.plot-orbit(dx / 1px * 0.8, dy / 1px * 0.8);
+                    }
+                    clicked => {
+                        if !self.dragging { Actions.plot-cube-tap(self.mouse-x / self.width, self.mouse-y / self.height); }
+                    }
+                }
+            }
+            // The travel check: a problem in red, a note in amber, OK in
+            // green. Tap to jump to the line.
+            if Live.program != "" && Live.plot-check != "": check := Rectangle {
+                x: 96px; y: parent.height - self.height - 12px;
+                width: min(parent.width - 96px - 154px, 820px);
+                height: 48px;
+                border-radius: Theme.radius-ctl;
+                background: Live.plot-check-level == 2 ? Theme.bad-soft : Live.plot-check-level == 1 ? Theme.warn-soft : Theme.good-soft;
+                border-width: 1px;
+                border-color: Live.plot-check-level == 2 ? Theme.stop-border : Live.plot-check-level == 1 ? Theme.hold-border : Theme.go-border;
+                HorizontalLayout {
+                    padding-left: 14px; padding-right: 14px;
+                    spacing: 10px;
+                    Text {
+                        vertical-alignment: center;
+                        text: "TRAVEL";
+                        font-family: Theme.display; font-size: 16px; letter-spacing: 1.4px;
+                        color: Live.plot-check-level == 2 ? Theme.bad : Live.plot-check-level == 1 ? Theme.warn : Theme.good;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        text: Live.plot-check;
+                        font-family: Theme.body; font-size: 18px; color: Theme.ink;
+                    }
+                }
+                TouchArea { enabled: Live.plot-check-level > 0; clicked => { Actions.plot-check-tap(); } }
+            }
+            // Show or hide the table and the tool.
+            Btn {
+                x: parent.width - self.width - 12px; y: parent.height - self.height - 12px;
+                width: 130px; height: 48px; font-size: 20px;
+                text: "TABLE"; on: Live.plot-machine;
+                visible: Live.plot-has-machine;
+                clicked => { Actions.plot-machine(); }
+            }
+        }
+    }
+}
+
+component GcodeView inherits VerticalLayout {
+    spacing: 10px;
+    property <length> line-h: 32px;
+    property <int> cur: Live.line - 1;
+    property <int> picked: Live.gcode-selected;
+    // Keep the executing (or found) line in view, a third of the way down.
+    changed cur => { if Live.running { list.content-y = -max(0px, (cur - 6) * line-h); } }
+    // Only scroll to a picked line that is out of view (NEXT M6, a search):
+    // a tapped line stays under the finger.
+    changed picked => {
+        if picked >= 0 && (picked * line-h < -list.content-y || (picked + 1) * line-h > -list.content-y + list.height) {
+            list.content-y = -max(0px, (picked - 6) * line-h);
+        }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        background: Theme.well;
+        border-radius: Theme.radius-ctl;
+        clip: true;
+        // A whole number of rows, so the last one is never cut in half.
+        list := ListView {
+            y: 6px;
+            height: floor((parent.height - 12px) / root.line-h) * root.line-h;
+            for code[i] in Live.gcode-lines: GLine {
+                n: i + 1;
+                code: code;
+                current: i == cur;
+                picked: i == Live.gcode-selected;
+                tapped => { Live.gcode-selected = i; }
+            }
+        }
+        if Live.gcode-count == 0: Note { horizontal-alignment: center; vertical-alignment: center; text: "Load a program on FILES."; }
+    }
+    // What a restart from the picked line will set up. Fixed height so the
+    // buttons never move when a line is picked.
+    Note {
+        height: 48px;
+        font-size: 17px;
+        vertical-alignment: center;
+        overflow: elide;
+        text: Live.gcode-selected >= 0 ? Live.gcode-restart : "Tap a line to run from it.";
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        Btn {
+            text: "RUN FROM SELECTED"; hold: true;
+            font-size: Layout.compact ? 18px : 24px;
+            enabled: Live.gcode-selected >= 0 && Live.power && Live.homed && !Live.manual-locked;
+            clicked => { Actions.gcode-run-from-selected(); }
+        }
+        Btn { text: "NEXT M6"; font-size: Layout.compact ? 18px : 24px; enabled: Live.gcode-count > 0; clicked => { Actions.gcode-next-m6(); } }
+        // Lines starting with "/" are skipped while this is on.
+        Btn {
+            text: Layout.compact ? "BLOCK DEL" : "BLOCK DELETE"; font-size: Layout.compact ? 18px : 24px;
+            on: Live.block-delete; enabled: Live.connected;
+            clicked => { Actions.block-delete(); }
+        }
+    }
+}
+
+component RunTabs inherits HorizontalLayout {
+    spacing: 0px;
+    Seg { first: true; text: "G-CODE"; on: Live.run-tab == "program"; clicked => { Live.run-tab = "program"; } }
+    Seg { text: "MDI"; on: Live.run-tab == "mdi"; clicked => { Live.run-tab = "mdi"; } }
+    Seg { last: true; text: "JOG"; on: Live.run-tab == "jog"; clicked => { Live.run-tab = "jog"; } }
+}
+
+export component RunScreen inherits Rectangle {
+    // The right panel keeps one width for every tab (the JOG tab's), so the
+    // backplot never moves or resizes when switching tabs.
+    HorizontalLayout {
+        padding: Theme.gap;
+        spacing: Theme.gap;
+        ProgramCard { horizontal-stretch: 1; }
+        Card {
+            width: Layout.side;
+            VerticalLayout {
+                padding: Theme.pad;
+                spacing: 12px;
+                RunTabs { }
+                // The new tab's controls fade in; they take touches from the first frame.
+                if Live.run-tab == "program": GcodeView { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
+                if Live.run-tab == "mdi": MdiPanel { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
+                if Live.run-tab == "jog": JogPanel { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
+            }
+        }
+    }
+}

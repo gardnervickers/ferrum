@@ -1,0 +1,23 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND top face (ferrum's TOP). The probe starts above the surface, within
+; #3020 of it, and touches straight down once (o<ferrum_top>: fast touch,
+; back off #3021, slow touch). The surface Z (tip bottom by the tool length
+; offset, in the coordinates before any write) is reported as
+; z_minus_probed_position / #1009. With #3030 = 0 the active work offset's
+; Z is set so that the surface reads Z0; X and Y are not written. Ends
+; #3021 above the surface (Z = #3021 after a write), with the modal state
+; as it was.
+o<probe_z_minus_wco> sub
+o10 if [#<_task> EQ 0]
+    o<probe_z_minus_wco> return
+o10 endif
+o<ferrum_probe_ready> call
+M73
+M50 P0
+G90 G94
+o<ferrum_top> call [#3020]
+o20 if [#3030 EQ 0]
+    G10 L20 P0 Z[#5422 - #<_ferrum_top>]
+o20 endif
+o<probe_z_minus_wco> endsub
+M2

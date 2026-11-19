@@ -1,0 +1,10 @@
+title ABORT on the tool-change dialog leaves the old tool and stops
+needs drawbar
+allow-error abort    # LinuxCNC reports the aborted remap
+include ../common/ready.scn
+do mdi-send "T4 M6"
+wait prop.tc-open == true within 60
+do tc-abort
+idle 30
+wait prop.tc-open == false within 5
+expect stat.tool_in_spindle != 4

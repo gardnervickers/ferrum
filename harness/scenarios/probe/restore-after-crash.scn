@@ -1,0 +1,21 @@
+title A probe run cut off by a crash: defaults go back once homed, and homing is not disturbed
+needs probe-basic
+# What probe.rs leaves behind when ferrum dies mid-run (Settings "probe"):
+# the marker and the saved defaults (#3004 = probe feed, distinctive here).
+seed .local/state/ferrum/probe probe.restore-pending = 1
+seed .local/state/ferrum/probe probe.default.000 = 3004=111.5
+wait prop.connected == true within 30
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10
+sleep 2                                   # on, not homed: nothing may be sent yet
+expect ui-errors.len == 0
+do home-all
+wait prop.homed == true within 120
+idle 30
+sleep 4                                   # the restore runs now (3 s after things go still)
+idle 30
+mdi (DEBUG,P3004=#3004)
+wait prop.messages contains "P3004=111.5" within 5
+shot after-restore

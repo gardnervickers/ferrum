@@ -1,0 +1,7 @@
+title E-stop reset, power on, home all
+include ../common/ready.scn
+expect stat.position[0] ~= ${home_x}
+expect stat.position[1] ~= ${home_y}
+expect stat.position[2] ~= ${home_z}
+expect prop.dro-pos[0].mach ~= ${home_x}
+shot homed

@@ -1,0 +1,53 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; CAL spindle nose (ferrum CAL > SPINDLE NOSE). No arguments. With the
+; spindle empty (T0), brings the bare spindle nose down onto the tool
+; setter at the G30 position and measures how far below machine Z 0 it
+; trips: that distance becomes the spindle zero height #3010, the
+; reference tool_touch_off measures tool lengths from. Sets the setter max
+; Z travel #3007 = 1.001 x #3010 and #1009 = the trip Z (program
+; coordinates, no tool offset), and reports z_minus_probed_position,
+; spindle_zero_height_3010 and z_max_travel_3007 (ferrum saves the last
+; two as new defaults). The trip height is taken from the G30 Z and the
+; probed travel below it, as in tool_touch_off.
+; In diameter offset mode #3012 = 1 the nose touches off centre by half
+; the nose diameter, in direction #3013, so the setter meets the nose face
+; and not the taper bore. The nose diameter comes from the INI file,
+; [TOOL_SETTER]SPINDLE_NOSE_DIAMETER, readable only with [RS274NGC]
+; INI_VARS = 1; without it diameter offset mode aborts. Motion and checks
+; as tool_touch_off (o<ferrum_setter_ready>, o<ferrum_setter_touch>);
+; feed override off during the run, modal state as it was afterwards.
+; Unlike Probe Basic's version this macro sets no HAL latch: a machine
+; that tracks "nose reference valid since homing" in HAL sets it from
+; its own wrapper or GUI after this macro succeeds.
+o<probe_spindle_nose> sub
+o10 if [#<_task> EQ 0]
+    o<probe_spindle_nose> return
+o10 endif
+o100 if [#5400 NE 0]
+    (ABORT, Unload the spindle with T0 before measuring the spindle nose)
+o100 endif
+o<ferrum_setter_ready> call
+#<nose_d> = 0
+o110 if [EXISTS[#<_ini[TOOL_SETTER]SPINDLE_NOSE_DIAMETER>]]
+    #<nose_d> = #<_ini[TOOL_SETTER]SPINDLE_NOSE_DIAMETER>
+o110 endif
+o120 if [[#3012 EQ 1] AND [#<nose_d> LE 0]]
+    (ABORT, Diameter offset mode needs TOOL_SETTER SPINDLE_NOSE_DIAMETER in the INI file and INI_VARS on)
+o120 endif
+
+M5
+M73
+M50 P0
+o<ferrum_setter_touch> call [#<nose_d> / 2]
+#<height> = [0 - #<_value>]
+o200 if [#<height> LE 0]
+    (ABORT, The spindle nose tripped the setter above machine Z 0)
+o200 endif
+#3010 = #<height>
+#3007 = [1.001 * #<height>]
+#1009 = #<_ferrum_setter_trip>
+(DEBUG, EVAL[vcp.getWidget{"z_minus_probed_position"}.setValue{#1009}])
+(DEBUG, EVAL[vcp.getWidget{"spindle_zero_height_3010"}.setValue{#3010}])
+(DEBUG, EVAL[vcp.getWidget{"z_max_travel_3007"}.setValue{#3007}])
+o<probe_spindle_nose> endsub
+M2

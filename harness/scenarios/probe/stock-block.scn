@@ -1,0 +1,12 @@
+title G38.2 down onto the simulated stock block stops at its top
+needs stock    # mymill: the probe input only counts with the probe loaded (top-face)
+include ../common/ready.scn
+mdi G10 L2 P1 X0 Y0 Z0
+mdi G53 G0 X${block_x} Y${block_y}
+mdi G53 G0 Z${block_above}
+expect hal.motion.probe-input == FALSE
+do mdi-send "G38.2 Z${block_below} F${feed}"
+idle 30
+expect stat.probe_tripped == true
+expect stat.probed_position[2] ~= ${block_top} +- ${probe_tol}
+expect hal.motion.probe-input == TRUE

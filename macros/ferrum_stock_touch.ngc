@@ -1,0 +1,50 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Exploratory touch for automatic stock probing:
+; o<ferrum_stock_touch> call [axis] [dir] [reach]; axis 0 = X, 1 = Y,
+; dir +1/-1. A "probe towards, no error" move (G38.3) of up to [reach]
+; (never more than #3018) at the fast feed #3016. On a hit it backs off
+; #3019 along the same ray (never behind the start), then returns to the
+; start with a guarded move. Returns 1 on a hit and 0 on a miss (in
+; #<_value>). No offset write.
+o<ferrum_stock_touch> sub
+#<axis> = #1
+#<dir> = #2
+#<reach> = #3
+o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
+    (ABORT, Invalid automatic stock touch axis)
+o100 endif
+o101 if [ABS[#<dir>] NE 1]
+    (ABORT, Invalid automatic stock touch direction)
+o101 endif
+o102 if [[#<reach> LE 0] OR [#<reach> GT #3018]]
+    (ABORT, Automatic stock touch reach must be positive and within #3018)
+o102 endif
+o110 if [#<axis> EQ 0]
+    #<start> = #5420
+    G91 G38.3 X[#<dir> * #<reach>] F#3016
+    G90
+    #<hit> = #5070
+    o111 if [#<hit> EQ 1]
+        #<back> = [#5061 - [#<dir> * #3019]]
+        o112 if [[[#<back> - #<start>] * #<dir>] LT 0]
+            #<back> = #<start>
+        o112 endif
+        G1 X#<back> F#3017
+    o111 endif
+    o<ferrum_guarded_move> call [#<start> - #5420] [0] [0]
+o110 else
+    #<start> = #5421
+    G91 G38.3 Y[#<dir> * #<reach>] F#3016
+    G90
+    #<hit> = #5070
+    o121 if [#<hit> EQ 1]
+        #<back> = [#5062 - [#<dir> * #3019]]
+        o122 if [[[#<back> - #<start>] * #<dir>] LT 0]
+            #<back> = #<start>
+        o122 endif
+        G1 Y#<back> F#3017
+    o121 endif
+    o<ferrum_guarded_move> call [0] [#<start> - #5421] [0]
+o110 endif
+o<ferrum_stock_touch> endsub [#<hit>]
+M2

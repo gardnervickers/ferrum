@@ -1,0 +1,46 @@
+title TOOLS: MEASURE loads a tool and sets its length; CHECK finds a broken one
+needs probe-geometry drawbar
+allow-error may be broken    # the broken tool, on purpose
+# The sim's T${setter_tool} is ${setter_tool_len} long; its table length says
+# otherwise until MEASURE. Then CHECK passes, and after the table is made
+# 2 mm longer than the tool (a "broken" tool) CHECK stops.
+errors-to-ferrum    # ferrum reads the check result from the error queue
+include ../common/ready.scn
+screen tools
+expect prop.tools-has-setter == true
+tap tools t T${setter_tool} tools-select
+expect prop.tools-can-measure == true
+shot measure-ready
+do tools-measure
+wait prop.tc-open == true within 60
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+idle 120
+expect stat.tool_in_spindle == ${setter_tool}
+expect stat.tool_table[0].zoffset ~= ${setter_tool_len} +- ${geom_tol}
+wait prop.tools-setter-tone == "good" within 60
+expect prop.tools-setter-note contains measured
+shot measured
+expect prop.tools-can-check == true
+# ferrum puts MANUAL back 0.5 s after an MDI command ends.
+sleep 1
+do tools-check
+sleep 2
+idle 120
+wait prop.tools-setter-tone == "good" within 60
+expect prop.tools-setter-note contains OK
+shot checked-ok
+# Now the table says 2 mm longer than the tool really is: broken.
+mdi G10 L1 P${setter_tool} Z${setter_tool_broken}
+idle 30
+sleep 1
+do tools-check
+sleep 2
+idle 120
+wait prop.tools-setter-tone == "bad" within 60
+expect prop.tools-setter-note contains may be broken
+# It stops with the spindle back up at machine Z 0, not down at the setter.
+expect stat.actual_position[2] ~= 0 +- 0.01
+expect stat.tool_table[0].zoffset ~= ${setter_tool_broken} +- 0.001
+shot checked-broken

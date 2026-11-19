@@ -1,0 +1,43 @@
+title FIND slot (valley) across X and across Y: width and centre to G54
+needs probe-basic probe-geometry
+# Two slots ${valley_w} wide cut 10 into the STOCK top (floor -260): the X
+# valley at X ${xvalley_x} (runs along Y), the Y valley at Y ${yvalley_y}
+# (runs along X). Start in the slot's middle, the tip 5 below the top; the
+# width hint (#3028 / #3029) typed in.
+include ../common/probe-start.scn
+do probe-shape "slot"
+do probe-opt "valley"
+do probe-opt "X"
+do probe-wcs "G54"
+do edit "prun-3028"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "1"
+do keypad-key "4"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${xvalley_x} Y${xvalley_y}
+mdi G53 G1 Z${stock_depth_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{X width} ~= ${valley_w} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${xvalley_x} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+
+include ../common/probe-wcs0.scn
+do probe-opt "Y"
+do edit "prun-3029"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "1"
+do keypad-key "4"
+do keypad-done true
+wait prop.keypad-open == false within 5
+mdi G53 G0 X${yvalley_x} Y${yvalley_y}
+mdi G53 G1 Z${stock_depth_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Y width} ~= ${valley_w} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${yvalley_y} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot valley-done

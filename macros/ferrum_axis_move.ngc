@@ -1,0 +1,16 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Guarded positioning move along one axis: o<ferrum_axis_move> call [axis]
+; [delta]; axis 0 = X, 1 = Y, 2 = Z; [delta] incremental, machine units.
+; Same as o<ferrum_guarded_move> (G38.3 at #3017, abort on contact).
+o<ferrum_axis_move> sub
+o100 if [#1 EQ 0]
+    o<ferrum_guarded_move> call [#2] [0] [0]
+o100 elseif [#1 EQ 1]
+    o<ferrum_guarded_move> call [0] [#2] [0]
+o100 elseif [#1 EQ 2]
+    o<ferrum_guarded_move> call [0] [0] [#2]
+o100 else
+    (ABORT, Invalid move axis)
+o100 endif
+o<ferrum_axis_move> endsub
+M2

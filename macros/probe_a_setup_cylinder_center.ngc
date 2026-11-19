@@ -1,0 +1,110 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND rotary centreline: o<probe_a_setup_cylinder_center> call [est] [dir]
+; [verify]. Finds the Y and Z of the A axis (parallel to X) from a convex
+; reference on it and, with #3030 = 0, makes them Y0 Z0 of the active work
+; offset. est = reference size estimate (> 0, used as a generous upper
+; bound); dir 1 when +A moves the top of the work towards the operator, -1
+; the other way (0 counts as 1); verify > 0.5 repeats the measurement and
+; aborts if the centre moved more than 0.1 mm, else averages. The probe
+; starts above the reference with work Y0 Z0 roughly on the axis. Each pass:
+; guarded move to Y0 (the second pass then descends to #3021 above the
+; first top), touch the top (search capped at #3020), then at A start +
+; dir x 90 touch the side from -Y and at A start - dir x 90 the side from
+; +Y, with the ball's centre at work Z0, from a standoff of est + max(10 mm, #3019) + tip radius; the Y centre is
+; the mean of the two sides; a second top touch over that Y centre (A at
+; its start) minus the radius gives the Z centre, the radius being half the
+; sides' distance corrected for touching them off the equator when Z0 is
+; not exactly on the axis. Every positioning move is guarded; A turns at
+; a clearance height above the reference. Ends at that height over the
+; Y centre with A back at its start. No result lines. Modes are restored (M73).
+o<probe_a_setup_cylinder_center> sub
+o10 if [#<_task> EQ 0]
+    o<probe_a_setup_cylinder_center> return
+o10 endif
+o<ferrum_rotary_ready> call [1]
+M73
+M50 P0
+G90 G94
+#<est> = #1
+#<dir> = #2
+#<verify> = #3
+o20 if [#<est> LE 0]
+    (ABORT, Reference size estimate must be positive)
+o20 endif
+o21 if [#<dir> EQ 0]
+    #<dir> = 1
+o21 endif
+#<a0> = #5423
+#<r> = [[#5410 / 2] - #3032]
+#<margin> = [10 * #<_ferrum_mm>]
+o22 if [#3019 GT #<margin>]
+    #<margin> = #3019
+o22 endif
+#<passes> = 1
+o23 if [#<verify> GT 0.5]
+    #<passes> = 2
+o23 endif
+#<pass> = 0
+#<side_z> = 0
+o100 while [#<pass> LT #<passes>]
+    #<pass> = [#<pass> + 1]
+    o<ferrum_guarded_move> call [0] [0 - #5421] [0]
+    o105 if [#<pass> GT 1]
+        o<ferrum_guarded_move> call [0] [0] [#<top> + #3021 - #5422]
+    o105 endif
+    o<ferrum_rotary_top> call [#<a0>] [#<est> + [2 * #3021] + #<margin> + [4 * #<_ferrum_mm>]]
+    #<top> = #<_value>
+    o110 if [#<top> LE 0]
+        (ABORT, Top touch is below rough work Z0 - put Z0 near the rotary axis)
+    o110 endif
+    o111 if [#<top> GT [#<est> + #<margin>]]
+        (ABORT, Top touch is too high - put Z0 near the rotary axis)
+    o111 endif
+    #<standoff> = [#<est> + #<margin> + #<r>]
+    #<span> = [[2 * #<standoff>] + [2 * #<r>] + [4 * #<_ferrum_mm>]]
+    #<clear> = [#<top> + #<est> + #3021 + #<margin>]
+    o<ferrum_rotary_side> call [1] [#<a0> + [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [#<side_z>]
+    #<y1> = #<_value>
+    o<ferrum_rotary_side> call [-1] [#<a0> - [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [#<side_z>]
+    #<y2> = #<_value>
+    #<radius> = [ABS[#<y2> - #<y1>] / 2]
+    o120 if [#<radius> LE 0]
+        (ABORT, Could not measure a positive radius about the rotary axis)
+    o120 endif
+    #<yc> = [[#<y1> + #<y2>] / 2]
+    ; Top again, over the measured Y centre (the highest point), for Z.
+    G90 G1 A#<a0> F#3017
+    o<ferrum_guarded_move> call [0] [#<yc> - #5421] [0]
+    o<ferrum_guarded_move> call [0] [0] [#<top> + #3021 - #5422]
+    o<ferrum_rotary_top> call [#<a0>] [2 * #3021]
+    #<top_c> = #<_value>
+    o<ferrum_guarded_move> call [0] [0] [#<clear> - #5422]
+    ; The sides were touched with the ball's centre at work Z0, which is
+    ; only roughly on the axis: a ball of radius r meeting a cylinder of
+    ; radius R at height h off its equator reads the half-width
+    ; w = sqrt((R + r)^2 - h^2) - r. Solve for R with h = Z0 - (top - R).
+    #<w> = #<radius>
+    #<k> = 0
+    o125 while [#<k> LT 12]
+        #<h> = [#<side_z> - [#<top_c> - #<radius>]]
+        #<radius> = [SQRT[[#<w> + #<r>] * [#<w> + #<r>] + #<h> * #<h>] - #<r>]
+        #<k> = [#<k> + 1]
+    o125 endwhile
+    #<zc> = [#<top_c> - #<radius>]
+    o130 if [#<pass> EQ 1]
+        #<y_axis> = #<yc>
+        #<z_axis> = #<zc>
+    o130 else
+        o131 if [[ABS[#<yc> - #<y_axis>] GT [0.1 * #<_ferrum_mm>]] OR [ABS[#<zc> - #<z_axis>] GT [0.1 * #<_ferrum_mm>]]]
+            (ABORT, Verification pass moved the centre by more than 0.1 mm)
+        o131 endif
+        #<y_axis> = [[#<y_axis> + #<yc>] / 2]
+        #<z_axis> = [[#<z_axis> + #<zc>] / 2]
+    o130 endif
+o100 endwhile
+o140 if [#3030 EQ 0]
+    G10 L20 P0 Y[#5421 - #<y_axis>] Z[#5422 - #<z_axis>]
+o140 endif
+G90
+o<probe_a_setup_cylinder_center> endsub
+M2

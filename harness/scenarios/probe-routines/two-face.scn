@@ -1,0 +1,38 @@
+title FIND CENTER IN X and IN Y (two faces) on the sim STOCK block
+needs probe-basic probe-geometry
+# First face from outside, jog (MDI here) round to the opposite face, probe
+# it, then APPLY: the axis's G54 offset goes to the middle.
+include ../common/probe-start.scn
+do probe-shape "block"
+do probe-target "ctr"
+do probe-opt "axis-X"
+do probe-opt "start-L"
+do probe-wcs "G54"
+mdi G53 G0 X${edge_left_x} Y${stock_cy}
+mdi G53 G1 Z${stock_depth_mz} F2000
+include ../common/probe-run.scn
+mdi G53 G0 Z${travel_z}
+mdi G53 G0 X${edge_right_x} Y${stock_cy}
+mdi G53 G1 Z${stock_depth_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Width} ~= ${stock_w} +- ${geom_tol}
+include ../common/probe-run.scn
+expect stat.g5x_offset[0] ~= ${stock_cx} +- ${geom_tol}
+expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
+
+include ../common/probe-wcs0.scn
+do probe-opt "axis-Y"
+do probe-opt "start-F"
+mdi G53 G0 X${stock_cx} Y${edge_front_y}
+mdi G53 G1 Z${stock_depth_mz} F2000
+include ../common/probe-run.scn
+mdi G53 G0 Z${travel_z}
+mdi G53 G0 X${stock_cx} Y${edge_back_y}
+mdi G53 G1 Z${stock_depth_mz} F2000
+include ../common/probe-run.scn
+expect prop.pr-result{Width} ~= ${stock_h} +- ${geom_tol}
+include ../common/probe-run.scn
+expect stat.g5x_offset[1] ~= ${stock_cy} +- ${geom_tol}
+expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
+mdi G53 G0 Z${travel_z}
+shot two-face-done

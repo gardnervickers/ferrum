@@ -1,0 +1,393 @@
+// The product's name and marks, and the start-up splash.
+//
+// `Brand.name` is the one place the name is spelled for people (window
+// title, splash, marks).
+import { Theme } from "theme.slint";
+import { Btn } from "widgets.slint";
+
+export global Brand {
+    out property <string> name: "FERRUM";
+    // For the window title and sentences.
+    out property <string> title: "Ferrum";
+    out property <string> tagline: "LINUXCNC MILL CONTROL";
+    // The mark is iron's tile from the periodic table: rust on steel.
+    out property <string> symbol: "Fe";
+    out property <string> number: "26";
+    out property <string> weight: "55.845";
+    // Rust. Only the mark and the splash use it, so it is never read as a
+    // status or a control.
+    out property <color> rust: #d9733f;
+    out property <color> rust-soft: #d9733f2e;
+    // Set from Cargo at start.
+    in-out property <string> version;
+    // `name` split into letters (boot.rs), so the splash can bring them in
+    // one at a time.
+    in-out property <[string]> letters;
+}
+
+export struct BootStep {
+    label: string,
+    // "todo", "now", "done" or "bad".
+    state: string,
+}
+
+// What the splash shows; Rust (boot.rs) drives it.
+export global Boot {
+    // "" (no splash), "boot" (starting), "lock" (another LinuxCNC is
+    // running), "failed", "ready" (fading out), "stopping".
+    in-out property <string> phase;
+    in-out property <[BootStep]> steps;
+    // The step under way, large, and what it is doing, small.
+    in-out property <string> doing;
+    in-out property <string> detail;
+    // 0..1, from the steps LinuxCNC has reported.
+    in-out property <float> progress;
+    // Whole seconds since start; changes once a second while booting.
+    in-out property <int> seconds;
+    // Failure: the lines that say why, and where the full log is.
+    in-out property <string> error;
+    in-out property <string> log;
+    // Bottom line: "LinuxCNC 2.9.10 · ferrum.ini".
+    in-out property <string> footer;
+    // Only the launcher (`ferrum --boot`) can start LinuxCNC again.
+    in-out property <bool> can-retry;
+    callback retry();
+    callback quit();
+}
+
+// Iron's tile. `size` is the tile's side; everything inside scales with it.
+export component ElementTile inherits Rectangle {
+    in property <length> size: 200px;
+    in property <bool> lit: true;
+    width: size;
+    height: size;
+    border-radius: size * 0.09;
+    background: Theme.panel;
+    border-width: max(2px, size * 0.014);
+    border-color: lit ? Brand.rust : Theme.raised-border;
+    Text {
+        x: parent.width * 0.09;
+        y: parent.height * 0.07;
+        text: Brand.number;
+        font-family: Theme.body;
+        font-weight: 600;
+        font-size: size * 0.13;
+        color: Theme.muted;
+    }
+    Text {
+        y: parent.height * 0.17;
+        width: parent.width;
+        height: parent.height * 0.6;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        text: Brand.symbol;
+        font-family: Theme.body;
+        font-weight: 600;
+        font-size: size * 0.5;
+        color: lit ? Brand.rust : Theme.ink;
+    }
+    Text {
+        y: parent.height * 0.76;
+        width: parent.width;
+        horizontal-alignment: center;
+        text: Brand.weight;
+        font-family: Theme.body;
+        font-weight: 500;
+        font-size: size * 0.1;
+        color: Theme.dim;
+    }
+}
+
+// The tile and the name side by side, with the tagline under the name.
+export component Lockup inherits HorizontalLayout {
+    in property <length> size: 64px;
+    spacing: size * 0.22;
+    alignment: start;
+    ElementTile { size: root.size; }
+    VerticalLayout {
+        alignment: center;
+        spacing: 0;
+        Text {
+            text: Brand.name;
+            font-family: Theme.display;
+            font-size: root.size * 0.62;
+            letter-spacing: root.size * 0.05;
+            color: Theme.ink;
+        }
+        Text {
+            text: Brand.tagline;
+            font-family: Theme.display;
+            font-size: root.size * 0.2;
+            letter-spacing: root.size * 0.03;
+            color: Theme.dim;
+        }
+    }
+}
+
+component StepChip inherits HorizontalLayout {
+    in property <BootStep> step;
+    in property <bool> blink;
+    spacing: 12px;
+    alignment: start;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            // The step under way blinks hard on/off (no fade: see DESIGN.md).
+            background: step.state == "done" ? Theme.good : step.state == "bad" ? Theme.bad
+                : step.state == "now" ? (blink ? Brand.rust : Theme.raised) : Theme.raised;
+        }
+    }
+    Text {
+        vertical-alignment: center;
+        text: step.label;
+        font-family: Theme.display;
+        font-size: 24px;
+        letter-spacing: 1.6px;
+        color: step.state == "bad" ? Theme.bad : step.state == "todo" ? Theme.dim : Theme.ink;
+    }
+}
+
+// The start-up splash. It covers the window while LinuxCNC starts and
+// ferrum connects, then fades out (and lets touches through at once).
+export component Splash inherits Rectangle {
+    background: Theme.page;
+    // The entrance plays once: the tile rises in, the name's letters
+    // follow one by one, a rust stroke draws under them, then the progress.
+    property <float> tile-in: 0;
+    property <float> stroke: 0;
+    property <float> info-in: 0;
+    init => {
+        self.tile-in = 1;
+        self.stroke = 1;
+        self.info-in = 1;
+    }
+    animate tile-in { duration: 420ms; easing: ease-out; }
+    animate stroke { duration: 520ms; delay: 360ms; easing: ease-in-out; }
+    animate info-in { duration: 300ms; delay: 620ms; easing: ease-out; }
+
+    // Ready: fade out once the entrance has played (it is under a second;
+    // touches already go through to the screen beneath).
+    property <bool> entered;
+    Timer {
+        interval: 900ms;
+        running: !root.entered;
+        triggered => { root.entered = true; }
+    }
+    property <bool> leaving: Boot.phase == "ready" && root.entered;
+    opacity: leaving ? 0 : 1;
+    animate opacity { duration: 320ms; easing: ease-in; }
+    Timer {
+        interval: 360ms;
+        running: root.leaving;
+        triggered => { Boot.phase = ""; }
+    }
+
+    property <bool> failed: Boot.phase == "failed" || Boot.phase == "lock";
+    property <bool> blink: true;
+    Timer {
+        interval: 500ms;
+        running: Boot.phase == "boot";
+        triggered => { root.blink = !root.blink; }
+    }
+
+    // Swallows touches while it is up; gone as soon as it starts fading.
+    if Boot.phase != "ready": TouchArea { }
+
+    property <length> mark: 220px;
+    property <length> name-size: 176px;
+    // The lockup is centred as a whole: tile, gap, name.
+    property <length> lockup-w: mark + 44px + name.preferred-width;
+    property <length> lockup-x: (root.width - lockup-w) / 2;
+    // A failure needs the room below for its reason: the mark moves up.
+    property <length> lockup-y: root.failed ? root.height * 0.09 : root.height * 0.27;
+    animate lockup-y { duration: Theme.settle; easing: ease-out; }
+
+    ElementTile {
+        x: root.lockup-x;
+        y: root.lockup-y + (1 - root.tile-in) * 28px;
+        size: root.mark;
+        opacity: root.tile-in;
+    }
+    name := HorizontalLayout {
+        x: root.lockup-x + root.mark + 44px;
+        y: root.lockup-y + root.mark * 0.5 - root.name-size * 0.62;
+        width: self.preferred-width;
+        alignment: start;
+        spacing: 0;
+        // One Text per letter so they can arrive in turn.
+        for ch[i] in Brand.letters: Text {
+            property <float> shown: 0;
+            init => { self.shown = 1; }
+            animate shown { duration: 260ms; delay: 120ms + i * 55ms; easing: ease-out; }
+            text: ch;
+            opacity: self.shown;
+            font-family: Theme.display;
+            font-size: root.name-size;
+            letter-spacing: root.name-size * 0.06;
+            color: Theme.ink;
+        }
+    }
+    // The stroke under the name: hot metal drawn left to right.
+    Rectangle {
+        x: name.x + 4px;
+        y: root.lockup-y + root.mark - 30px;
+        width: (name.preferred-width - root.name-size * 0.06 - 4px) * root.stroke;
+        height: 6px;
+        border-radius: 3px;
+        background: Brand.rust;
+    }
+    Text {
+        x: name.x + 4px;
+        y: root.lockup-y + root.mark + 4px;
+        text: Brand.tagline;
+        font-family: Theme.display;
+        font-size: 30px;
+        letter-spacing: 5px;
+        color: Theme.dim;
+        opacity: root.stroke;
+    }
+
+    // Progress, under the lockup.
+    property <length> col-w: min(1100px, root.width - 160px);
+    property <length> col-x: (root.width - col-w) / 2;
+    property <length> col-y: root.lockup-y + root.mark + 130px;
+    Rectangle {
+        x: root.col-x;
+        y: root.col-y + (1 - root.info-in) * 14px;
+        width: root.col-w;
+        height: root.height - self.y - 120px;
+        opacity: root.info-in;
+        VerticalLayout {
+            spacing: 18px;
+            alignment: start;
+            HorizontalLayout {
+                spacing: 20px;
+                Text {
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                    vertical-alignment: center;
+                    text: Boot.doing;
+                    font-family: Theme.display;
+                    font-size: 40px;
+                    letter-spacing: 2.4px;
+                    color: root.failed ? Theme.bad : Theme.ink;
+                }
+                // Seconds since start: shows it is still going.
+                Text {
+                    width: 120px;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                    text: Boot.phase == "boot" && Boot.seconds > 0 ? Boot.seconds + " s" : "";
+                    font-family: Theme.body;
+                    font-weight: 600;
+                    font-size: 28px;
+                    color: Theme.dim;
+                }
+            }
+            // The track: rust while starting, red when it stopped short.
+            if Boot.phase != "stopping" && Boot.phase != "lock": Rectangle {
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.raised;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * clamp(Boot.progress, 0, 1);
+                    border-radius: 4px;
+                    background: root.failed ? Theme.bad : Brand.rust;
+                    animate width { duration: Theme.settle; easing: ease-out; }
+                }
+            }
+            if Boot.phase != "stopping" && Boot.phase != "lock": HorizontalLayout {
+                spacing: 0;
+                for s in Boot.steps: StepChip {
+                    width: root.col-w / max(1, Boot.steps.length);
+                    step: s;
+                    blink: root.blink;
+                }
+            }
+            // A fixed slot, so nothing below moves as the detail comes and goes.
+            if !root.failed: Text {
+                height: 34px;
+                overflow: elide;
+                text: Boot.detail;
+                font-family: Theme.body;
+                font-size: 24px;
+                color: Theme.muted;
+            }
+            if root.failed: Rectangle {
+                background: Theme.well;
+                border-radius: Theme.radius-ctl;
+                height: min(err.preferred-height + 36px, 300px);
+                clip: true;
+                err := Text {
+                    x: 22px;
+                    y: 18px;
+                    width: parent.width - 44px;
+                    text: Boot.error;
+                    wrap: word-wrap;
+                    font-family: Theme.body;
+                    font-weight: 500;
+                    font-size: 23px;
+                    color: Theme.ink;
+                }
+            }
+            if root.failed && Boot.log != "": Text {
+                text: "Full log: " + Boot.log;
+                font-family: Theme.body;
+                font-size: 21px;
+                color: Theme.dim;
+            }
+            if root.failed: HorizontalLayout {
+                spacing: 16px;
+                alignment: start;
+                if Boot.can-retry: Btn {
+                    width: 300px;
+                    height: 72px;
+                    text: Boot.phase == "lock" ? "RESTART LINUXCNC" : "TRY AGAIN";
+                    // Restarting stops the other session: hold to confirm.
+                    hold: Boot.phase == "lock";
+                    clicked => { Boot.retry(); }
+                }
+                Btn {
+                    width: 200px;
+                    height: 72px;
+                    text: "EXIT";
+                    clicked => { Boot.quit(); }
+                }
+            }
+        }
+    }
+
+    Text {
+        x: 40px;
+        y: root.height - 64px;
+        text: Boot.footer;
+        font-family: Theme.body;
+        font-size: 22px;
+        color: Theme.dim;
+        opacity: root.info-in;
+    }
+    Text {
+        x: root.width - self.width - 40px;
+        y: root.height - 64px;
+        text: Brand.version == "" ? "" : "v" + Brand.version;
+        font-family: Theme.body;
+        font-size: 22px;
+        color: Theme.dim;
+        opacity: root.info-in;
+    }
+    // Starting can hang (a drive that never answers): EXIT stays reachable.
+    if Boot.phase == "boot" && Boot.seconds >= 8: Btn {
+        x: root.width - self.width - 40px;
+        y: 40px;
+        width: 150px;
+        height: 56px;
+        font-size: 22px;
+        text: "EXIT";
+        hold: true;
+        clicked => { Boot.quit(); }
+    }
+}

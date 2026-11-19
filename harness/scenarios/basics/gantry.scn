@@ -1,0 +1,28 @@
+title A gantry's Y waits for homing, homes both joints and jogs both
+needs gantry
+allow-error Home the machine first
+wait prop.connected == true within 30
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10
+screen manual
+do jog-step-set "${jog_label}"
+# Before homing a gantry's Y has no single joint to jog: refused, nothing moves.
+do jog-start 1 1
+sleep 1
+expect stat.joint_actual_position[1] ~= 0
+expect stat.joint_actual_position[2] ~= 0
+# HOME on Y homes both Y joints.
+do home-axis "Y"
+wait stat.homed[1] == 1 within 30
+wait stat.homed[2] == 1 within 30
+do home-all
+wait prop.homed == true within 60
+idle 30
+do jog-start 1 1
+idle 20
+expect stat.position[1] ~= ${jog_x_after}
+expect stat.joint_actual_position[1] ~= ${jog_x_after}
+expect stat.joint_actual_position[2] ~= ${jog_x_after}
+shot after-jog

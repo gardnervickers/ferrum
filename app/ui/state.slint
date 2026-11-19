@@ -1,0 +1,593 @@
+// Everything the Rust side pushes into the UI, and every action it handles.
+
+// `hint`: for a row that is not OK, what it means or what to do.
+export struct PillData { text: string, kind: string, hint: string }
+// A DRO row's axis and homed state, which change rarely, apart from its
+// numbers (DroPos), which change with every status while the machine moves:
+// animated bindings (the ZERO button, the axis colour) read only DroRow, so
+// a moving axis does not restart their animations (an extra frame each time).
+export struct DroRow { axis: string, homed: bool }
+export struct DroPos { work: string, mach: string, dtg: string }
+// `badge`: a count shown on the entry (SETUP's rows that need attention).
+export struct NavItem { id: string, label: string, icon: string, badge: int }
+export struct MsgRow { time: string, text: string, kind: string }
+export struct MdiCard { label: string, desc: string, fill: string, moves: bool }
+export struct FileRow { name: string, dir: bool, modified: string, size: string }
+// An op of the file selected on FILES; `color` indexes the backplot's op colours.
+export struct FileOp { name: string, tool: string, time: string, color: int }
+export struct ToolRow { t: string, len: string, dia: string, comment: string, needs-len: bool, current: bool, scratch: bool, wear-len: string, wear-dia: string }
+// One line of the offsets timeline (history.rs), newest first.
+export struct HistoryRow { when: string, what: string, tool: bool, change: string, cause: string }
+export struct CheckRow { t: string, status: string, kind: string, action: string }
+export struct OffsetRow { wcs: string, x: string, y: string, z: string, a: string, rot: string, active: bool, used: bool }
+export struct ProbeItem { id: string, label: string, on: bool }
+export struct ProbeSpot { id: string, x: float, y: float, w: float, h: float, r: float, on: bool }
+// A choice under the probe picture; a disabled one keeps its slot.
+export struct ProbeOpt { id: string, label: string, on: bool, enabled: bool }
+export struct ProbeParam { id: string, label: string, value: string, unit: string, changed: bool, def: string }
+export struct WarmStage { rpm: string, minutes: string, state: string }
+export struct StatusRow { key: string, value: string, kind: string }
+// SETUP (setup.rs). A step's entry: `count` rows need attention.
+export struct SetupStep { label: string, count: int }
+// One SETUP row. kind: "check" (a checker row), "number" | "choice" |
+// "bool" (a ferrum.toml setting, `key`), "live" (an input test),
+// "action" (a button, `key`). level: "ok" | "info" | "warn" | "bad" | "".
+// `code`: INI or HAL lines to add; `note`: a saved change waiting for a restart.
+export struct SetupRow { kind: string, key: string, level: string, title: string, detail: string, value: string, code: string, note: string }
+export struct JobOp { pos: string, badge: string, kind: string, name: string, detail: string, enabled: bool, state: string, can-toggle: bool, selected: bool, progress: float, progress-text: string, stop-after: bool }
+export struct ConvField { key: string, label: string, value: string, unit: string, choice: bool }
+// One face of the backplot's view cube, in a 100 × 100 box.
+export struct CubeFace { label: string, path: string, grid: string, lx: float, ly: float, labelled: bool, facing: float, on: bool }
+export struct GotoRow { name: string, x: string, y: string, px: float, py: float }
+
+export global Live {
+    // True in the browser build (not mirrored).
+    in property <bool> remote;
+    in property <bool> connected;
+    in property <bool> estop: true;
+    in property <bool> power;
+    in property <bool> homed;
+    // The mode pill (MANUAL, AUTO, PAUSED, E-STOP...).
+    in property <PillData> mode-pill;
+    // Everything else the machine reports, one row each: the status pill
+    // sums it up and opens the list.
+    in property <[PillData]> pills;
+    in property <string> status-text: "ALL OK";
+    in property <string> status-kind: "good";
+    // Something is wrong (a "bad" row): the status pill flashes.
+    in property <bool> status-flash;
+    in-out property <bool> status-open;
+    in-out property <float> status-x;
+    in property <string> message;
+    in property <bool> message-error;
+    // A refusal the operator must not miss (CYCLE START blocked); clears itself.
+    in-out property <string> toast;
+    // The toast is a program's own (MSG, ...) text, not a refusal or error.
+    in-out property <bool> toast-info;
+    // machine.toml [buttons]: which quick buttons to show.
+    in property <bool> quick-mist: true;
+    in property <bool> quick-flood: true;
+    in property <bool> quick-drawbar: true;
+    in property <bool> quick-home: true;
+    in property <string> clock;
+
+    in property <[DroRow]> dro;
+    in property <[DroPos]> dro-pos;
+    in property <string> wcs: "G54";
+    in property <string> tool: "T0";
+    in property <string> tool-dia: "-";
+    in property <string> feed: "0";
+    in property <string> rpm: "0";
+    in property <string> cycle-time: "00:00";
+    in property <string> modal;
+
+    in property <int> feed-pct: 100;
+    in property <int> rapid-pct: 100;
+    in property <int> spindle-pct: 100;
+    in property <int> feed-max: 200;
+    in property <int> spindle-min: 50;
+    in property <int> spindle-max: 200;
+
+    in property <string> program;
+    in property <int> line;
+    in property <bool> running;
+    in property <bool> paused;
+    in property <bool> can-start;
+    in property <bool> single-block;
+    in property <bool> optional-stop;
+    in property <bool> block-delete;
+
+    in property <[NavItem]> nav;
+    in-out property <string> screen: "run";
+
+    // Manual control is locked while a program runs or is paused.
+    in property <bool> manual-locked;
+    in property <bool> has-a: true;
+    // [toolchange]scratch_tools is set: TOOLS offers NEW SCRATCH.
+    in property <bool> has-scratch: true;
+    // The spindle reverses: CCW is offered.
+    in property <bool> spindle-reverse: true;
+    // Machine linear units ("mm" or "in") and the same in capitals.
+    in property <string> unit: "mm";
+    in property <string> unit-up: "MM";
+    // The jog screen's rotary axis (A, B or C), if any: AXIS_LETTERS index,
+    // and whether it homes against a switch or is referenced where it stands.
+    in property <bool> has-rot: true;
+    in property <string> rot-letter: "A";
+    in property <int> rot-axis: 3;
+    in property <bool> rot-switch: false;
+    // HOME beside each axis (trivkins); HOME ALL (every joint has a HOME_SEQUENCE).
+    in property <bool> per-axis-home: true;
+    in property <bool> home-all-ok: true;
+    in property <[string]> jog-steps: ["CONT", "0.01", "0.1", "1", "10"];
+    in property <string> jog-step: "CONT";
+    in property <string> jog-speed: "50";
+    in property <string> jog-speed-a: "180";
+    in property <string> spindle-rpm: "300";
+    in property <bool> mist;
+    in property <bool> flood;
+
+    in-out property <string> run-tab: "program";
+    in property <image> plot;
+    in property <string> plot-summary;
+    // Run time: "LEFT" and the time left while a program runs, "TIME" and
+    // the estimate when one is loaded ("" when there is none); how far the
+    // run is by time (-1: not running, the bar follows the line).
+    in property <string> time-label: "TIME";
+    in property <string> time-left;
+    in property <float> time-fraction: -1;
+    // The travel check of the loaded program: what it found (empty when
+    // nothing loaded), 0 clear, 1 a note, 2 a problem; the line to show.
+    in property <string> plot-check;
+    in property <int> plot-check-level;
+    in property <int> plot-check-line;
+    // The backplot caption: TOP VIEW, ISO VIEW, ORBIT VIEW...
+    in property <string> plot-view: "ISO VIEW";
+    // Cutting load now, e.g. "62%"; empty when nothing measures it (the
+    // trail is then drawn plain).
+    in property <string> plot-load;
+    in property <[CubeFace]> cube-faces;
+    // Outline of the cube cells a tap would pick, or empty.
+    in property <string> cube-hot;
+    in property <bool> plot-machine: true;
+    // Why a screen is off on this machine ("" when it is not): what the
+    // configuration check found missing (checks.rs).
+    in property <string> probe-blocked;
+    in property <string> job-blocked;
+    in property <string> conv-blocked;
+    // A table model is configured (machine.toml [model] nose_above_table).
+    in property <bool> plot-has-machine: true;
+    // Drag preview offset of the backplot image (per screen, not mirrored).
+    in-out property <float> plot-dx;
+    in-out property <float> plot-dy;
+    // The last pan (by its sender's number) the mill's image includes
+    // (mirrored); plot-landed counts images arriving on this screen with a
+    // new one.
+    in property <int> plot-pan-seq;
+    in-out property <int> plot-landed;
+    in property <[FileRow]> files;
+    in property <string> files-path;
+    in property <int> files-selected: -1;
+    in property <bool> files-can-up;
+    in property <string> files-name;
+    in property <string> files-preview;
+    // The picture or the program text, on the selected file's card.
+    in-out property <string> files-tab: "plot";
+    // One line: ops, estimated time, tools.
+    in property <string> files-summary;
+    // The selected program from above (drawn on the mill; not mirrored).
+    in property <image> files-plot;
+    // Says why there is no picture (reading, no moves, cannot read); empty with one.
+    in property <string> files-status;
+    // Work zero in the picture, as fractions of its width and height; -1 hides it.
+    in property <float> files-zero-x: -1;
+    in property <float> files-zero-y: -1;
+    // Where the cuts sit in work coordinates, under the picture.
+    in property <string> files-extent;
+    // The interpreter stopped early: the picture and times are partial.
+    in property <string> files-warning;
+    in property <[FileOp]> files-ops;
+    // The op picked out in the picture, or -1 for all of them.
+    in property <int> files-op: -1;
+
+    in property <[string]> gcode-lines;
+    in property <int> gcode-count;
+    in-out property <int> gcode-selected: -1;
+    // What starting at the selected line expects and does, or why it can't.
+    in property <string> gcode-restart;
+
+    in property <[string]> mdi-categories;
+    in property <string> mdi-category;
+    in property <[MdiCard]> mdi-cards;
+    in property <string> mdi-help;
+    in-out property <string> mdi-text;
+
+    in property <[MsgRow]> messages;
+    in-out property <bool> drawer-open;
+
+    // Why GUI-started motion is held, from the modules ("" = nothing known).
+    in property <string> motion-block;
+    in property <string> spindle-block;
+
+    // Power feed and GO TO (Jog screen tabs).
+    in-out property <string> jog-tab: "feed";
+    in property <string> pf-mode: "dist";
+    in property <string> pf-feed: "250";
+    in property <string> pf-dist: "25";
+    in property <string> pf-wcs: "G54";
+    in property <[string]> wcs-codes: ["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"];
+    in property <bool> pf-ready;
+    in property <string> pf-status;
+    in property <bool> pf-status-error;
+    in property <[bool]> pf-axis-enabled: [true, true, true];
+    in property <string> gt-x: "0.000";
+    in property <string> gt-y: "0.000";
+    in property <string> gt-feed: "250";
+    in property <[GotoRow]> gotos;
+    in property <int> goto-selected: -1;
+    in property <float> gt-px: 0.5;
+    in property <float> gt-py: 0.5;
+    in property <float> gt-ox: 0.5;
+    in property <float> gt-oy: 0.5;
+
+    // Tool change overlay (M6); Rust owns the state (toolchange.rs).
+    in property <bool> tc-open;
+    in property <string> tc-from: "T0";
+    in property <string> tc-from-desc;
+    in property <string> tc-tool;
+    in property <string> tc-tool-desc;
+    in property <string> tc-drawbar: "UNKNOWN";
+    // The tool change has a power drawbar and touch-off latch (mymill).
+    in property <bool> tc-has-drawbar: true;
+    in property <bool> tc-seated;
+    in property <string> tc-message;
+    in property <bool> tc-can-extend;
+    in property <bool> tc-can-retract;
+    in property <bool> tc-can-resume;
+    in property <bool> tc-can-touch-off;
+    in property <string> tc-touch-off-tip;
+    in property <string> tc-scratch;
+    in property <string> tc-nose;
+    in property <string> tc-nose-kind;
+
+    // TOOLS screen (tools.rs).
+    in property <[ToolRow]> tools;
+    in property <int> tools-selected: -1;
+    in property <string> tools-sel-label;
+    in property <[CheckRow]> tools-check;
+    in property <bool> tools-missing;
+    in property <string> tools-drawbar: "UNKNOWN";
+    in property <bool> tools-can-extend;
+    in property <bool> tools-can-retract;
+    // Tool setter on TOOLS: MEASURE (selected tool) and CHECK (loaded tool).
+    in property <bool> tools-has-setter;
+    in property <bool> tools-can-measure;
+    in property <bool> tools-can-check;
+    in property <string> tools-check-label: "CHECK";
+    in property <string> tools-setter-note;
+    in property <string> tools-setter-tone;
+
+    // OFFSETS screen (offsets.rs).
+    in property <[OffsetRow]> offsets;
+    in property <int> offsets-selected;
+    in property <string> offsets-sel-label: "G54";
+    in property <string> offsets-g92;
+    // "table" or "timeline" (per screen, not mirrored).
+    in-out property <string> offsets-view: "table";
+    in property <[HistoryRow]> history;
+    in property <int> history-selected: -1;
+    in property <string> history-restore-label: "RESTORE";
+    in property <string> history-restore-note;
+
+    // PROBE screen (probe.rs). Picture paths are SVG data in a 400x300 box.
+    in property <string> pr-mode: "find";
+    // The open dialog: "" | "more" | "defaults" | "wcs" | "job" (per screen, not mirrored).
+    in-out property <string> pr-dialog;
+    in property <[ProbeItem]> pr-shapes;
+    in property <string> pr-shape-label;
+    in property <string> pr-title;
+    in property <string> pr-hint;
+    in property <string> pr-outline;
+    in property <string> pr-arrows;
+    in property <string> pr-heads;
+    in property <[ProbeSpot]> pr-spots;
+    // The preview: the probe tip playing the routine in a loop (probe_anim.rs).
+    // Where the tip is in picture units; z is its height (1 clear, 0 at depth).
+    in property <bool> pr-tip-on;
+    in property <float> pr-tip-x;
+    in property <float> pr-tip-y;
+    in property <float> pr-tip-z;
+    in property <bool> pr-tip-contact;
+    // The lines it has drawn at depth so far, and the step it is on.
+    in property <string> pr-trail;
+    in property <string> pr-caption;
+    // What turns with A in the rotary's end view.
+    in property <string> pr-part;
+    // Up to two rows of choices under the picture, each with a row label.
+    in property <string> pr-opts-label;
+    in property <[ProbeOpt]> pr-opts;
+    in property <string> pr-opts2-label;
+    in property <[ProbeOpt]> pr-opts2;
+    in property <[ProbeParam]> pr-params;
+    in property <[ProbeParam]> pr-more;
+    in property <[ProbeParam]> pr-defaults;
+    in property <bool> pr-changed;
+    in property <string> pr-routine;
+    in property <string> pr-note;
+    in property <bool> pr-show-wcs: true;
+    in property <string> pr-wcs: "G54";
+    in property <string> pr-result;
+    in property <string> pr-pill;
+    in property <string> pr-pill-kind;
+    in property <string> pr-load-label;
+    in property <bool> pr-load-enabled;
+    // Only the tool in the spindle is in the way: the screen offers the
+    // change where it otherwise says why it cannot start.
+    in property <bool> pr-load-offer;
+    in property <string> pr-run-label: "HOLD TO PROBE";
+    in property <bool> pr-running;
+    // Why a run can't start now ("" = ready).
+    in property <string> pr-ready;
+    // Can this FIND setup become a job step / a job check of its size?
+    in property <bool> pr-job-ok;
+    in property <bool> pr-job-check;
+
+    // UTIL screen (util.rs).
+    in property <[WarmStage]> wu-stages;
+    in property <bool> wu-secure;
+    in property <bool> wu-running;
+    in property <float> wu-progress;
+    in property <string> wu-text;
+    in property <string> wu-note;
+    in property <string> wu-ready;
+    in property <string> ut-nose: "UNKNOWN";
+    in property <string> ut-nose-kind;
+    in property <string> ut-setter;
+    in property <bool> ut-has-blast;
+    // The drawbar module's spindle nose reference (mymill).
+    in property <bool> ut-has-nose: true;
+    in property <bool> ut-blast;
+    in property <string> ut-g30;
+    in property <[StatusRow]> ut-status;
+
+    // JOB screen (job.rs).
+    in property <string> job-title: "JOB";
+    in property <string> job-state: "NOT BUILT";
+    in property <string> job-tone;
+    in property <[JobOp]> job-ops;
+    in property <int> job-selected: -1;
+    in property <string> job-note;
+    in property <string> job-note-tone;
+    in property <bool> job-running;
+    in property <float> job-fraction;
+    in property <bool> job-stop-requested;
+    // The check strip for a selected probing op in MEASURE mode (job.rs).
+    in property <bool> job-check;
+    in property <string> job-check-value;
+    in property <int> job-check-values;
+    in property <string> job-check-nominal;
+    in property <string> job-check-tol;
+    in property <string> job-check-op;
+    in property <bool> job-check-pause: true;
+    in property <string> job-check-last;
+    in property <string> job-check-tone;
+    // "SET T11 Ø 6.000 → 5.968", or "" when there is nothing to adjust.
+    in property <string> job-check-adjust;
+
+    // CONV screen (conv.rs). Picture paths are SVG data in a 400x300 box.
+    in property <[ProbeItem]> conv-types;
+    in property <string> conv-title;
+    in property <string> conv-tool;
+    // The inputs are split into sections; one is open at a time. The recap
+    // lists every section's values in a line (key = section id).
+    in property <[ProbeItem]> conv-sections;
+    in property <string> conv-section: "shape";
+    in property <[ConvField]> conv-fields;
+    in property <[ConvField]> conv-recap;
+    // Side view for the DEPTH section, top down: clearance, retract, start, end.
+    in property <[ConvField]> conv-levels;
+    in property <bool> conv-show-holes;
+    in property <[string]> conv-holes;
+    in property <int> conv-hole-sel: -1;
+    in property <string> conv-outline;
+    in property <string> conv-path;
+    // Cutter width in sketch units (facing): the path is drawn this wide too.
+    in property <float> conv-swept;
+    in property <string> conv-summary;
+    in property <bool> conv-error;
+
+    // List picker overlay (picker.rs).
+    in property <bool> pick-open;
+    in property <string> pick-title;
+    in property <[string]> pick-items;
+    in property <int> pick-current: -1;
+
+    // Keypad overlay; Rust owns the value and what it is for.
+    in property <bool> keypad-open;
+    in property <string> keypad-label;
+    in property <string> keypad-value;
+    // The value is still the old one: the first digit replaces it.
+    in property <bool> keypad-fresh;
+    // Under the value: "= 1.75" while an expression is typed, or why ENTER
+    // was refused (keypad-error).
+    in property <string> keypad-result;
+    in property <bool> keypad-error;
+    // The text keyboard (tool comments).
+    in property <bool> text-open;
+    in property <string> text-label;
+    in property <string> text-value;
+    in property <bool> text-caps;
+    in property <string> text-error;
+
+    // SETUP (setup.rs)
+    in property <[SetupStep]> setup-steps;
+    in property <int> setup-step;
+    in property <string> setup-title;
+    in property <string> setup-intro;
+    in property <[StatusRow]> setup-facts;
+    in property <[SetupRow]> setup-rows;
+    // No ferrum.toml yet: SETUP opened first, with a sentence on what works.
+    in property <bool> setup-first;
+    // Saved changes that apply when LinuxCNC (and ferrum) next start.
+    in property <string> setup-pending;
+}
+
+export global Actions {
+    callback estop-trip();
+    callback estop-reset();
+    callback power();
+    callback home-all();
+    // One axis by its letter ("X"); A is referenced where it stands.
+    callback home-axis(axis: string);
+    // which: "feed" | "rapid" | "spindle"; delta in percent
+    callback override(which: string, delta: int);
+    callback override-reset(which: string);
+    callback cycle-start();
+    callback feed-hold();
+    callback stop();
+    callback single-block();
+    callback optional-stop();
+    callback block-delete();
+    callback navigate(id: string);
+    callback exit();
+
+    callback jog-start(axis: int, dir: int);
+    callback jog-stop(axis: int);
+    callback jog-step-set(step: string);
+    callback set-a-reference();
+    callback spindle(dir: int);
+    callback mist-toggle();
+    callback flood-toggle();
+    callback zero-xyz();
+    callback z-to-work-zero();
+    callback retract-xy-to-zero();
+    // o<go_to_home>: G53 Z0, then X0 Y0, then A0 (Probe Basic's park).
+    callback park();
+    // Opens the keypad for a named value ("jog-speed", "spindle-rpm", ...).
+    callback edit(what: string);
+    callback keypad-key(key: string);
+    callback keypad-done(ok: bool);
+    // Opens the text keyboard for a named text ("tool-comment").
+    callback text-edit(what: string);
+    // A character as shown on the key, or "⌫", "CLR", "⇧", "SPACE".
+    callback text-key(key: string);
+    callback text-done(ok: bool);
+
+    callback pf-mode-set(mode: string);
+    callback pf-wcs-set(code: string);
+    callback pf-move(axis: int, dir: int);
+    callback motion-stop();
+    callback goto-select(index: int);
+    callback goto-save();
+    callback goto-update();
+    callback goto-delete();
+    callback goto-go();
+
+    callback mdi-send(text: string);
+    callback files-tap(index: int);
+    callback files-up();
+    callback files-refresh();
+    callback files-load();
+    callback files-op-tap(index: int);
+    callback files-plot-resize(width: float, height: float);
+    callback gcode-next-m6();
+    // Hold RUN FROM SELECTED: raise Z, restore spindle/coolant, run from the line.
+    callback gcode-run-from-selected();
+    callback plot-resize(width: float, height: float);
+    callback plot-view(view: string);
+    callback plot-clear-trail();
+    // Pan and zoom points as fractions of the plot's width and height, so a
+    // browser of any size moves the mill's image by what the finger did.
+    callback plot-pan(dx: float, dy: float, seq: int);
+    // Turn and raise the backplot view, in degrees.
+    callback plot-orbit(dyaw: float, dpitch: float);
+    // A tap on the view cube, as a fraction of its box.
+    callback plot-cube-tap(x: float, y: float);
+    // Pointer over the cube (x < 0 when it leaves).
+    callback plot-cube-hover(x: float, y: float);
+    callback plot-zoom(factor: float, x: float, y: float);
+    callback plot-fit();
+    // Tap on the travel check: show its line and every finding.
+    callback plot-check-tap();
+    callback plot-machine();
+    // Also clears the toast where it was set, so a repeat shows again.
+    callback toast-dismiss();
+    callback mdi-category-set(category: string);
+    callback mdi-pick(fill: string);
+    callback mdi-key(key: string);
+    callback mdi-edited();
+    callback clear-messages();
+    callback tc-seated-toggle();
+    callback tc-drawbar(extend: bool);
+    callback tc-resume(touch-off: bool);
+    callback tc-abort();
+    callback tools-select(index: int);
+    callback tools-m6();
+    callback tools-unload();
+    callback tools-add-scratch();
+    callback tools-delete();
+    callback tools-create-missing();
+    callback tools-drawbar(extend: bool);
+    callback tools-reload();
+    callback tools-measure();
+    callback tools-check();
+    callback tools-check-select(index: int);
+    callback offsets-select(index: int);
+    callback offsets-activate();
+    callback offsets-zero(axis: int);
+    // DRO ZERO: one axis of the active work system reads 0 here.
+    callback dro-zero(axis: string);
+    callback offsets-clear();
+    callback offsets-clear-all();
+    callback offsets-clear-g92();
+    callback history-select(index: int);
+    callback history-restore();
+    callback probe-mode(mode: string);
+    callback probe-shape(shape: string);
+    callback probe-target(id: string);
+    callback probe-opt(id: string);
+    callback probe-step(id: string, dir: int);
+    callback probe-reset(id: string);
+    callback probe-reset-all();
+    callback probe-wcs(code: string);
+    callback probe-load();
+    callback probe-run();
+    callback probe-stop();
+    callback job-select(index: int);
+    callback job-toggle(index: int);
+    callback job-new();
+    callback job-open();
+    callback job-add-step();
+    callback job-add-program();
+    callback job-move(dir: int);
+    callback job-delete();
+    callback job-start-at();
+    callback job-stop-after();
+    callback job-build();
+    callback job-check-value();
+    callback job-check-link();
+    callback job-check-pause();
+    callback job-check-adjust();
+    // Add the PROBE screen's setup to the job (check: as a measuring op).
+    callback probe-add-job(check: bool);
+    callback conv-type(id: string);
+    callback conv-field(key: string);
+    callback conv-section(id: string);
+    callback conv-hole-add();
+    callback conv-hole-del();
+    callback conv-hole-select(index: int);
+    callback conv-add();
+    callback conv-load();
+    // -1 cancels.
+    callback pick(index: int);
+    callback wu-secure();
+    callback wu-start();
+    callback wu-stop();
+    callback ut-blast();
+    callback ut-go-g30();
+    callback ut-set-g30();
+    // SETUP: show a step; tap a row (a setting or a button); FINISH.
+    callback setup-go(step: int);
+    callback setup-tap(key: string);
+    callback setup-finish();
+}

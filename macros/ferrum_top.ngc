@@ -1,0 +1,16 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Top touch: o<ferrum_top> call [reach]. One o<ferrum_touch> straight
+; down (-Z) of at most [reach]; the surface is the contact Z, uncompensated
+; (the tip's lowest point by the tool length offset). Reports it as
+; z_minus_probed_position / #1009, in the coordinates in effect before any
+; offset write, returns it and keeps it in #<_ferrum_top>. Ends #3021
+; above the surface. No offset is written.
+o<ferrum_top> sub
+#<reach> = #1
+o<ferrum_touch> call [2] [-1] [#<reach>]
+#<surface> = #<_ferrum_hit>
+#1009 = #<surface>
+(DEBUG, EVAL[vcp.getWidget{"z_minus_probed_position"}.setValue{#<surface>}])
+#<_ferrum_top> = #<surface>
+o<ferrum_top> endsub [#<surface>]
+M2

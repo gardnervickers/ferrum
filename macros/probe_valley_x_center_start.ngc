@@ -1,0 +1,29 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND/MEASURE slot across X: finds the centre and width of a slot (valley)
+; across X. The probe starts inside the slot, roughly centred, with the tip
+; below the top; there is no Z motion. One measurement across X (-X wall, then +X,
+; width hint #3028), then a guarded move to the centre. Reports
+; x_probed_width #1001 and x_center_probed #1002. With #3030 = 0 the active
+; work offset gets X0 at the centre. Ends at the centre, same Z.
+o<probe_valley_x_center_start> sub
+o10 if [#<_task> EQ 0]
+    o<probe_valley_x_center_start> return
+o10 endif
+o<ferrum_probe_ready> call
+M73
+M50 P0
+G90 G94
+
+o<ferrum_span_inside> call [0] [#3028] [#3032]
+#1001 = #<_ferrum_width>
+#1002 = #<_ferrum_center>
+
+(DEBUG, EVAL[vcp.getWidget{"x_probed_width"}.setValue{#1001}])
+(DEBUG, EVAL[vcp.getWidget{"x_center_probed"}.setValue{#1002}])
+
+o30 if [#3030 EQ 0]
+    G10 L20 P0 X[#5420 - #1002]
+o30 endif
+G90
+o<probe_valley_x_center_start> endsub
+M2
