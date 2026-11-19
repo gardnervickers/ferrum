@@ -491,7 +491,13 @@ fn tick(ui: &MainWindow) {
     let live = ui.global::<Live>();
     PLAYER.with(|p| {
         let mut p = p.borrow_mut();
-        let active = live.get_screen() == "probe" && !live.get_pr_running() && !p.script.is_empty();
+        // Whether PROBE plays the preview (a run hides it for its own
+        // arrows). The picture picks preview or approach arrows from this,
+        // not from whether the tip happens to be drawn yet, so a change of
+        // routine never shows the arrows for a frame before the tip comes.
+        let plays = live.get_screen() == "probe" && !p.script.is_empty();
+        live.set_pr_preview(plays);
+        let active = plays && !live.get_pr_running();
         if !active {
             if p.showing {
                 p.showing = false;
@@ -545,31 +551,42 @@ fn tick(ui: &MainWindow) {
 /// one playing (a new shape, target or option).
 pub fn play(ui: &MainWindow, script: Script) {
     let same = PLAYER.with(|p| p.borrow().script == script);
-    if same {
-        return;
+    if !same {
+        let live = ui.global::<Live>();
+        live.set_pr_part(part_path(script.part, script.rest_angle()).into());
+        live.set_pr_trail("".into());
+        PLAYER.with(|p| {
+            let mut p = p.borrow_mut();
+            p.script = script;
+            p.started = Instant::now();
+            // Played again from the first step (below).
+            p.showing = false;
+            live.set_pr_tip_on(false);
+            live.set_pr_caption("".into());
+            if !p.timer.running() {
+                let weak = ui.as_weak();
+                p.timer.start(slint::TimerMode::Repeated, FRAME, move || {
+                    if let Some(ui) = weak.upgrade() {
+                        tick(&ui);
+                    }
+                });
+            } else {
+                p.timer.set_interval(FRAME);
+            }
+        });
     }
-    let live = ui.global::<Live>();
-    live.set_pr_part(part_path(script.part, script.rest_angle()).into());
-    live.set_pr_trail("".into());
-    PLAYER.with(|p| {
-        let mut p = p.borrow_mut();
-        p.script = script;
-        p.started = Instant::now();
-        // The next tick shows the tip again from the first step.
-        p.showing = false;
-        live.set_pr_tip_on(false);
-        live.set_pr_caption("".into());
-        if !p.timer.running() {
-            let weak = ui.as_weak();
-            p.timer.start(slint::TimerMode::Repeated, FRAME, move || {
-                if let Some(ui) = weak.upgrade() {
-                    tick(&ui);
-                }
-            });
-        } else {
-            p.timer.set_interval(FRAME);
-        }
-    });
+    wake(ui);
+}
+
+/// Draw the preview's first frame now rather than on the timer's next tick
+/// (up to 250 ms away when idle): a new routine, coming back to PROBE or the
+/// end of a run shows the tip at once, in the same frame as the rest of the
+/// picture.
+pub fn wake(ui: &MainWindow) {
+    let idle = PLAYER.with(|p| !p.borrow().showing);
+    if idle {
+        tick(ui);
+    }
 }
 
 #[cfg(test)]

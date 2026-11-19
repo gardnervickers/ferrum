@@ -87,6 +87,9 @@ export component ProbeScreen inherits Rectangle {
     property <string> defaults-tab: "probe";
     property <bool> wcs-open: Live.pr-dialog == "wcs";
     property <bool> job-open: Live.pr-dialog == "job";
+    // The picture shows either the approach arrows or the preview, never both.
+    property <bool> arrows: Live.pr-running || !Live.pr-preview;
+    property <bool> tip: Live.pr-tip-on && !self.arrows;
     // The browser build redraws a changed Path over open overlays.
     property <bool> paths-visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open || Live.pr-dialog != "");
     // Three cards, left to right: what to probe, where on it, then the
@@ -169,16 +172,18 @@ export component ProbeScreen inherits Rectangle {
                         st := TouchArea { enabled: !Live.pr-running; clicked => { Actions.probe-target(sp.id); } }
                     }
                     // Approach moves, drawn over the spots (not tappable). The
-                    // preview shows the same moves, so they only show without it.
+                    // preview shows the same moves, so they only show without
+                    // it. (Not from pr-tip-on: the tip is off for a moment
+                    // whenever the routine changes.)
                     Path {
-                        visible: root.paths-visible && !Live.pr-tip-on;
+                        visible: root.paths-visible && root.arrows;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-arrows;
                         stroke: Theme.warn.with-alpha(0.75); stroke-width: 2px; fill: transparent;
                     }
                     Path {
-                        visible: root.paths-visible && !Live.pr-tip-on;
+                        visible: root.paths-visible && root.arrows;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-heads;
@@ -187,13 +192,13 @@ export component ProbeScreen inherits Rectangle {
                     // The preview: the tip plays the routine in a loop.
                     // Green is the preview; amber stays the approach arrows.
                     Path {
-                        visible: root.paths-visible && Live.pr-tip-on;
+                        visible: root.paths-visible && root.tip;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
                         viewbox-width: 400; viewbox-height: 300;
                         commands: Live.pr-trail;
                         stroke: Theme.good.with-alpha(0.8); stroke-width: 3px; fill: transparent;
                     }
-                    if Live.pr-tip-on: Rectangle {
+                    if root.tip: Rectangle {
                         // Clear of the part the tip is drawn larger and fainter.
                         property <length> r: (6 + 5 * Live.pr-tip-z) * pic.sc * 1px;
                         visible: root.paths-visible;

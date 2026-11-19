@@ -307,6 +307,9 @@ export global Live {
     // The preview: the probe tip playing the routine in a loop (probe_anim.rs).
     // Where the tip is in picture units; z is its height (1 clear, 0 at depth).
     in property <bool> pr-tip-on;
+    // PROBE plays the preview (else, or while a probe runs, the picture
+    // shows the approach arrows instead).
+    in property <bool> pr-preview;
     in property <float> pr-tip-x;
     in property <float> pr-tip-y;
     in property <float> pr-tip-z;

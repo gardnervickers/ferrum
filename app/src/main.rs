@@ -711,6 +711,8 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             // A PROBE dialog left open does not come back with the screen.
             live.set_pr_dialog("".into());
             live.set_screen(id);
+            // PROBE's preview starts with the screen, not a tick later.
+            probe_anim::wake(&ui);
         }
     });
 }
