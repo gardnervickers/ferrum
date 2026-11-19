@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/splash.png" alt="Ferrum" width="720">
+  <img src="docs/images/logo.png" alt="Ferrum: LinuxCNC mill control" width="720">
 </p>
 
 # Ferrum
@@ -8,7 +8,7 @@ A touchscreen control for [LinuxCNC](https://linuxcnc.org) mills, written in Rus
 
 Ferrum is the screen you stand in front of: big targets, one job per screen, and nothing that needs a mouse or a keyboard. It talks to LinuxCNC directly, with no Python, and runs on a Raspberry Pi 5.
 
-![The RUN screen with a program running](docs/images/run.png)
+![The RUN screen running a program on the simulated machine](docs/images/run.gif)
 
 > **Status: early.** Ferrum runs its author's mill, and it is being split out of the machine config it grew up in. The binary and its settings file are still called `millgui`. Expect names and paths to move.
 
