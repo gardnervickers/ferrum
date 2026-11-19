@@ -1,6 +1,6 @@
 //! PROBE screen (milestone 5): one screen for every probing routine.
 //!
-//! Pick FIND / MEASURE / CAL, the shape, then the spot on the picture; the
+//! Pick PART or CALIBRATE, the shape, then the spot on the picture; the
 //! spot decides which existing macro runs (Probe Basic's vendor macros and
 //! the guarded mymill ones). Nothing here moves the machine itself.
 //!
@@ -198,7 +198,6 @@ fn center(kind: &'static str, x: f64, y: f64, label: &str) -> Target {
 
 const SHAPES: &[(&str, &[(&str, &str)])] = &[
     ("find", &[("block", "BLOCK / STOCK"), ("top", "TOP FACE Z"), ("round", "ROUND BOSS"), ("pocket", "POCKET"), ("bore", "BORE"), ("slot", "RIDGE / SLOT"), ("cyl", "ON THE ROTARY")]),
-    ("meas", &[("dia", "DIAMETER"), ("runout", "RUNOUT"), ("defl", "DEFLECTION")]),
     ("cal", &[("ring", "PROBE TIP"), ("setter", "TOOL LENGTH"), ("nose", "SPINDLE NOSE")]),
 ];
 
@@ -410,10 +409,14 @@ impl Probe {
                 let what = if self.ridge { "RIDGE" } else { "SLOT" };
                 vec![center("slot", 200.0, 150.0, &format!("{what} · ACROSS {}", if self.axes == "Y" { "Y" } else { "X" }))]
             }
-            "cyl" => vec![center("cyl", 200.0, 165.0, "ROTARY CENTERLINE (Y, Z)"), Target { id: "flat", ..center("flat", 200.0, 115.0, "A0 ON A FLAT") }],
-            "dia" => vec![center("dia", 200.0, 150.0, "DIAMETER")],
-            "runout" => vec![center("runout", 200.0, 150.0, "RUNOUT")],
-            "defl" => vec![center("defl", 200.0, 150.0, "DEFLECTION")],
+            // Setting the rotary up, and the checks on it that only report.
+            "cyl" => vec![
+                center("cyl", 200.0, 165.0, "ROTARY CENTERLINE (Y, Z)"),
+                Target { id: "flat", ..center("flat", 200.0, 115.0, "A0 ON A FLAT") },
+                Target { id: "dia", ..center("dia", 200.0, 150.0, "ROTARY · DIAMETER") },
+                Target { id: "runout", ..center("runout", 200.0, 150.0, "ROTARY · RUNOUT") },
+                Target { id: "defl", ..center("defl", 200.0, 150.0, "ROTARY · DEFLECTION") },
+            ],
             "ring" => vec![center("ring", 200.0, 150.0, if self.pin { "PROBE TIP · GAUGE PIN" } else { "PROBE TIP · RING GAUGE" })],
             "setter" => vec![center("setter", 200.0, 150.0, "TOOL LENGTH")],
             _ => vec![center("nose", 200.0, 150.0, "SPINDLE NOSE")],
@@ -498,7 +501,12 @@ impl Probe {
                 "ACROSS",
                 vec![it("X", "X", self.axes != "Y"), it("Y", "Y", self.axes == "Y")],
             ),
-            ("cyl", _) => ("FIND", vec![it("tgt-ctr", "CENTERLINE Y, Z", sel.id == "ctr"), it("tgt-flat", "A0 ON A FLAT", sel.id == "flat")], "", vec![]),
+            ("cyl", _) => (
+                "SET",
+                vec![it("tgt-ctr", "CENTERLINE Y, Z", sel.id == "ctr"), it("tgt-flat", "A0 ON A FLAT", sel.id == "flat")],
+                "MEASURE (REPORTS ONLY)",
+                vec![it("tgt-dia", "DIAMETER", sel.id == "dia"), it("tgt-runout", "RUNOUT", sel.id == "runout"), it("tgt-defl", "DEFLECTION", sel.id == "defl")],
+            ),
             ("bore" | "round", _) => ("TOUCHES", vec![it("pts-4", "ACROSS X AND Y", !self.three), it("pts-3", "3 POINTS", self.three)], "", vec![]),
             ("ring", _) => (
                 "GAUGE",
@@ -773,9 +781,15 @@ impl Probe {
         })
     }
 
-    /// Whether a run writes a work offset: FIND, unless WRITE TO is NOTHING.
+    /// Whether a run writes a work offset: a part routine, unless WRITE TO
+    /// is NOTHING or the routine only reports (the rotary checks).
     fn writes(&self) -> bool {
-        self.mode == "find" && !self.measure_only
+        self.mode == "find" && !self.measure_only && !Self::reports_only(self.selected().kind)
+    }
+
+    /// Routines that measure and never write an offset.
+    fn reports_only(kind: &str) -> bool {
+        matches!(kind, "dia" | "runout" | "defl")
     }
 
     /// The three touch angles as macro arguments: `[90] [210] [330]`.
@@ -1143,7 +1157,7 @@ impl Probe {
                     lines.push(format!("Rotation written to {}; its X0 Y0 stay", WCS[self.target_wcs()]));
                 } else if self.writes() && Self::needs(run.kind) == Needs::Probe {
                     lines.push(format!("Written to {}", WCS[self.target_wcs()]));
-                } else if self.mode == "find" {
+                } else if self.mode == "find" && !Self::reports_only(run.kind) {
                     lines.push("Measured only · nothing written".into());
                 }
                 if lines.is_empty() {
@@ -1214,7 +1228,6 @@ impl Probe {
         live.set_pr_shape_label(
             match self.mode {
                 "find" => "WHAT ARE YOU PROBING?",
-                "meas" => "WHAT TO MEASURE?",
                 _ => "WHAT TO CALIBRATE",
             }
             .into(),
@@ -1387,13 +1400,13 @@ impl Probe {
         live.set_pr_routine(what.into());
         live.set_pr_note(
             match self.mode {
+                _ if Self::reports_only(sel.kind) => "Reports only. Work offsets are not changed.",
                 "find" => "",
-                "meas" => "Reports only. Work offsets are not changed.",
                 _ => "Updates probe or tool data.",
             }
             .into(),
         );
-        live.set_pr_show_wcs(self.mode == "find");
+        live.set_pr_show_wcs(self.mode == "find" && !Self::reports_only(sel.kind));
         live.set_pr_wcs(if self.measure_only { "NOTHING".into() } else { WCS[self.target_wcs()].into() });
         live.set_pr_result(if self.result_text.is_empty() { "No measurement yet.".into() } else { self.result_text.clone().into() });
         let needs = Self::needs(sel.kind);
@@ -1423,9 +1436,9 @@ impl Probe {
             (Some(Flow::StockMeasured { .. }), "stock") | (Some(Flow::TwoReady { .. }), "two") => "APPLY".to_string(),
             (Some(Flow::TwoFirst { .. }), "two") => "PROBE OPPOSITE FACE".into(),
             (Some(Flow::CalTurn { .. }), "ring") => "CHECK STYLUS".into(),
+            _ if Self::reports_only(sel.kind) => "MEASURE".into(),
             _ if self.mode == "find" && self.measure_only => "MEASURE".into(),
             _ if self.mode == "find" => "PROBE".into(),
-            _ if self.mode == "meas" => "MEASURE".into(),
             _ if needs != Needs::Probe => "MEASURE TOOL".into(),
             _ => "CALIBRATE".into(),
         };
@@ -1977,8 +1990,9 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
     let p = probe.clone();
     actions.on_probe_mode(move |m| {
         let mut p = p.borrow_mut();
-        p.mode = match m.as_str() { "meas" => "meas", "cal" => "cal", _ => "find" };
-        p.shape = "";
+        // MEASURE was its own mode; its checks are under ON THE ROTARY now.
+        p.mode = if m.as_str() == "cal" { "cal" } else { "find" };
+        p.shape = if m.as_str() == "meas" { "cyl" } else { "" };
         p.flow = None;
         p.locv.clear();
         p.settle();
@@ -2310,7 +2324,7 @@ mod tests {
         for (mode, shapes) in SHAPES {
             for (shape, _) in *shapes {
                 pick(&mut p, mode, shape);
-                let combos: [&[&str]; 11] = [&[], &["angle-on"], &["angle-skew"], &["axis-X"], &["axis-Y"], &["valley"], &["Y"], &["valley", "Y"], &["tgt-flat"], &["pts-3"], &["gauge-pin"]];
+                let combos: [&[&str]; 14] = [&[], &["angle-on"], &["angle-skew"], &["axis-X"], &["axis-Y"], &["valley"], &["Y"], &["valley", "Y"], &["tgt-flat"], &["tgt-dia"], &["tgt-runout"], &["tgt-defl"], &["pts-3"], &["gauge-pin"]];
                 for opts in combos {
                     for o in opts {
                         p.option(o);
@@ -2419,8 +2433,12 @@ mod tests {
         // Nothing to switch to: the run stays in the active system.
         assert_eq!(p.target_wcs(), 0);
         assert!(p.job_op(false).unwrap_err().contains("NOTHING"));
-        p.mode = "meas";
+        // The rotary checks never write, whatever WRITE TO says.
         p.measure_only = false;
+        pick(&mut p, "find", "cyl");
+        assert!(p.writes());
+        p.option("tgt-runout");
+        assert_eq!(call_now(&mut p), "o<probe_a_measure_runout> call [25.000] [1]");
         assert!(!p.writes());
     }
 

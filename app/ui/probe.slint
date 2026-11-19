@@ -105,9 +105,10 @@ export component ProbeScreen inherits Rectangle {
                 padding: Theme.pad;
                 spacing: Theme.row;
                 HorizontalLayout {
-                    Seg { horizontal-stretch: 1; first: true; text: "FIND"; font-size: Theme.t-body; on: Live.pr-mode == "find"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("find"); } }
-                    Seg { horizontal-stretch: 1; text: "MEASURE"; font-size: Theme.t-body; on: Live.pr-mode == "meas"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("meas"); } }
-                    Seg { horizontal-stretch: 1; last: true; text: "CAL"; font-size: Theme.t-body; on: Live.pr-mode == "cal"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("cal"); } }
+                    // Probe the part (setting an offset, or WRITE TO NOTHING
+                    // to only measure), or calibrate the probe and setter.
+                    Seg { horizontal-stretch: 1; first: true; text: "PART"; font-size: Theme.t-body; on: Live.pr-mode == "find"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("find"); } }
+                    Seg { horizontal-stretch: 1; last: true; text: "CALIBRATE"; font-size: Theme.t-body; on: Live.pr-mode == "cal"; enabled: !Live.pr-running; clicked => { Actions.probe-mode("cal"); } }
                 }
                 for s in Live.pr-shapes: Btn { height: Theme.h-choice; text: s.label; on: s.on; enabled: !Live.pr-running; clicked => { Actions.probe-shape(s.id); } }
                 Rectangle { vertical-stretch: 1; }
