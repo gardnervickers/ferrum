@@ -1,5 +1,5 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
-; One precise probe touch: o<millgui_touch> call [axis] [dir] [max].
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; One precise probe touch: o<ferrum_touch> call [axis] [dir] [max].
 ; [axis] 0 = X, 1 = Y, 2 = Z; [dir] +1 or -1 is the direction the probe
 ; moves; [max] is the search distance in machine units, measured from the
 ; current position. The clearance c is #3019 for X/Y and #3021 for Z.
@@ -13,10 +13,10 @@
 ;      If #3015 = 0 the fast contact is the result.
 ; The contact coordinate (current work coordinates, probe tip centre for
 ; X/Y and tip bottom for Z as the tool length offset gives it, no tip
-; compensation) is returned in #<_millgui_hit> and as the return value.
+; compensation) is returned in #<_ferrum_hit> and as the return value.
 ; The probe ends c away from the surface on the side it came from. Modal
 ; state (distance mode, feed mode, feed) is restored on return (M73).
-o<millgui_touch> sub
+o<ferrum_touch> sub
 #<axis> = #1
 #<dir> = #2
 #<max> = #3
@@ -75,6 +75,6 @@ o300 if [#3015 GT 0]
     G91 G1 X[#<ux> * #<d>] Y[#<uy> * #<d>] Z[#<uz> * #<d>] F#3017
 o300 endif
 
-#<_millgui_hit> = #<hit>
-o<millgui_touch> endsub [#<hit>]
+#<_ferrum_hit> = #<hit>
+o<ferrum_touch> endsub [#<hit>]
 M2

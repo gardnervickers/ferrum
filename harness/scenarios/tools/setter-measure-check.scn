@@ -4,7 +4,7 @@ allow-error may be broken    # the broken tool, on purpose
 # The sim's T${setter_tool} is ${setter_tool_len} long; its table length says
 # otherwise until MEASURE. Then CHECK passes, and after the table is made
 # 2 mm longer than the tool (a "broken" tool) CHECK stops.
-errors-to-millgui    # millgui reads the check result from the error queue
+errors-to-ferrum    # ferrum reads the check result from the error queue
 include ../common/ready.scn
 screen tools
 expect prop.tools-has-setter == true
@@ -23,7 +23,7 @@ wait prop.tools-setter-tone == "good" within 60
 expect prop.tools-setter-note contains measured
 shot measured
 expect prop.tools-can-check == true
-# millgui puts MANUAL back 0.5 s after an MDI command ends.
+# ferrum puts MANUAL back 0.5 s after an MDI command ends.
 sleep 1
 do tools-check
 sleep 2

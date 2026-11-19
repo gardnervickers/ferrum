@@ -253,7 +253,7 @@ mod tests {
         let mut p = pf();
         p.wcs = 2;
         let (cmd, _) = p.move_cmd(&Status::default(), 1, -1).unwrap();
-        assert_eq!(cmd, "G55 G91 G1 Y-25 F250 (millgui: modes back after)");
+        assert_eq!(cmd, "G55 G91 G1 Y-25 F250 (ferrum: modes back after)");
     }
 
     #[test]
@@ -261,7 +261,7 @@ mod tests {
         let mut p = pf();
         p.mode = Mode::EndOfTravel;
         let (cmd, _) = p.move_cmd(&Status::default(), 0, 1).unwrap();
-        assert_eq!(cmd, "G90 G53 G1 X199 F250 (millgui: modes back after)");
+        assert_eq!(cmd, "G90 G53 G1 X199 F250 (ferrum: modes back after)");
         assert!(p.move_cmd(&Status::default(), 2, 1).is_err());
         assert!(!p.axis_enabled(2));
         let mut s = Status::default();

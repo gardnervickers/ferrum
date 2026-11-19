@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>millgui</title>
+<title>ferrum</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0d0f12; overflow: hidden; }
   body { display: flex; align-items: center; justify-content: center; }
@@ -15,7 +15,7 @@
 <div id="loading">Loading the mill screen…</div>
 <canvas id="screen" width="1920" height="1080"></canvas>
 <script type="module">
-  import init from "./millgui_web.js";
+  import init from "./ferrum_web.js";
   init().then(() => document.getElementById("loading").remove())
         .catch(e => { document.getElementById("loading").textContent = "Failed to start: " + e; });
 </script>

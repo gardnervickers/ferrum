@@ -378,7 +378,7 @@ pub fn set_g30_lines() -> Vec<String> {
     vec!["G30.1".into(), format!("(DEBUG,{G30_REPORT} #5181 #5182 #5183)")]
 }
 
-const G30_REPORT: &str = "millgui G30";
+const G30_REPORT: &str = "ferrum G30";
 
 /// The G30 position as reported after SET G30 (or by set_g30_position.ngc,
 /// as DEBUG EVAL lines).

@@ -1,4 +1,4 @@
-title No millgui.toml: SETUP opens first, saves settings, FINISH writes the file
+title No ferrum.toml: SETUP opens first, saves settings, FINISH writes the file
 needs stock
 allow-error Out of range
 wait prop.connected == true within 30
@@ -41,7 +41,7 @@ shot spindle
 do setup-go 2
 do setup-tap toolchange.style
 wait prop.pick-open == true within 5
-do pick 2                            # MILLGUI'S DIALOG
+do pick 2                            # FERRUM'S DIALOG
 wait prop.setup-pending contains "3 saved changes" within 5
 # The probe input, live.
 do setup-go 3
@@ -58,13 +58,13 @@ screen setup
 do setup-go 4
 mdi G53 G0 X1 Y2
 idle
-sleep 0.5                             # millgui sees the move finished
+sleep 0.5                             # ferrum sees the move finished
 do setup-tap set-g30
 wait prop.ut-g30 contains "1.0" within 10
 wait prop.setup-rows contains "1.0" within 5
 sleep 0.5
 shot setter
-# FINISH writes millgui.toml and goes to RUN.
+# FINISH writes ferrum.toml and goes to RUN.
 do setup-go 5
 do setup-finish
 wait prop.screen == "run" within 5

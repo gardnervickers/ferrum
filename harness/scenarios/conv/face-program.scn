@@ -74,7 +74,7 @@ expect prop.gcode-lines contains G0 Z0.5000
 expect prop.gcode-lines contains G1 X2.0000
 do cycle-start
 wait stat.interp_state != 1 within 10
-# T2 M6: millgui's tool change dialog.
+# T2 M6: ferrum's tool change dialog.
 wait prop.tc-open == true within 60
 expect prop.tc-tool contains T2
 do tc-seated-toggle

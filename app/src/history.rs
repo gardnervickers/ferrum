@@ -1,5 +1,5 @@
 //! Offsets timeline: every change to a work offset or a tool's length and
-//! diameter that millgui makes or sees, with the values before and after,
+//! diameter that ferrum makes or sees, with the values before and after,
 //! and a way to put the earlier values back.
 //!
 //! The log only observes. LinuxCNC stays the owner of the offsets and the
@@ -7,7 +7,7 @@
 //! table write for a tool) made by the owning screen, and is itself logged,
 //! so a restore can be undone the same way.
 //!
-//! What it cannot see: a change made while millgui is not running, and a
+//! What it cannot see: a change made while ferrum is not running, and a
 //! change a program makes to a work system that is not active (OFFSETS
 //! learns of that one when the system becomes active, and it is logged
 //! then, marked as found late).
@@ -58,7 +58,7 @@ struct History {
 /// Wear adjustments in effect, per tool and per value (0 length, 1
 /// diameter): the adjustment and the table value it was made to. It
 /// counts only while the table still holds that value, so a touch off, a
-/// hand edit of the file or a change made while millgui was closed ends it
+/// hand edit of the file or a change made while ferrum was closed ends it
 /// without anyone having to notice the change.
 #[derive(Default)]
 struct WearStore {
@@ -73,7 +73,7 @@ impl WearStore {
         let text = serde_json::to_string(&self.tools).unwrap_or_default();
         let ok = path.parent().map_or(Ok(()), std::fs::create_dir_all).is_ok() && std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, path)).is_ok();
         if !ok {
-            eprintln!("millgui: could not save {}", path.display());
+            eprintln!("ferrum: could not save {}", path.display());
         }
     }
 }
@@ -201,7 +201,7 @@ impl History {
         let text: String = self.entries.iter().filter_map(|e| serde_json::to_string(e).ok()).map(|l| l + "\n").collect();
         let tmp = path.with_extension("tmp");
         if std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, path)).is_err() {
-            eprintln!("millgui: could not save {}", path.display());
+            eprintln!("ferrum: could not save {}", path.display());
         }
     }
 
@@ -211,7 +211,7 @@ impl History {
         let ok = path.parent().map_or(Ok(()), std::fs::create_dir_all).is_ok()
             && std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| writeln!(f, "{line}")).is_ok();
         if !ok {
-            eprintln!("millgui: could not save {}", path.display());
+            eprintln!("ferrum: could not save {}", path.display());
         }
     }
 

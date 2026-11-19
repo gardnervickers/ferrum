@@ -1,4 +1,4 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; CAL probe tip: measures the probe's calibration offset #3032 in a ring
 ; gauge of known diameter #3033. The probe starts above the gauge's top
 ; face, left of the bore and less than #3023 outside its edge, within
@@ -12,13 +12,13 @@
 ; z_minus_probed_position #1009, x_probed_width #1001, x_center_probed
 ; #1002, y_probed_width #1003, y_center_probed #1004, averaged_diam #1010
 ; (all uncalibrated) and, last and only once, calibration_offset_3032 with
-; the new value, which millgui saves. Never writes a work offset, whatever
+; the new value, which ferrum saves. Never writes a work offset, whatever
 ; #3030 says. Ends over the gauge centre at the clearance height.
 o<probe_cal_round_pocket> sub
 o10 if [#<_task> EQ 0]
     o<probe_cal_round_pocket> return
 o10 endif
-o<millgui_probe_ready> call
+o<ferrum_probe_ready> call
 M73
 M50 P0
 G90 G94
@@ -29,24 +29,24 @@ o21 if [[#3036 LT 0] OR [#3036 GT 2]]
     (ABORT, Cal axis #3036 must be 0 X+Y, 1 X or 2 Y)
 o21 endif
 
-o<millgui_touch> call [2] [-1] [#3020]
-#1009 = #<_millgui_hit>
+o<ferrum_touch> call [2] [-1] [#3020]
+#1009 = #<_ferrum_hit>
 #<z_clear> = [#1009 + #3021]
 #<z_probe> = [#1009 - #5410 - #3022]
-o<millgui_guarded_move> call [0] [0] [#<z_clear> - #5422]
-o<millgui_guarded_move> call [#3023] [0] [0]
-o<millgui_guarded_move> call [0] [0] [#<z_probe> - #5422]
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+o<ferrum_guarded_move> call [#3023] [0] [0]
+o<ferrum_guarded_move> call [0] [0] [#<z_probe> - #5422]
 
-o<millgui_span_inside> call [0] [#3033] [0]
-o<millgui_span_inside> call [1] [#3033] [0]
-o<millgui_span_inside> call [0] [#3033] [0]
-#1001 = #<_millgui_width>
-#1002 = #<_millgui_center>
-o<millgui_span_inside> call [1] [#3033] [0]
-#1003 = #<_millgui_width>
-#1004 = #<_millgui_center>
+o<ferrum_span_inside> call [0] [#3033] [0]
+o<ferrum_span_inside> call [1] [#3033] [0]
+o<ferrum_span_inside> call [0] [#3033] [0]
+#1001 = #<_ferrum_width>
+#1002 = #<_ferrum_center>
+o<ferrum_span_inside> call [1] [#3033] [0]
+#1003 = #<_ferrum_width>
+#1004 = #<_ferrum_center>
 #1010 = [[#1001 + #1003] / 2]
-o<millgui_guarded_move> call [0] [0] [#<z_clear> - #5422]
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
 
 #<ex> = [[#1001 - #3033] / 2]
 #<ey> = [[#1003 - #3033] / 2]

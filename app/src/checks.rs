@@ -1,5 +1,5 @@
-//! The configuration checker: what millgui read, what it could not find and
-//! what that switches off. One list of rows, used three ways: `millgui
+//! The configuration checker: what ferrum read, what it could not find and
+//! what that switches off. One list of rows, used three ways: `ferrum
 //! --check <ini>` prints it, startup uses it to switch features off with a
 //! reason, and (phase 3) the SETUP screen shows it with fixes.
 
@@ -26,7 +26,7 @@ pub enum Group {
 impl Group {
     pub fn name(self) -> &'static str {
         match self {
-            Group::Config => "millgui.toml",
+            Group::Config => "ferrum.toml",
             Group::Machine => "Machine",
             Group::Files => "Files",
             Group::Spindle => "Spindle",
@@ -43,7 +43,7 @@ impl Group {
 /// A feature a row can switch off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Feature {
-    /// Everything: millgui cannot run the machine.
+    /// Everything: ferrum cannot run the machine.
     Core,
     Probe,
     Job,
@@ -62,7 +62,7 @@ pub enum Level {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Fix {
     None,
-    /// A millgui.toml key.
+    /// A ferrum.toml key.
     Setting(&'static str),
     /// Lines for an INI section; LinuxCNC must be restarted.
     IniLines { section: &'static str, lines: Vec<String> },
@@ -186,10 +186,10 @@ pub fn toolchange_style(mc: &MachineCfg, modules: &[String], hal: &dyn Hal) -> (
         return (ToolChangeStyle::Drawbar, "The drawbar module is on.".into());
     }
     match hal.pin_signal("iocontrol.0.tool-changed") {
-        None => (ToolChangeStyle::Dialog, "LinuxCNC is not running, so millgui assumes nothing else answers M6.".into()),
+        None => (ToolChangeStyle::Dialog, "LinuxCNC is not running, so ferrum assumes nothing else answers M6.".into()),
         Some(None) => (ToolChangeStyle::Dialog, "iocontrol.0.tool-changed was not found.".into()),
         Some(Some(sig)) => match hal.signal_writer(&sig) {
-            Some(w) if !w.starts_with("millgui.") => (ToolChangeStyle::External, format!("{w} answers M6 (signal {sig}).")),
+            Some(w) if !w.starts_with("ferrum.") => (ToolChangeStyle::External, format!("{w} answers M6 (signal {sig}).")),
             _ => (ToolChangeStyle::Dialog, "Nothing in the machine's HAL answers iocontrol.0.tool-changed.".into()),
         },
     }
@@ -200,7 +200,7 @@ pub struct Inputs<'a> {
     pub cfg: &'a Config,
     pub mc: &'a MachineCfg,
     pub mi: &'a MachineInfo,
-    /// Problems found reading millgui.toml (and the INI).
+    /// Problems found reading ferrum.toml (and the INI).
     pub notes: &'a [String],
     pub modules: &'a [String],
     pub hal: &'a dyn Hal,
@@ -234,11 +234,11 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     use Group as G;
     use Level as L;
 
-    // millgui.toml
+    // ferrum.toml
     match &mc.path {
         Some(p) => v.push(Check::new("config.file", G::Config, L::Ok, format!("Settings read from {}", p.display()))),
         None => v.push(
-            Check::new("config.file", G::Config, L::Info, "No millgui.toml: using what millgui detects")
+            Check::new("config.file", G::Config, L::Info, "No ferrum.toml: using what ferrum detects")
                 .detail(format!("Create {} to change a setting.", cfg.dir().join(crate::machine_cfg::FILE).display())),
         ),
     }
@@ -248,13 +248,13 @@ pub fn run(i: &Inputs) -> Vec<Check> {
 
     // Machine
     if cfg.path.is_none() {
-        v.push(Check::new("machine.ini", G::Machine, L::Blocks(vec![Feature::Core]), "No INI file").detail("Start millgui from LinuxCNC, or pass -ini <file>."));
+        v.push(Check::new("machine.ini", G::Machine, L::Blocks(vec![Feature::Core]), "No INI file").detail("Start ferrum from LinuxCNC, or pass -ini <file>."));
         return v;
     }
     match &mi.units_unknown {
         Some(u) => v.push(
-            Check::new("machine.units", G::Machine, L::Attention, format!("[TRAJ]LINEAR_UNITS = {u} is not a unit millgui knows"))
-                .detail("millgui shows millimetres. Use mm or inch.")
+            Check::new("machine.units", G::Machine, L::Attention, format!("[TRAJ]LINEAR_UNITS = {u} is not a unit ferrum knows"))
+                .detail("ferrum shows millimetres. Use mm or inch.")
                 .fix(Fix::IniLines { section: "TRAJ", lines: vec!["LINEAR_UNITS = mm".into()] }),
         ),
         None => v.push(Check::new(
@@ -296,7 +296,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     let (_, bad) = crate::machine_info::jog_steps(cfg.get("DISPLAY", "INCREMENTS"), mi.units);
     if !bad.is_empty() {
         v.push(
-            Check::new("machine.increments", G::Machine, L::Attention, format!("Jog steps millgui cannot read: {}", bad.join(", ")))
+            Check::new("machine.increments", G::Machine, L::Attention, format!("Jog steps ferrum cannot read: {}", bad.join(", ")))
                 .detail("They are left out. [DISPLAY]INCREMENTS takes numbers with an optional unit: 1mm, .001in, 1/16 in, 10 mil."),
         );
     }
@@ -313,7 +313,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     }
     let tbl = resolve(cfg, cfg.get("EMCIO", "TOOL_TABLE").unwrap_or("tool.tbl"));
     if cfg.get("EMCIO", "DB_PROGRAM").is_some() {
-        v.push(Check::new("files.tool-db", G::Files, L::Attention, "[EMCIO]DB_PROGRAM: millgui edits tool.tbl and does not know the tool database"));
+        v.push(Check::new("files.tool-db", G::Files, L::Attention, "[EMCIO]DB_PROGRAM: ferrum edits tool.tbl and does not know the tool database"));
     } else if !tbl.is_file() {
         v.push(Check::new("files.tool-table", G::Files, L::Attention, format!("Tool table {} not found", tbl.display())));
     }
@@ -329,7 +329,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     } else {
         v.push(
             Check::new("files.rs274", G::Files, L::Blocks(vec![Feature::Preview]), "rs274 is not on PATH: no preview, no travel check")
-                .detail("It comes with LinuxCNC; start millgui from LinuxCNC so PATH includes it."),
+                .detail("It comes with LinuxCNC; start ferrum from LinuxCNC so PATH includes it."),
         );
     }
 
@@ -345,9 +345,9 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     // Tool change
     let (style, why) = toolchange_style(mc, i.modules, i.hal);
     let what = match style {
-        ToolChangeStyle::External => "M6 is answered by the machine; millgui shows the tool",
-        ToolChangeStyle::Dialog => "M6 is answered by millgui's tool change dialog",
-        ToolChangeStyle::Drawbar => "M6 is answered by millgui's dialog with the power drawbar",
+        ToolChangeStyle::External => "M6 is answered by the machine; ferrum shows the tool",
+        ToolChangeStyle::Dialog => "M6 is answered by ferrum's tool change dialog",
+        ToolChangeStyle::Drawbar => "M6 is answered by ferrum's dialog with the power drawbar",
     };
     v.push(Check::new("toolchange.style", G::ToolChange, L::Info, what).detail(why).fix(Fix::Setting("toolchange.style")));
     if let Some(Some(sig)) = i.hal.pin_signal("iocontrol.0.tool-prepared") {
@@ -369,7 +369,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
         } else if cfg.get("PROBE", "TOOL_NUMBER").is_some() {
             "[PROBE]TOOL_NUMBER"
         } else {
-            "millgui's default"
+            "ferrum's default"
         };
         v.push(Check::new("probe.tool", G::Probe, L::Info, format!("The probe is T{tool}")).detail(format!("From {src}.")).fix(Fix::Setting("probe.tool")));
         v.extend(defaults_row(&pdefs, false));
@@ -407,7 +407,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
         }
     }
 
-    // Job and conversational: the programs millgui writes read HAL pins.
+    // Job and conversational: the programs ferrum writes read HAL pins.
     let jobs = i.modules.iter().any(|m| m == "job" || m == "conv");
     if jobs {
         let mut lines = Vec::new();
@@ -434,8 +434,8 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     }
     if let Some(f) = cfg.get("HAL", "POSTGUI_HALFILE") {
         v.push(
-            Check::new("hal.postgui", G::Hal, L::Info, format!("[HAL]POSTGUI_HALFILE ({f}) is not run by millgui"))
-                .detail("It was written for another screen's pins. List millgui's own in [display]postgui."),
+            Check::new("hal.postgui", G::Hal, L::Info, format!("[HAL]POSTGUI_HALFILE ({f}) is not run by ferrum"))
+                .detail("It was written for another screen's pins. List ferrum's own in [display]postgui."),
         );
     }
     if i.hal.pin_signal("motion.probe-input").is_none() {
@@ -444,35 +444,35 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     v
 }
 
-/// millgui's probe macros (millgui/macros): `MILLGUI_MACROS`, else a
+/// ferrum's probe macros (ferrum/macros): `FERRUM_MACROS`, else a
 /// `macros` folder beside the binary or up to three folders above it (a
-/// source checkout's target/release/millgui), else /usr/share/millgui/macros.
+/// source checkout's target/release/ferrum), else /usr/share/ferrum/macros.
 pub fn macros_dir() -> Option<PathBuf> {
-    let has = |d: &Path| d.join("millgui_touch.ngc").is_file();
-    if let Some(d) = std::env::var_os("MILLGUI_MACROS").map(PathBuf::from) {
+    let has = |d: &Path| d.join("ferrum_touch.ngc").is_file();
+    if let Some(d) = std::env::var_os("FERRUM_MACROS").map(PathBuf::from) {
         return has(&d).then_some(d);
     }
     let exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
     if let Some(exe) = exe {
         for dir in exe.ancestors().skip(1).take(4) {
-            for d in [dir.join("macros"), dir.join("share/millgui/macros")] {
+            for d in [dir.join("macros"), dir.join("share/ferrum/macros")] {
                 if has(&d) {
                     return Some(d);
                 }
             }
         }
     }
-    Some(PathBuf::from("/usr/share/millgui/macros")).filter(|d| has(d))
+    Some(PathBuf::from("/usr/share/ferrum/macros")).filter(|d| has(d))
 }
 
-/// Where PROBE's macros come from. `ours` is millgui's macro folder.
+/// Where PROBE's macros come from. `ours` is ferrum's macro folder.
 fn macros_row(cfg: &Config, ours: &Option<PathBuf>) -> Check {
     let dirs = subroutine_dirs(cfg);
     let found = |n: &str| dirs.iter().find(|d| d.join(format!("{n}.ngc")).is_file()).cloned();
     let missing = missing_subs(cfg, crate::probe::MACROS);
     let same = |a: &Path, b: &Path| a.canonicalize().ok().zip(b.canonicalize().ok()).is_some_and(|(a, b)| a == b);
-    let ours_first = ours.as_ref().is_some_and(|o| found("millgui_touch").is_some_and(|d| same(&d, o)));
-    // The INI line that puts millgui's folder first.
+    let ours_first = ours.as_ref().is_some_and(|o| found("ferrum_touch").is_some_and(|d| same(&d, o)));
+    // The INI line that puts ferrum's folder first.
     let fix = |o: &Path| {
         let rest = cfg.get("RS274NGC", "SUBROUTINE_PATH").map(str::trim).filter(|r| !r.is_empty());
         Fix::IniLines {
@@ -483,8 +483,8 @@ fn macros_row(cfg: &Config, ours: &Option<PathBuf>) -> Check {
     if missing.len() == crate::probe::MACROS.len() {
         let c = Check::new("probe.macros", Group::Probe, Level::Blocks(vec![Feature::Probe]), "The probe macros are not on SUBROUTINE_PATH");
         return match ours {
-            Some(o) => c.detail(format!("millgui's probe macros are in {}. Put that folder first on [RS274NGC]SUBROUTINE_PATH and restart LinuxCNC.", o.display())).fix(fix(o)),
-            None => c.detail("PROBE runs millgui's probe macros (millgui/macros), and they were not found. Put that folder first on [RS274NGC]SUBROUTINE_PATH and restart LinuxCNC."),
+            Some(o) => c.detail(format!("ferrum's probe macros are in {}. Put that folder first on [RS274NGC]SUBROUTINE_PATH and restart LinuxCNC.", o.display())).fix(fix(o)),
+            None => c.detail("PROBE runs ferrum's probe macros (ferrum/macros), and they were not found. Put that folder first on [RS274NGC]SUBROUTINE_PATH and restart LinuxCNC."),
         };
     }
     if !missing.is_empty() {
@@ -492,12 +492,12 @@ fn macros_row(cfg: &Config, ours: &Option<PathBuf>) -> Check {
             .detail(format!("Routines that call them stop with a message: {}.", missing.join(", ")));
     }
     if ours_first {
-        return Check::new("probe.macros", Group::Probe, Level::Ok, "millgui's probe macros found");
+        return Check::new("probe.macros", Group::Probe, Level::Ok, "ferrum's probe macros found");
     }
     // Another set (Probe Basic's, the machine's own) answers first.
     let from = found("probe_x_plus_wco").map(|d| d.display().to_string()).unwrap_or_default();
     let c = Check::new("probe.macros", Group::Probe, Level::Info, format!("Probe macros from {from}"))
-        .detail("Not millgui's own: PROBE expects their results in millgui's format (millgui/macros/SPEC.md).");
+        .detail("Not ferrum's own: PROBE expects their results in ferrum's format (ferrum/macros/SPEC.md).");
     match ours {
         Some(o) => c.fix(fix(o)),
         None => c,
@@ -525,8 +525,8 @@ fn defaults_row(r: &std::collections::BTreeMap<u16, (Option<f64>, crate::probe_d
         return Some(
             Check::new(id, group, Level::Attention, format!("{what} feeds and distances are starting values"))
                 .detail(format!(
-                    "{} for a 2 mm tip probe, not checked on this machine. Check them in SETUP › {step}, where they are listed after the checks; each one changed is saved to millgui.toml.{}",
-                    if seeded.len() > 3 { format!("{} values are millgui's starting values", seeded.len()) } else { format!("Starting values: {}", list(&seeded)) },
+                    "{} for a 2 mm tip probe, not checked on this machine. Check them in SETUP › {step}, where they are listed after the checks; each one changed is saved to ferrum.toml.{}",
+                    if seeded.len() > 3 { format!("{} values are ferrum's starting values", seeded.len()) } else { format!("Starting values: {}", list(&seeded)) },
                     if cal { " The probe is not calibrated: run CAL › ring gauge." } else { "" }
                 )),
         );
@@ -571,7 +571,7 @@ pub fn ini_with(text: &str, section: &str, lines: &[String]) -> String {
     out.join("\n") + "\n"
 }
 
-/// `millgui --check --write-ini`: put every row's INI lines into the INI,
+/// `ferrum --check --write-ini`: put every row's INI lines into the INI,
 /// keeping the old file as `<ini>.bak`. Returns what was written.
 pub fn write_ini(path: &Path, checks: &[Check]) -> Result<Vec<String>, String> {
     let fixes: Vec<(&str, &Vec<String>)> = checks
@@ -603,7 +603,7 @@ pub fn blocked(checks: &[Check], f: Feature) -> Option<String> {
     checks.iter().find(|c| c.blocks(f)).map(|c| if c.detail.is_empty() { c.title.clone() } else { c.detail.clone() })
 }
 
-/// The rows as text, grouped, for `millgui --check`.
+/// The rows as text, grouped, for `ferrum --check`.
 pub fn report(checks: &[Check]) -> String {
     let mut groups: Vec<Group> = checks.iter().map(|c| c.group).collect();
     groups.sort();
@@ -671,8 +671,8 @@ mod tests {
         assert_eq!(parse_pin(pin, "motion.probe-input"), Some("probe-in".into()));
         assert_eq!(parse_pin("iocontrol bit   IN FALSE iocontrol.0.tool-prepared\n", "iocontrol.0.tool-prepared"), Some(String::new()));
         assert_eq!(parse_pin("", "x.y"), None);
-        let sig = "bit    FALSE  tool-change-confirmed ==> iocontrol.0.tool-changed <== millgui.drawbar.tool-changed\n";
-        assert_eq!(parse_writer(sig, "tool-change-confirmed"), Some("millgui.drawbar.tool-changed".into()));
+        let sig = "bit    FALSE  tool-change-confirmed ==> iocontrol.0.tool-changed <== ferrum.drawbar.tool-changed\n";
+        assert_eq!(parse_writer(sig, "tool-change-confirmed"), Some("ferrum.drawbar.tool-changed".into()));
         assert_eq!(parse_writer("bit FALSE probe-in ==> motion.probe-input\n", "probe-in"), None);
     }
 
@@ -711,7 +711,7 @@ mod tests {
         assert!(r.title.contains("banana") && !r.title.contains("1/16"), "{}", r.title);
         assert!(c.iter().any(|c| c.id == "probe.input" && c.blocks(Feature::Probe)));
         assert!(!report(&c).contains("inch machines"));
-        // No parameter file and no millgui.toml values: starting values.
+        // No parameter file and no ferrum.toml values: starting values.
         let r = c.iter().find(|c| c.id == "probe.values").unwrap();
         assert!(r.level == Level::Attention && r.title.contains("starting values"), "{r:?}");
     }

@@ -1,39 +1,39 @@
-# millgui.toml
+# ferrum.toml
 
-millgui's own settings for one machine. LinuxCNC's settings (axes, units,
-limits, velocities, spindle speeds, paths) stay in the INI, and millgui only
-reads them. `millgui.toml` holds what LinuxCNC does not know.
+Ferrum's own settings for one machine. LinuxCNC's settings (axes, units,
+limits, velocities, spindle speeds, paths) stay in the INI, and Ferrum only
+reads them. `ferrum.toml` holds what LinuxCNC does not know.
 
-It lives beside the INI. `[MILLGUI]CONFIG = <path>` in the INI moves it.
-Every key is optional: leave one out and millgui uses what it detects, or
+It lives beside the INI. `[FERRUM]CONFIG = <path>` in the INI moves it.
+Every key is optional: leave one out and Ferrum uses what it detects, or
 its default. A table with a bad key is reported (the message bar and
-`millgui --check`) and only that table falls back to its defaults.
+`ferrum --check`) and only that table falls back to its defaults.
 
-Without a `millgui.toml`, millgui still reads the older places: the INI's
-`[MILLGUI]` keys (`MODULES`, `POSTGUI_HALFILE`, `REMOTE_PORT`,
-`REMOTE_ROOT`, `RENDERER`, `MDI_LIBRARY`) and `millgui/machine.toml` (or
-`[MILLGUI]MACHINE_CONFIG`) for `[buttons]` and `[model]`. When both name a
-setting, `millgui.toml` wins.
+Without a `ferrum.toml`, Ferrum still reads the older places: the INI's
+`[FERRUM]` keys (`MODULES`, `POSTGUI_HALFILE`, `REMOTE_PORT`,
+`REMOTE_ROOT`, `RENDERER`, `MDI_LIBRARY`) and `ferrum/machine.toml` (or
+`[FERRUM]MACHINE_CONFIG`) for `[buttons]` and `[model]`. When both name a
+setting, `ferrum.toml` wins.
 
 The SETUP screen (always last in the nav bar) edits it for you: it shows
-the same checks as `millgui --check`, in six steps, with the settings each
+the same checks as `ferrum --check`, in six steps, with the settings each
 step needs and a live test of the probe and tool setter inputs. A change is
-written to `millgui.toml` at once, keeping your comments, and applies when
-LinuxCNC next starts. With no `millgui.toml`, SETUP opens first; FINISH
+written to `ferrum.toml` at once, keeping your comments, and applies when
+LinuxCNC next starts. With no `ferrum.toml`, SETUP opens first; FINISH
 writes the file so it stops doing that.
 
-Check what millgui makes of a machine, with or without LinuxCNC running:
+Check what Ferrum makes of a machine, with or without LinuxCNC running:
 
 ```sh
-millgui --check ~/linuxcnc/configs/mymachine/mymachine.ini
+Ferrum --check ~/linuxcnc/configs/mymachine/mymachine.ini
 ```
 
 It prints what was read, what is missing and what is switched off because
-of it, and exits non-zero only when millgui cannot run the machine at all.
+of it, and exits non-zero only when Ferrum cannot run the machine at all.
 With `--write-ini` (LinuxCNC stopped) it also adds the INI lines it asks
 for, such as `HAL_PIN_VARS = 1`, keeping the old file as `<ini>.bak`. The
 screen never edits the INI; SETUP shows the lines.
-The same check runs when millgui starts: PROBE, JOB and CONV show the reason
+The same check runs when Ferrum starts: PROBE, JOB and CONV show the reason
 in place of the screen when they are off.
 
 ## Keys
@@ -93,12 +93,12 @@ probe_tripped = "motion.probe-input"
 
 [remote]
 port = 8088               # browser screen; 0 = off. Anyone who can reach the port can run the machine
-root = "millgui/web/dist"
+root = "ferrum/web/dist"
 
 [display]
 renderer = "auto"         # "gpu" | "software" | "auto"
-mdi_library = "millgui/mdi.toml"
-postgui = ["millgui/hal/outputs.hal"]   # HAL files run after millgui's pins exist
+mdi_library = "ferrum/mdi.toml"
+postgui = ["ferrum/hal/outputs.hal"]   # HAL files run after Ferrum's pins exist
 
 [buttons]                 # quick buttons under the overrides
 mist = true
@@ -117,8 +117,8 @@ nose_above_table = 380    # spindle nose above the table at machine Z 0; 0 = no 
 ## Probe values
 
 The probe and tool setter macros read their feeds and distances from
-LinuxCNC parameters #3004 to #3037. millgui owns them: each comes from
-`millgui.toml`, else from the parameter file (a machine set up with Probe
+LinuxCNC parameters #3004 to #3037. Ferrum owns them: each comes from
+`ferrum.toml`, else from the parameter file (a machine set up with Probe
 Basic has them there), else a starting value for a 2 mm tip touch probe
 (the values above, in mm; an inch machine gets them converted). SETUP lists
 them under PROBE and TOOL SETTER, marks the starting values, and `--check`
@@ -126,7 +126,7 @@ says which are starting values or missing. The setter's max Z travel and
 reference height have no starting value: touch-off stops until they are
 set.
 
-millgui writes the whole set to LinuxCNC once it is on, homed and idle
+Ferrum writes the whole set to LinuxCNC once it is on, homed and idle
 (when LinuxCNC does not already hold them), and before a probe run that
 comes first. A value changed in SETUP or on PROBE › DEFAULTS, and a
 calibration result, is saved here at once and used from the next run on.
@@ -135,7 +135,7 @@ calibration result, is saved here at once and used from the next run on.
 
 Who answers M6 (`iocontrol.0.tool-change`):
 
-| style | when | millgui does |
+| style | when | Ferrum does |
 | --- | --- | --- |
 | `external` | something in the machine's HAL already drives `iocontrol.0.tool-changed` (an ATC, `hal_manualtoolchange`, a loop) | shows the tool number |
 | `dialog` | nothing does | the `toolchange` module answers with the tool change dialog |
@@ -149,8 +149,8 @@ module, then what HAL drives `iocontrol.0.tool-changed`.
 Modules connect their pins themselves. Each pin has a logical name; `[hal]`
 maps it to a signal or pin of your machine, and some have a default. A
 target that is a signal is joined; a pin on a signal joins that signal; a
-pin on no signal gets a new `millgui-...` signal. A module with its own
-`millgui/hal/<module>.hal` beside the INI uses that file instead, and only
+pin on no signal gets a new `ferrum-...` signal. A module with its own
+`ferrum/hal/<module>.hal` beside the INI uses that file instead, and only
 the names listed in `[hal]` are connected on top.
 
 | module | name | default | what |

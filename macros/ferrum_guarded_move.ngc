@@ -1,11 +1,11 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; Guarded positioning move for the probe macros: one incremental move by
 ; [dx] [dy] [dz] (machine units, current program coordinates) made as a
 ; "probe towards, no error" move (G38.3) at the probe traverse feed #3017.
 ; If the probe touches anything on the way the move stops and the macro
 ; aborts, so a positioning move can never push the stylus into the part.
 ; A move shorter than a micron is skipped. Leaves G90.
-o<millgui_guarded_move> sub
+o<ferrum_guarded_move> sub
 #<dx> = #1
 #<dy> = #2
 #<dz> = #3
@@ -20,5 +20,5 @@ o110 if [[ABS[#<dx>] + ABS[#<dy>] + ABS[#<dz>]] GT 0.000001]
     o120 endif
 o110 endif
 G90
-o<millgui_guarded_move> endsub
+o<ferrum_guarded_move> endsub
 M2

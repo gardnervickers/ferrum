@@ -20,7 +20,7 @@ block_top = -4
 block_above = -3.6
 block_below = -4.4
 probe_tol = 0.002
-# The probe values millgui starts a new machine with (probe_defaults.rs).
+# The probe values ferrum starts a new machine with (probe_defaults.rs).
 seed_slow = 1
 seed_xy_clear = 0.2
 # PROBE on the block (scenarios/probe/stock-routines): its left edge, the

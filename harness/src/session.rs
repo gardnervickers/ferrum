@@ -1,5 +1,5 @@
-//! One simulator run: LinuxCNC with a prepared config and millgui as its
-//! display on a private X server, a websocket to millgui, and a LinuxCNC
+//! One simulator run: LinuxCNC with a prepared config and ferrum as its
+//! display on a private X server, a websocket to ferrum, and a LinuxCNC
 //! status helper. Dropping it shuts everything down.
 
 use serde_json::{Map, Value};
@@ -13,7 +13,7 @@ use tungstenite::{stream::MaybeTlsStream, Message, WebSocket};
 
 pub struct Env {
     pub lcnc: PathBuf,
-    pub millgui_bin: PathBuf,
+    pub ferrum_bin: PathBuf,
     pub display: String,
     pub port: u16,
     pub harness_dir: PathBuf,
@@ -23,7 +23,7 @@ pub struct Session {
     child: Option<Child>,
     ws_out: Arc<Mutex<Option<WebSocket<MaybeTlsStream<TcpStream>>>>>,
     pub props: Arc<Mutex<Map<String, Value>>>,
-    /// Every millgui message row seen with kind "error".
+    /// Every ferrum message row seen with kind "error".
     pub ui_errors: Arc<Mutex<Vec<String>>>,
     helper: Option<(Child, ChildStdin, BufReader<ChildStdout>)>,
     rip: PathBuf,
@@ -44,25 +44,25 @@ impl Session {
     pub fn start(env: &Env, cfg_dir: &Path, log: PathBuf) -> Result<Session, String> {
         cleanup(&env.lcnc);
         let out = std::fs::File::create(&log).map_err(|e| e.to_string())?;
-        // A fresh HOME per run: millgui keeps settings and the probe's
+        // A fresh HOME per run: ferrum keeps settings and the probe's
         // restore-pending marker there, LinuxCNC its tool mmap.
         let home = cfg_dir.parent().unwrap_or(cfg_dir).join("home");
         std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
-        // HARNESS_BOOT=1: start through `millgui --boot` (the splash
+        // HARNESS_BOOT=1: start through `ferrum --boot` (the splash
         // launcher, which runs LinuxCNC itself) instead of `linuxcnc`.
         let start = if std::env::var("HARNESS_BOOT").is_ok_and(|v| v == "1") {
-            format!("exec '{}' --boot millgui.ini", env.millgui_bin.display())
+            format!("exec '{}' --boot ferrum.ini", env.ferrum_bin.display())
         } else {
-            "exec linuxcnc millgui.ini".to_string()
+            "exec linuxcnc ferrum.ini".to_string()
         };
         let mut cmd = rip_cmd(&env.lcnc, &start);
         cmd.current_dir(cfg_dir)
             .env("HOME", &home)
             .env("DISPLAY", &env.display)
-            .env("MILLGUI_BIN", &env.millgui_bin)
-            .env("MILLGUI_HARNESS", "1")
-            .env("MILLGUI_RENDERER", "software")
-            .env("MILLGUI_LOG_MESSAGES", "1")
+            .env("FERRUM_BIN", &env.ferrum_bin)
+            .env("FERRUM_HARNESS", "1")
+            .env("FERRUM_RENDERER", "software")
+            .env("FERRUM_LOG_MESSAGES", "1")
             .env("LD_LIBRARY_PATH", env.lcnc.join("lib"))
             .stdin(Stdio::null())
             .stdout(out.try_clone().map_err(|e| e.to_string())?)
@@ -110,7 +110,7 @@ impl Session {
             if let Some(c) = self.child.as_mut() {
                 if let Ok(Some(st)) = c.try_wait() {
                     return Err(format!(
-                        "LinuxCNC exited ({st}) before millgui answered; see {}",
+                        "LinuxCNC exited ({st}) before ferrum answered; see {}",
                         self.log.display()
                     ));
                 }
@@ -120,7 +120,7 @@ impl Session {
                 Err(_) if t0.elapsed() < within => std::thread::sleep(Duration::from_millis(250)),
                 Err(e) => {
                     return Err(format!(
-                        "millgui websocket on {port}: {e} (see {})",
+                        "ferrum websocket on {port}: {e} (see {})",
                         self.log.display()
                     ))
                 }
@@ -188,7 +188,7 @@ impl Session {
         let t0 = Instant::now();
         while self.props.lock().unwrap().is_empty() {
             if t0.elapsed() > Duration::from_secs(10) {
-                return Err("millgui sent no properties".into());
+                return Err("ferrum sent no properties".into());
             }
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -197,7 +197,7 @@ impl Session {
 
     fn send(&self, v: Value) -> Result<(), String> {
         let mut g = self.ws_out.lock().unwrap();
-        let ws = g.as_mut().ok_or("millgui websocket closed")?;
+        let ws = g.as_mut().ok_or("ferrum websocket closed")?;
         ws.send(Message::text(v.to_string()))
             .map_err(|e| format!("websocket: {e}"))
     }
@@ -229,8 +229,8 @@ impl Session {
         Ok(v)
     }
 
-    /// Stop the helper reading LinuxCNC's error queue: millgui gets every error.
-    pub fn errors_to_millgui(&mut self) -> Result<(), String> {
+    /// Stop the helper reading LinuxCNC's error queue: ferrum gets every error.
+    pub fn errors_to_ferrum(&mut self) -> Result<(), String> {
         self.ask("nodrain").map(|_| ())
     }
 
@@ -311,7 +311,7 @@ impl Session {
 /// What a previous run may have left: LinuxCNC's processes and shared memory.
 pub fn cleanup(lcnc: &Path) {
     for p in [
-        "millgui",
+        "ferrum",
         "milltask",
         "halui",
         "io",
@@ -327,7 +327,7 @@ pub fn cleanup(lcnc: &Path) {
         .args(["-9", "-f", "sim_card.py|sim_pendant.py|lcnc_helper.py"])
         .status();
     let _ = rip_cmd(lcnc, "halrun -U >/dev/null 2>&1").status();
-    // A killed session leaves its lock; `millgui --boot` would ask about it.
+    // A killed session leaves its lock; `ferrum --boot` would ask about it.
     let _ = std::fs::remove_file("/tmp/linuxcnc.lock");
 }
 

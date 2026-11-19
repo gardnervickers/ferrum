@@ -92,7 +92,7 @@ read them directly). No `linuxcnc.ini` parsing.
 
 ## License
 
-MIT, like the rest of millgui (`millgui/LICENSE`). The `nml` build
+MIT, like the rest of Ferrum (`ferrum/LICENSE`). The `nml` build
 compiles against LinuxCNC's headers and links its `libnml` (GPL-2.0), so a
 binary built with it is distributed under the GPL's terms as well; MIT
 source is compatible with that.

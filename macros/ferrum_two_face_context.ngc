@@ -1,12 +1,12 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
-; Two-face probing context: o<millgui_two_face_context> call [mode]. Mode 1
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Two-face probing context: o<ferrum_two_face_context> call [mode]. Mode 1
 ; records the setup a two-face measurement depends on, mode 0 aborts if any
 ; of it has changed since: units, active work system and its nine offsets,
 ; probe tool number and diameter, tool-offset mode, the calibration offset
 ; #3032, the G52/G92/tool-offset transform on every axis, and #3014..#3019.
 ; Both modes first refuse cutter compensation, a rotated work system and
 ; G52/G92 offsets. No motion.
-o<millgui_two_face_context> sub
+o<ferrum_two_face_context> sub
 o100 if [#<_ccomp> NE 400]
     (ABORT, Cancel cutter compensation before two-face probing)
 o100 endif
@@ -18,119 +18,119 @@ o102 if [[#5211 NE 0] OR [#5212 NE 0] OR [#5213 NE 0] OR [#5214 NE 0] OR [#5215 
 o102 endif
 #<base> = [5201 + [#5220 * 20]]
 o200 if [#1 EQ 1]
-    #<_millgui_tf_metric> = #<_metric>
-    #<_millgui_tf_wcs> = #5220
-    #<_millgui_tf_tool> = #5400
-    #<_millgui_tf_diameter> = #5410
-    #<_millgui_tf_tool_mode> = #<_tool_offset>
-    #<_millgui_tf_cal> = #3032
-    #<_millgui_tf_offset0> = #[#<base> + 0]
-    #<_millgui_tf_offset1> = #[#<base> + 1]
-    #<_millgui_tf_offset2> = #[#<base> + 2]
-    #<_millgui_tf_offset3> = #[#<base> + 3]
-    #<_millgui_tf_offset4> = #[#<base> + 4]
-    #<_millgui_tf_offset5> = #[#<base> + 5]
-    #<_millgui_tf_offset6> = #[#<base> + 6]
-    #<_millgui_tf_offset7> = #[#<base> + 7]
-    #<_millgui_tf_offset8> = #[#<base> + 8]
-    #<_millgui_tf_transform_x> = [#<_abs_x> - #<_x>]
-    #<_millgui_tf_transform_y> = [#<_abs_y> - #<_y>]
-    #<_millgui_tf_transform_z> = [#<_abs_z> - #<_z>]
-    #<_millgui_tf_transform_a> = [#<_abs_a> - #<_a>]
-    #<_millgui_tf_transform_b> = [#<_abs_b> - #<_b>]
-    #<_millgui_tf_transform_c> = [#<_abs_c> - #<_c>]
-    #<_millgui_tf_transform_u> = [#<_abs_u> - #<_u>]
-    #<_millgui_tf_transform_v> = [#<_abs_v> - #<_v>]
-    #<_millgui_tf_transform_w> = [#<_abs_w> - #<_w>]
-    #<_millgui_tf_setting3014> = #3014
-    #<_millgui_tf_setting3015> = #3015
-    #<_millgui_tf_setting3016> = #3016
-    #<_millgui_tf_setting3017> = #3017
-    #<_millgui_tf_setting3018> = #3018
-    #<_millgui_tf_setting3019> = #3019
+    #<_ferrum_tf_metric> = #<_metric>
+    #<_ferrum_tf_wcs> = #5220
+    #<_ferrum_tf_tool> = #5400
+    #<_ferrum_tf_diameter> = #5410
+    #<_ferrum_tf_tool_mode> = #<_tool_offset>
+    #<_ferrum_tf_cal> = #3032
+    #<_ferrum_tf_offset0> = #[#<base> + 0]
+    #<_ferrum_tf_offset1> = #[#<base> + 1]
+    #<_ferrum_tf_offset2> = #[#<base> + 2]
+    #<_ferrum_tf_offset3> = #[#<base> + 3]
+    #<_ferrum_tf_offset4> = #[#<base> + 4]
+    #<_ferrum_tf_offset5> = #[#<base> + 5]
+    #<_ferrum_tf_offset6> = #[#<base> + 6]
+    #<_ferrum_tf_offset7> = #[#<base> + 7]
+    #<_ferrum_tf_offset8> = #[#<base> + 8]
+    #<_ferrum_tf_transform_x> = [#<_abs_x> - #<_x>]
+    #<_ferrum_tf_transform_y> = [#<_abs_y> - #<_y>]
+    #<_ferrum_tf_transform_z> = [#<_abs_z> - #<_z>]
+    #<_ferrum_tf_transform_a> = [#<_abs_a> - #<_a>]
+    #<_ferrum_tf_transform_b> = [#<_abs_b> - #<_b>]
+    #<_ferrum_tf_transform_c> = [#<_abs_c> - #<_c>]
+    #<_ferrum_tf_transform_u> = [#<_abs_u> - #<_u>]
+    #<_ferrum_tf_transform_v> = [#<_abs_v> - #<_v>]
+    #<_ferrum_tf_transform_w> = [#<_abs_w> - #<_w>]
+    #<_ferrum_tf_setting3014> = #3014
+    #<_ferrum_tf_setting3015> = #3015
+    #<_ferrum_tf_setting3016> = #3016
+    #<_ferrum_tf_setting3017> = #3017
+    #<_ferrum_tf_setting3018> = #3018
+    #<_ferrum_tf_setting3019> = #3019
 o200 else
     #<changed> = 0
-    o300 if [[#<_metric> NE #<_millgui_tf_metric>] OR [#5220 NE #<_millgui_tf_wcs>] OR [#5400 NE #<_millgui_tf_tool>]]
+    o300 if [[#<_metric> NE #<_ferrum_tf_metric>] OR [#5220 NE #<_ferrum_tf_wcs>] OR [#5400 NE #<_ferrum_tf_tool>]]
         #<changed> = 1
     o300 endif
-    o301 if [[#5410 NE #<_millgui_tf_diameter>] OR [#<_tool_offset> NE #<_millgui_tf_tool_mode>] OR [#3032 NE #<_millgui_tf_cal>]]
+    o301 if [[#5410 NE #<_ferrum_tf_diameter>] OR [#<_tool_offset> NE #<_ferrum_tf_tool_mode>] OR [#3032 NE #<_ferrum_tf_cal>]]
         #<changed> = 1
     o301 endif
-    o310 if [#[#<base> + 0] NE #<_millgui_tf_offset0>]
+    o310 if [#[#<base> + 0] NE #<_ferrum_tf_offset0>]
         #<changed> = 1
     o310 endif
-    o311 if [#[#<base> + 1] NE #<_millgui_tf_offset1>]
+    o311 if [#[#<base> + 1] NE #<_ferrum_tf_offset1>]
         #<changed> = 1
     o311 endif
-    o312 if [#[#<base> + 2] NE #<_millgui_tf_offset2>]
+    o312 if [#[#<base> + 2] NE #<_ferrum_tf_offset2>]
         #<changed> = 1
     o312 endif
-    o313 if [#[#<base> + 3] NE #<_millgui_tf_offset3>]
+    o313 if [#[#<base> + 3] NE #<_ferrum_tf_offset3>]
         #<changed> = 1
     o313 endif
-    o314 if [#[#<base> + 4] NE #<_millgui_tf_offset4>]
+    o314 if [#[#<base> + 4] NE #<_ferrum_tf_offset4>]
         #<changed> = 1
     o314 endif
-    o315 if [#[#<base> + 5] NE #<_millgui_tf_offset5>]
+    o315 if [#[#<base> + 5] NE #<_ferrum_tf_offset5>]
         #<changed> = 1
     o315 endif
-    o316 if [#[#<base> + 6] NE #<_millgui_tf_offset6>]
+    o316 if [#[#<base> + 6] NE #<_ferrum_tf_offset6>]
         #<changed> = 1
     o316 endif
-    o317 if [#[#<base> + 7] NE #<_millgui_tf_offset7>]
+    o317 if [#[#<base> + 7] NE #<_ferrum_tf_offset7>]
         #<changed> = 1
     o317 endif
-    o318 if [#[#<base> + 8] NE #<_millgui_tf_offset8>]
+    o318 if [#[#<base> + 8] NE #<_ferrum_tf_offset8>]
         #<changed> = 1
     o318 endif
-    o319 if [ABS[[#<_abs_x> - #<_x>] - #<_millgui_tf_transform_x>] GT 0.0000001]
+    o319 if [ABS[[#<_abs_x> - #<_x>] - #<_ferrum_tf_transform_x>] GT 0.0000001]
         #<changed> = 1
     o319 endif
-    o320 if [ABS[[#<_abs_y> - #<_y>] - #<_millgui_tf_transform_y>] GT 0.0000001]
+    o320 if [ABS[[#<_abs_y> - #<_y>] - #<_ferrum_tf_transform_y>] GT 0.0000001]
         #<changed> = 1
     o320 endif
-    o321 if [ABS[[#<_abs_z> - #<_z>] - #<_millgui_tf_transform_z>] GT 0.0000001]
+    o321 if [ABS[[#<_abs_z> - #<_z>] - #<_ferrum_tf_transform_z>] GT 0.0000001]
         #<changed> = 1
     o321 endif
-    o322 if [ABS[[#<_abs_a> - #<_a>] - #<_millgui_tf_transform_a>] GT 0.0000001]
+    o322 if [ABS[[#<_abs_a> - #<_a>] - #<_ferrum_tf_transform_a>] GT 0.0000001]
         #<changed> = 1
     o322 endif
-    o323 if [ABS[[#<_abs_b> - #<_b>] - #<_millgui_tf_transform_b>] GT 0.0000001]
+    o323 if [ABS[[#<_abs_b> - #<_b>] - #<_ferrum_tf_transform_b>] GT 0.0000001]
         #<changed> = 1
     o323 endif
-    o324 if [ABS[[#<_abs_c> - #<_c>] - #<_millgui_tf_transform_c>] GT 0.0000001]
+    o324 if [ABS[[#<_abs_c> - #<_c>] - #<_ferrum_tf_transform_c>] GT 0.0000001]
         #<changed> = 1
     o324 endif
-    o325 if [ABS[[#<_abs_u> - #<_u>] - #<_millgui_tf_transform_u>] GT 0.0000001]
+    o325 if [ABS[[#<_abs_u> - #<_u>] - #<_ferrum_tf_transform_u>] GT 0.0000001]
         #<changed> = 1
     o325 endif
-    o326 if [ABS[[#<_abs_v> - #<_v>] - #<_millgui_tf_transform_v>] GT 0.0000001]
+    o326 if [ABS[[#<_abs_v> - #<_v>] - #<_ferrum_tf_transform_v>] GT 0.0000001]
         #<changed> = 1
     o326 endif
-    o327 if [ABS[[#<_abs_w> - #<_w>] - #<_millgui_tf_transform_w>] GT 0.0000001]
+    o327 if [ABS[[#<_abs_w> - #<_w>] - #<_ferrum_tf_transform_w>] GT 0.0000001]
         #<changed> = 1
     o327 endif
-    o328 if [#3014 NE #<_millgui_tf_setting3014>]
+    o328 if [#3014 NE #<_ferrum_tf_setting3014>]
         #<changed> = 1
     o328 endif
-    o329 if [#3015 NE #<_millgui_tf_setting3015>]
+    o329 if [#3015 NE #<_ferrum_tf_setting3015>]
         #<changed> = 1
     o329 endif
-    o330 if [#3016 NE #<_millgui_tf_setting3016>]
+    o330 if [#3016 NE #<_ferrum_tf_setting3016>]
         #<changed> = 1
     o330 endif
-    o331 if [#3017 NE #<_millgui_tf_setting3017>]
+    o331 if [#3017 NE #<_ferrum_tf_setting3017>]
         #<changed> = 1
     o331 endif
-    o332 if [#3018 NE #<_millgui_tf_setting3018>]
+    o332 if [#3018 NE #<_ferrum_tf_setting3018>]
         #<changed> = 1
     o332 endif
-    o333 if [#3019 NE #<_millgui_tf_setting3019>]
+    o333 if [#3019 NE #<_ferrum_tf_setting3019>]
         #<changed> = 1
     o333 endif
     o399 if [#<changed> NE 0]
         (ABORT, Two-face setup changed - start over)
     o399 endif
 o200 endif
-o<millgui_two_face_context> endsub
+o<ferrum_two_face_context> endsub
 M2

@@ -1,4 +1,4 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; FIND inside corner, the back right corner of a pocket (walls on the corner's
 ; X+ and Y+ sides). Start above the surrounding top outside the pocket,
 ; diagonally beyond the corner, less than step-off #3023 from each wall
@@ -6,11 +6,11 @@
 ; pocket, plunges, touches the X wall (moving X+) and the Y wall (moving
 ; Y+), and ends over the corner at the clearance plane. With #3030 = 0
 ; the active work offset gets X0 Y0 at the corner and Z0 at the top. See
-; millgui_inside_corner.
+; ferrum_inside_corner.
 o<probe_back_right_inside_corner> sub
 o10 if [#<_task> EQ 0]
     o<probe_back_right_inside_corner> return
 o10 endif
-o<millgui_inside_corner> call [1] [1]
+o<ferrum_inside_corner> call [1] [1]
 o<probe_back_right_inside_corner> endsub
 M2

@@ -1,4 +1,4 @@
-//! millgui's job requests (`millgui/job_helper.py`): one JSON request in,
+//! ferrum's job requests (`ferrum/job_helper.py`): one JSON request in,
 //! one JSON reply out, exactly as the Python helper's `main()` wrote them.
 
 use crate::compiler::{read_tool_table, Machine};

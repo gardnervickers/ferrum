@@ -308,7 +308,7 @@ fn observed_cause(s: &Status, switched: bool) -> String {
             if name.is_empty() { "During a program".into() } else { format!("During program {name}") }
         }
         machine::Mode::Mdi => "During MDI or a probe routine".into(),
-        _ => "Outside millgui".into(),
+        _ => "Outside ferrum".into(),
     }
 }
 

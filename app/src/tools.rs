@@ -7,10 +7,10 @@
 //! Edits are refused while a program or MDI command runs.
 //!
 //! Tool setter: MEASURE loads the selected tool if needed and measures its
-//! length (`o<millgui_measure_tool>`); CHECK measures the loaded tool and
+//! length (`o<ferrum_measure_tool>`); CHECK measures the loaded tool and
 //! stops if it is off its table length by more than the breakage tolerance
-//! (`o<millgui_tool_check>`, which a job's TOOL CHECK op also runs). Its
-//! `MILLGUI-TOOLCHECK` line is turned into the result shown here.
+//! (`o<ferrum_tool_check>`, which a job's TOOL CHECK op also runs). Its
+//! `FERRUM-TOOLCHECK` line is turned into the result shown here.
 //!
 //! Wear: LinuxCNC's mill tool table has no wear columns, so the table value
 //! stays the only number the machine uses. A wear adjustment adds a signed
@@ -140,7 +140,7 @@ impl Tools {
         // L1, or the file edited by hand.
         for o in &old {
             if let Some(n) = self.tools.iter().find(|n| n.t == o.t) {
-                let cause = if self.measuring.is_some_and(|(t, _)| t == o.t) { "Measured on the tool setter" } else { "Tool table changed outside millgui" };
+                let cause = if self.measuring.is_some_and(|(t, _)| t == o.t) { "Measured on the tool setter" } else { "Tool table changed outside ferrum" };
                 history::record(Target::Tool(o.t), &[o.z, o.d], &[n.z, n.d], cause, [0.0; 2]);
             }
         }
@@ -215,7 +215,7 @@ impl Tools {
     /// Write the table and have LinuxCNC reload it.
     fn save(&mut self) -> Result<(), String> {
         self.idle()?;
-        let tmp = self.path.with_extension("tbl.millgui");
+        let tmp = self.path.with_extension("tbl.ferrum");
         std::fs::write(&tmp, format(&self.tools)).map_err(|e| format!("tool table: {e}"))?;
         std::fs::rename(&tmp, &self.path).map_err(|e| format!("tool table: {e}"))?;
         self.machine.send(Command::LoadToolTable);
@@ -282,7 +282,7 @@ impl Tools {
         self.measuring = Some((t, old));
         let loaded = self.status.as_ref().is_some_and(|s| s.tool_in_spindle == t);
         self.setter_note = (if loaded { format!("Measuring T{t} on the tool setter…") } else { format!("Loading T{t}, then measuring it on the tool setter…") }, "");
-        self.send_setter(format!("o<millgui_measure_tool> call [{t}]"));
+        self.send_setter(format!("o<ferrum_measure_tool> call [{t}]"));
         Ok(())
     }
 
@@ -303,7 +303,7 @@ impl Tools {
         }
         self.setter_note = (format!("Checking T{t} on the tool setter…"), "");
         self.checking = Some(t);
-        self.send_setter("o<millgui_tool_check> call".into());
+        self.send_setter("o<ferrum_tool_check> call".into());
         Ok(())
     }
 
@@ -543,7 +543,7 @@ pub fn table_path(cfg: &Config, sim: bool) -> PathBuf {
         return real;
     }
     // The simulator edits a copy, never the machine's table.
-    let dir = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(".cache/millgui");
+    let dir = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(".cache/ferrum");
     let copy = dir.join("sim-tool.tbl");
     if !copy.exists() {
         let _ = std::fs::create_dir_all(&dir);
@@ -742,14 +742,14 @@ pub fn apply_status(ui: &MainWindow, tools: &Rc<RefCell<Tools>>, s: &Status) {
     }
 }
 
-/// A `MILLGUI-TOOLCHECK T=<t> LENGTH=<l> TABLE=<l> TOL=<tol>` line from
-/// o<millgui_tool_check> (TOOLS › CHECK or a job's TOOL CHECK op): shown
+/// A `FERRUM-TOOLCHECK T=<t> LENGTH=<l> TABLE=<l> TOL=<tol>` line from
+/// o<ferrum_tool_check> (TOOLS › CHECK or a job's TOOL CHECK op): shown
 /// on TOOLS and in the top bar. Returns whether it was one.
 pub fn message(ui: &MainWindow, tools: &Rc<RefCell<Tools>>, m: &machine::Message) -> bool {
     if m.kind == machine::MessageKind::Error {
         let mut st = tools.borrow_mut();
         let text = m.text.trim();
-        // o<millgui_tool_check> found the tool off its length (a job's
+        // o<ferrum_tool_check> found the tool off its length (a job's
         // TOOL CHECK too): the error is the result. It still shows as an
         // error.
         if text.starts_with("Tool check: T") {
@@ -784,7 +784,7 @@ pub struct CheckResult {
 }
 
 pub fn parse_check(text: &str) -> Option<CheckResult> {
-    let rest = text.trim().strip_prefix("MILLGUI-TOOLCHECK ")?;
+    let rest = text.trim().strip_prefix("FERRUM-TOOLCHECK ")?;
     let mut r = CheckResult { t: -1, length: f64::NAN, table: f64::NAN, tol: f64::NAN };
     for w in rest.split_whitespace() {
         let (k, v) = w.split_once('=')?;
@@ -864,15 +864,15 @@ mod tests {
 
     #[test]
     fn tool_check_lines() {
-        let r = parse_check("MILLGUI-TOOLCHECK T=7 LENGTH=108.500000 TABLE=111.000000 TOL=0.500000").unwrap();
+        let r = parse_check("FERRUM-TOOLCHECK T=7 LENGTH=108.500000 TABLE=111.000000 TOL=0.500000").unwrap();
         assert_eq!(r, CheckResult { t: 7, length: 108.5, table: 111.0, tol: 0.5 });
         assert_eq!(check_text(&r).1, "bad");
         assert!(check_text(&r).0.contains("MAY BE BROKEN: 2.500 shorter"), "{}", check_text(&r).0);
-        let ok = parse_check("MILLGUI-TOOLCHECK T=7 LENGTH=111.002 TABLE=111.000000 TOL=0.5").unwrap();
+        let ok = parse_check("FERRUM-TOOLCHECK T=7 LENGTH=111.002 TABLE=111.000000 TOL=0.5").unwrap();
         assert_eq!(check_text(&ok), ("T7 OK: 0.002 longer than the table (tolerance 0.500)".into(), "good"));
-        let long = parse_check("MILLGUI-TOOLCHECK T=7 LENGTH=112 TABLE=111 TOL=0.5").unwrap();
+        let long = parse_check("FERRUM-TOOLCHECK T=7 LENGTH=112 TABLE=111 TOL=0.5").unwrap();
         assert!(check_text(&long).0.starts_with("T7 IS TOO LONG"));
-        assert!(parse_check("MILLGUI-TOOLCHECK T=7 LENGTH=x").is_none());
+        assert!(parse_check("FERRUM-TOOLCHECK T=7 LENGTH=x").is_none());
         assert!(parse_check("MYMILL-MEASURE ID=1 VALUE=2").is_none());
     }
 

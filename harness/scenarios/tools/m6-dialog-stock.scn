@@ -1,4 +1,4 @@
-title M6 with nothing in HAL to answer it: millgui's plain tool change dialog
+title M6 with nothing in HAL to answer it: ferrum's plain tool change dialog
 needs tc-dialog
 include ../common/ready.scn
 do mdi-send "T2 M6"

@@ -156,6 +156,6 @@ export component MainWindow inherits Window {
         }
         TouchArea { clicked => { Live.toast = ""; Actions.toast-dismiss(); } }
     }
-    // The start-up splash, over everything until millgui is connected.
+    // The start-up splash, over everything until ferrum is connected.
     if Boot.phase != "": Splash { x: 0; y: 0; width: parent.width; height: parent.height; }
 }

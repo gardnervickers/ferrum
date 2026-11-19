@@ -5,8 +5,8 @@
 //! window exists (libEGL is loaded at runtime, so a machine without it
 //! still starts). Mesa's CPU drivers (llvmpipe, softpipe) count as no GPU:
 //! there the software renderer, which repaints only what changed, is
-//! faster than OpenGL drawn by the CPU. `[MILLGUI]RENDERER` or
-//! `MILLGUI_RENDERER` = `gpu` | `software` | `auto` (default) overrides it.
+//! faster than OpenGL drawn by the CPU. `[FERRUM]RENDERER` or
+//! `FERRUM_RENDERER` = `gpu` | `software` | `auto` (default) overrides it.
 
 use crate::config::Config;
 
@@ -18,7 +18,7 @@ pub enum Choice {
 
 /// Which renderer to use, and why (for the log and the Settings screen).
 pub fn choose(cfg: &Config) -> (Choice, String) {
-    let asked = std::env::var("MILLGUI_RENDERER").ok().or_else(|| crate::machine_cfg::get().renderer(cfg)).unwrap_or_default().to_lowercase();
+    let asked = std::env::var("FERRUM_RENDERER").ok().or_else(|| crate::machine_cfg::get().renderer(cfg)).unwrap_or_default().to_lowercase();
     match asked.as_str() {
         "gpu" => return (Choice::Gpu, "GPU (set in config)".into()),
         "software" | "cpu" => return (Choice::Software, "software (set in config)".into()),
@@ -48,14 +48,14 @@ pub fn install(choice: Choice) -> Choice {
     match sel(&choice) {
         Ok(()) => choice,
         Err(e) if choice == Choice::Gpu => {
-            eprintln!("millgui: GPU renderer unavailable ({e}); using software");
+            eprintln!("ferrum: GPU renderer unavailable ({e}); using software");
             if let Err(e) = sel(&Choice::Software) {
-                eprintln!("millgui: software renderer: {e}");
+                eprintln!("ferrum: software renderer: {e}");
             }
             Choice::Software
         }
         Err(e) => {
-            eprintln!("millgui: renderer: {e}");
+            eprintln!("ferrum: renderer: {e}");
             choice
         }
     }

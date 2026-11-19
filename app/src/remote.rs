@@ -34,12 +34,12 @@ const FROM_REMOTE: &[&str] = &["mdi-text", "gcode-selected"];
 /// Actions each screen handles for itself.
 const LOCAL_ACTIONS: &[&str] = &["navigate", "plot-resize", "files-plot-resize", "exit"];
 
-/// `MILLGUI_HARNESS=1` (the test harness, millgui/harness, simulator only):
+/// `FERRUM_HARNESS=1` (the test harness, ferrum/harness, simulator only):
 /// the websocket also drives this screen's navigation, mirrors the
 /// per-screen properties, allows continuous jogs and may quit.
 fn harness() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("MILLGUI_HARNESS").is_ok_and(|v| v == "1"))
+    *ON.get_or_init(|| std::env::var("FERRUM_HARNESS").is_ok_and(|v| v == "1"))
 }
 
 #[derive(Default)]

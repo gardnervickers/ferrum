@@ -213,7 +213,7 @@ impl MdiReturn {
 /// partway (STOP, E-stop, a probe error) leaves whatever it had set: G91, a
 /// work system, units, the tool offset off. LinuxCNC's abort only puts back
 /// G90 and G40 (on_abort.ngc), and those modes carry into MDI and the next
-/// program. So millgui notes the modes before each `o<...> call` and, once
+/// program. So ferrum notes the modes before each `o<...> call` and, once
 /// the call is over, puts back the ones that differ. Typed G-codes (G91,
 /// G55) are left as typed; only macro calls are wrapped.
 struct ModeRestore {
@@ -276,10 +276,10 @@ impl Modes {
     }
 }
 
-/// Marks an MDI line whose mode changes millgui puts back once it ends, as
+/// Marks an MDI line whose mode changes ferrum puts back once it ends, as
 /// it does for a macro call: a power feed move written as `G91 G1 X10`, a
 /// park move with `G90 G53`.
-pub const KEEP_MODES: &str = "(millgui: modes back after)";
+pub const KEEP_MODES: &str = "(ferrum: modes back after)";
 
 /// `line` with the KEEP_MODES mark.
 pub fn keep_modes(line: &str) -> String {

@@ -1,10 +1,10 @@
-//! What millgui reads about the machine from the INI and never asks for:
+//! What ferrum reads about the machine from the INI and never asks for:
 //! linear units, the axes and the joints behind them, which axes are rotary
 //! and whether they have a home switch, the jog increments, and the top of
 //! Z travel. Read once at startup (`init`); every screen asks `get()`.
 //!
 //! Positions, velocities and limits from LinuxCNC are in the machine's
-//! units ([TRAJ]LINEAR_UNITS), so millgui only needs the units for what it
+//! units ([TRAJ]LINEAR_UNITS), so ferrum only needs the units for what it
 //! adds itself: labels, decimals, and its own starting values (round
 //! numbers per unit with `Units::pick`, or millimetres converted with
 //! `Units::from_mm`). PROBE, CONV and JOB work in machine units too.
@@ -120,7 +120,7 @@ pub struct Axis {
     /// Index in `AXIS_LETTERS` (X 0 ... W 8): positions and offsets use it.
     pub index: usize,
     /// The joints that move this axis (two for a gantry). Empty when the
-    /// kinematics are not trivkins and millgui cannot tell.
+    /// kinematics are not trivkins and ferrum cannot tell.
     pub joints: Vec<usize>,
     pub rotary: bool,
     /// A joint has a home switch to search for ([JOINT_n]HOME_SEARCH_VEL is
@@ -131,7 +131,7 @@ pub struct Axis {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineInfo {
     pub units: Units,
-    /// The INI's LINEAR_UNITS value when millgui could not read it (and
+    /// The INI's LINEAR_UNITS value when ferrum could not read it (and
     /// used millimetres instead).
     pub units_unknown: Option<String>,
     pub axes: Vec<Axis>,
@@ -140,7 +140,7 @@ pub struct MachineInfo {
     /// jogs before homing.
     pub trivial_kins: bool,
     pub joints: usize,
-    /// Machine Z that millgui retracts to (the top of travel, just inside
+    /// Machine Z that ferrum retracts to (the top of travel, just inside
     /// the soft limit).
     pub z_top: f64,
     /// Every joint has a HOME_SEQUENCE, so HOME ALL works.
@@ -391,7 +391,7 @@ mod tests {
     use super::*;
 
     fn ini(text: &str) -> Config {
-        let d = std::env::temp_dir().join(format!("millgui-machine-{}-{}", std::process::id(), text.len()));
+        let d = std::env::temp_dir().join(format!("ferrum-machine-{}-{}", std::process::id(), text.len()));
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("m.ini"), text).unwrap();
         let c = Config::load(&d.join("m.ini")).unwrap();

@@ -1,32 +1,32 @@
 # pendant module: the WHB04B pendant from xhc-whb04b-6.hal, which must be
-# loaded first ([HAL]HALFILE). Leave "pendant" out of [MILLGUI]MODULES when
+# loaded first ([HAL]HALFILE). Leave "pendant" out of [FERRUM]MODULES when
 # the pendant HAL file is not loaded.
-net pdnt.connected  whb.pendant.is-connected => millgui.pendant.connected
-net pdnt.asleep     whb.pendant.is-sleeping  => millgui.pendant.asleep
+net pdnt.connected  whb.pendant.is-connected => ferrum.pendant.connected
+net pdnt.asleep     whb.pendant.is-sleeping  => ferrum.pendant.asleep
 
-# START/PAUSE goes to millgui, which runs it as its own CYCLE START or FEED
+# START/PAUSE goes to ferrum, which runs it as its own CYCLE START or FEED
 # HOLD, with the same checks and the G90 setup. Taken away from halui:
 # - halui.mode.auto: the driver asks for AUTO before START, and switching to
 #   AUTO aborts a running MDI command or probe macro.
-# - halui.program.run: a start from here would skip millgui's checks.
+# - halui.program.run: a start from here would skip ferrum's checks.
 unlinkp halui.mode.auto
 unlinkp halui.program.run
-net pdnt.mode.auto => millgui.pendant.auto-request
-net pdnt.button.start-pause whb.button.start-pause => millgui.pendant.start
+net pdnt.mode.auto => ferrum.pendant.auto-request
+net pdnt.button.start-pause whb.button.start-pause => ferrum.pendant.start
 
 # The driver asks halui for MANUAL or teleop on every wheel step and for
 # joint mode before HOME. Any switch out of MDI aborts what runs there (a
-# probe macro, an MDI line), so millgui passes these on only while nothing
+# probe macro, an MDI line), so ferrum passes these on only while nothing
 # runs; a wheel turn mid-probe then does nothing instead of aborting it.
 unlinkp halui.mode.manual
 unlinkp halui.mode.teleop
 unlinkp halui.mode.joint
 unlinkp halui.mode.mdi
-net pdnt.mode.manual => millgui.pendant.ask-manual
-net pdnt.mode.teleop => millgui.pendant.ask-teleop
-net pdnt.mode.joint  => millgui.pendant.ask-joint
-net pdnt.mode.mdi    => millgui.pendant.ask-mdi
-net millgui-pdnt-manual millgui.pendant.mode-manual => halui.mode.manual
-net millgui-pdnt-teleop millgui.pendant.mode-teleop => halui.mode.teleop
-net millgui-pdnt-joint  millgui.pendant.mode-joint  => halui.mode.joint
-net millgui-pdnt-mdi    millgui.pendant.mode-mdi    => halui.mode.mdi
+net pdnt.mode.manual => ferrum.pendant.ask-manual
+net pdnt.mode.teleop => ferrum.pendant.ask-teleop
+net pdnt.mode.joint  => ferrum.pendant.ask-joint
+net pdnt.mode.mdi    => ferrum.pendant.ask-mdi
+net ferrum-pdnt-manual ferrum.pendant.mode-manual => halui.mode.manual
+net ferrum-pdnt-teleop ferrum.pendant.mode-teleop => halui.mode.teleop
+net ferrum-pdnt-joint  ferrum.pendant.mode-joint  => halui.mode.joint
+net ferrum-pdnt-mdi    ferrum.pendant.mode-mdi    => halui.mode.mdi

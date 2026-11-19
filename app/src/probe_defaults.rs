@@ -1,11 +1,11 @@
 //! The probe's and tool setter's stored values, #3004 to #3037.
 //!
-//! The probe macros read these parameters. millgui owns them: each one comes
-//! from millgui.toml (`[probe.defaults]`, `[toolsetter]`), else from the
+//! The probe macros read these parameters. ferrum owns them: each one comes
+//! from ferrum.toml (`[probe.defaults]`, `[toolsetter]`), else from the
 //! parameter file (machines set up with Probe Basic have them there), else a
 //! starting value for a 2 mm tip touch probe. Values with none of the three
 //! (the setter's max Z travel and reference height) must be set by the user.
-//! The probe module writes them to LinuxCNC; edits are saved to millgui.toml.
+//! The probe module writes them to LinuxCNC; edits are saved to ferrum.toml.
 
 use crate::config::Config;
 use crate::machine_cfg::MachineCfg;
@@ -19,7 +19,7 @@ pub enum Unit {
 
 pub struct Def {
     pub n: u16,
-    /// The millgui.toml key, `table.key` or `probe.defaults.key`.
+    /// The ferrum.toml key, `table.key` or `probe.defaults.key`.
     pub key: &'static str,
     pub title: &'static str,
     pub unit: Unit,
@@ -46,7 +46,7 @@ const fn d(n: u16, key: &'static str, title: &'static str, unit: Unit, mm: Optio
 
 use Unit::{Dist, Feed};
 
-/// The values millgui owns, in SETUP's order. The hints (#3025 to #3029)
+/// The values ferrum owns, in SETUP's order. The hints (#3025 to #3029)
 /// and modes (#3011 to #3013, #3030, #3031, #3036) are per run.
 pub const DEFS: &[Def] = &[
     d(3015, "probe.defaults.slow_feed", "Slow feed (the touch)", Feed, Some(25.0), Some(1.0), |c| c.probe.defaults.slow_feed),
@@ -115,7 +115,7 @@ pub fn parse_params(text: &str) -> BTreeMap<u16, f64> {
     out
 }
 
-/// The value millgui uses for each owned parameter, and where it came from.
+/// The value ferrum uses for each owned parameter, and where it came from.
 /// `base` is what LinuxCNC holds (the parameter file, or the saved copy of
 /// an earlier run's defaults).
 pub fn resolve(mc: &MachineCfg, base: &BTreeMap<u16, f64>, inch: bool) -> BTreeMap<u16, (Option<f64>, Source)> {
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn every_key_is_read_from_millgui_toml() {
+    fn every_key_is_read_from_ferrum_toml() {
         for d in DEFS {
             let (table, key) = d.key.rsplit_once('.').unwrap();
             let text = format!("[{table}]\n{key} = 1.25\n");

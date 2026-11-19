@@ -1,4 +1,4 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; MEASURE rotary diameter: o<probe_a_measure_diameter> call [dia] [dir].
 ; Needs work Y0 Z0 on the A axis (parallel to X); the probe starts above
 ; the cylinder near Y0 at the X station to measure. dia = diameter estimate
@@ -15,7 +15,7 @@ o<probe_a_measure_diameter> sub
 o10 if [#<_task> EQ 0]
     o<probe_a_measure_diameter> return
 o10 endif
-o<millgui_rotary_ready> call [1]
+o<ferrum_rotary_ready> call [1]
 M73
 M50 P0
 G90 G94
@@ -30,19 +30,19 @@ o21 endif
 #<a0> = #5423
 #<nom> = [#<dia> / 2]
 #<r> = [[#5410 / 2] - #3032]
-o<millgui_guarded_move> call [0] [0 - #5421] [0]
-o<millgui_rotary_top> call [#<a0>] [#<dia> + [2 * #3021]]
+o<ferrum_guarded_move> call [0] [0 - #5421] [0]
+o<ferrum_rotary_top> call [#<a0>] [#<dia> + [2 * #3021]]
 #<rt> = #<_value>
-o<millgui_rotary_plausible> call [#<rt>] [#<nom>] [0]
+o<ferrum_rotary_plausible> call [#<rt>] [#<nom>] [0]
 #<clear> = [#<rt> + #<dia> + #3021]
-#<standoff> = [#<nom> + #3019 + #<r> + [2 * #<_millgui_mm>]]
-#<span> = [#<dia> + [2 * #3019] + [2 * #<r>] + [4 * #<_millgui_mm>]]
-o<millgui_rotary_side> call [1] [#<a0> + [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [0]
+#<standoff> = [#<nom> + #3019 + #<r> + [2 * #<_ferrum_mm>]]
+#<span> = [#<dia> + [2 * #3019] + [2 * #<r>] + [4 * #<_ferrum_mm>]]
+o<ferrum_rotary_side> call [1] [#<a0> + [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [0]
 #<r1> = ABS[#<_value>]
-o<millgui_rotary_plausible> call [#<r1>] [#<nom>] [1]
-o<millgui_rotary_side> call [-1] [#<a0> - [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [0]
+o<ferrum_rotary_plausible> call [#<r1>] [#<nom>] [1]
+o<ferrum_rotary_side> call [-1] [#<a0> - [#<dir> * 90]] [#<standoff>] [#<span>] [#<clear>] [0]
 #<r2> = ABS[#<_value>]
-o<millgui_rotary_plausible> call [#<r2>] [#<nom>] [2]
+o<ferrum_rotary_plausible> call [#<r2>] [#<nom>] [2]
 #<lo> = #<rt>
 #<hi> = #<rt>
 o30 if [#<r1> LT #<lo>]
@@ -62,7 +62,7 @@ o33 endif
 (DEBUG, EVAL[vcp.getWidget{"measure_diameter_value"}.setValue{#<diameter>}])
 (DEBUG, EVAL[vcp.getWidget{"measure_diameter_spread_value"}.setValue{#<spread>}])
 G90 G1 A#<a0> F#3017
-o<millgui_guarded_move> call [0] [0 - #5421] [0]
+o<ferrum_guarded_move> call [0] [0 - #5421] [0]
 G90
 o<probe_a_measure_diameter> endsub
 M2

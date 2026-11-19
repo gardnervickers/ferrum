@@ -1,4 +1,4 @@
-# millgui requirements
+# Ferrum requirements
 
 From the final mockup (`docs/mockup-v16.html`, artifact
 https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
@@ -22,10 +22,10 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] EXIT (hold) in the status bar ends the session; disabled while running.
 - [x] Popups cover only the middle, so E-STOP, power, feed hold, stop, cycle start stay usable.
 - [x] WHB04B pendant (module `pendant`, hal/pendant.hal): pill (PENDANT / ASLEEP / OFF); START/PAUSE
-      goes to millgui (CYCLE START with its checks when idle, FEED HOLD while running, resume when
+      goes to Ferrum (CYCLE START with its checks when idle, FEED HOLD while running, resume when
       paused) instead of halui, whose AUTO switch aborted a running MDI line or probe macro; the
       driver's MANUAL/teleop/joint/MDI requests (every wheel step, HOME) reach halui only while
-      nothing runs; after an MDI line millgui no longer switches back over a mode the pendant picked.
+      nothing runs; after an MDI line Ferrum no longer switches back over a mode the pendant picked.
 - [x] HOME per axis: an unhomed axis's DRO ZERO becomes HOME (hold); A is referenced where it stands.
 - [x] Message drawer for (abort), (MSG), (PRINT), (DEBUG) (tap the message line).
 
@@ -37,7 +37,7 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 - [x] Power feed parity with powerfeed.py/custom_config.yml: own WCS (powerfeed.wcs-index),
       remembered feed/distance/RPM, GOTO list with save/update/delete and XY preview.
       END OF TRAVEL needs a hold and disables Z. (Settings and GOTO list persist in
-      ~/.local/state/millgui/settings; Probe Basic kept GOTO points in memory only.)
+      ~/.local/state/ferrum/settings; Probe Basic kept GOTO points in memory only.)
 - [x] Spindle start preflight from powerfeed.py (_spindle_start_block_reason: probe selected,
       drawbar requested/extended, rearm) as a clear message, for manual spindle start and the
       warm-up; HAL still enforces it. (Unlike Probe Basic, missing pins mean no check, not a block:
@@ -46,8 +46,8 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       (`manual-locked` = interpreter not idle).
 - [x] MDI with history; keypad overlay.
 - [x] MDI screen per mockup v17: command line, help line (library match), categories with
-      RECENT as history, code cards tagged MOVES, G-code keypad; library in millgui/mdi.toml
-      ([MILLGUI]MDI_LIBRARY overrides; a built-in copy is the fallback).
+      RECENT as history, code cards tagged MOVES, G-code keypad; library in ferrum/mdi.toml
+      ([FERRUM]MDI_LIBRARY overrides; a built-in copy is the fallback).
 
 ## M3 Run and files
 
@@ -103,7 +103,7 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       G92/G52 indicator with CLEAR.
 - [x] DRO: a ZERO button on each axis zeroes it in the active WCS with one tap.
 - [ ] Check on the Pi whether LinuxCNC rewrites PARAMETER_FILE after G10 while running;
-      inactive WCS rows come from it at startup and from edits made in millgui.
+      inactive WCS rows come from it at startup and from edits made in ferrum.
 
 ## M5 Probing and util
 
@@ -132,20 +132,20 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 ## M6 Job and conversational
 
-- [x] JOB page on job_session.py through millgui/job_helper.py (python3, JSON lines): op list with
+- [x] JOB page on job_session.py through ferrum/job_helper.py (python3, JSON lines): op list with
       RUN/SKIP, NEW, OPEN, ADD STEP presets, move, HOLD DELETE, START AT OP (disables earlier ops,
       needs a rebuild), STOP AFTER THIS OP, HOLD BUILD AND LOAD; run progress per op and for the job.
 - [x] `mymill-job` HAL component (stamp, skip-1..64, stop-after) mirrored from the session.
 - [x] Tool setter (2026-11-18): TOOLS › MEASURE loads the selected tool if needed and sets its length
-      (`o<millgui_measure_tool>`); TOOLS › CHECK measures the loaded tool and stops when it is off its
-      table length by more than `#3037` (`o<millgui_tool_check>`). Job op kind `toolcheck` runs the
+      (`o<ferrum_measure_tool>`); TOOLS › CHECK measures the loaded tool and stops when it is off its
+      table length by more than `#3037` (`o<ferrum_tool_check>`). Job op kind `toolcheck` runs the
       same check; ADD STEP › TOOL CHECK AFTER EVERY TOOL puts one wherever a tool is put away.
 - [x] CYCLE START refuses a stale, unbuilt or edited job program (cycle_start_problem), the probe in
       the spindle, and a motion block (Probe Basic's on_cycle_start_clicked checks).
 - [x] CONV: facing, XY coord, pattern (grid), hole circle, helical bore, thread mill (presets) from
       the mill_ops generators; live summary or errors; ADD TO JOB; LOAD AS PROGRAM to PROGRAM_PREFIX.
 - [ ] Check on the Pi: python3 can import mymill_job/mymill_vcp from the config folder, and the
-      built program reads mymill-job.stamp from millgui's component. 2026-11-13: the Pi's config
+      built program reads mymill-job.stamp from Ferrum's component. 2026-11-13: the Pi's config
       checkout (131b64c) predates mymill_job, so JOB and CONV fail there until it is updated.
 - [x] Probe screen simplified (Gardner, 2026-11-18: "really busy"): no step headings; the three key
       values are one-tap rows (keypad) and every other value, − / +, per-value RESET and the saved
@@ -166,7 +166,7 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       drawn and checked; a check that pauses shows its message in full and its reading on the
       running row; no tool correction is offered from an error over 0.5 mm or a missing result.
 - [x] "Queue is not empty after probing" (seen in the simulator, a job's auto stock walk): a timing
-      race inside LinuxCNC 2.9.10 between task and motion, not millgui or the job. It stops the
+      race inside LinuxCNC 2.9.10 between task and motion, not Ferrum or the job. It stops the
       program before anything is written; starting again is the remedy and the error toast says
       so. Cause, proof and the one-line LinuxCNC fix (not applied to the Pi):
       `docs/reviews/2026-11-17-queue-not-empty-after-probing.md`.
@@ -177,7 +177,7 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
 
 - [x] Slint wasm build of the same UI (software renderer into a canvas, fills and resizes with
       the window); Live/Actions mirrored over a websocket (uimirror generates the glue).
-- [x] `remote` on the Pi ([MILLGUI]REMOTE_PORT): serves the bundle (gzip), streams property diffs
+- [x] `remote` on the Pi ([FERRUM]REMOTE_PORT): serves the bundle (gzip), streams property diffs
       at 20 Hz and the backplot PNG at 4 Hz.
 - [x] Remote control enabled for now (Gardner, 2026-11-13); access policy (read-only default, grant) later.
 - [x] Remote jogs step-only (the Pi refuses CONT); remote E-STOP labelled as a request.

@@ -1,5 +1,5 @@
 %
-(MILLGUI HARNESS - one Fusion-style op, cuts air ${dist} above the work zero)
+(FERRUM HARNESS - one Fusion-style op, cuts air ${dist} above the work zero)
 (T4 D=2.5 JOBBER)
 G90 G94 G17 G91.1
 G21

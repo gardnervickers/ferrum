@@ -27,7 +27,7 @@ expect prop.pr-result{Calibration offset (saved)} ~= ${probe_pretravel} +- ${cal
 mdi (DEBUG,P3032=#3032)
 wait prop.messages contains "P3032=" within 5
 expect prop.messages{P3032=} ~= ${probe_pretravel} +- ${cal_tol}
-# CAL runs report only (millgui sets #3030 = 1): G54 is untouched.
+# CAL runs report only (ferrum sets #3030 = 1): G54 is untouched.
 expect stat.g5x_offset[0] ~= ${wcs0_x} +- 0.0001
 expect stat.g5x_offset[1] ~= ${wcs0_y} +- 0.0001
 expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001

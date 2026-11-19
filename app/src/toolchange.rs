@@ -51,7 +51,7 @@ pub trait Io {
     fn set_touch_off_reset(&self, on: bool);
 }
 
-/// Pins on `millgui.drawbar.*`, netted by millgui/hal/drawbar.hal.
+/// Pins on `ferrum.drawbar.*`, netted by ferrum/hal/drawbar.hal.
 pub struct HalIo {
     change: In<bool>,
     number: In<i32>,

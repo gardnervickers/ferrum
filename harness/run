@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
-# Run the millgui harness: build millgui (NML backend) and the harness, then
+# Run the ferrum harness: build ferrum (NML backend) and the harness, then
 # boot the LinuxCNC simulator once per config x scenario and check them.
 #
-#   millgui/harness/run                         # everything
-#   millgui/harness/run -c sim-inch basics      # one config, one folder
-#   millgui/harness/run --list
+#   ferrum/harness/run                         # everything
+#   ferrum/harness/run -c sim-inch basics      # one config, one folder
+#   ferrum/harness/run --list
 #
 # Needs LinuxCNC from setup-linuxcnc (LCNC_DIR, default ~/lcnc). Simulator
 # only: it never talks to a real machine. LinuxCNC refuses to run as root,
 # so as root this runs the simulator as user `cncsim` (created if missing).
-# Report: millgui/harness-out/index.html (or --out DIR).
+# Report: ferrum/harness-out/index.html (or --out DIR).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-MILLGUI="$(dirname "$HERE")"
+FERRUM="$(dirname "$HERE")"
 LCNC="${LCNC_DIR:-$HOME/lcnc}"
 if [ ! -f "$LCNC/src/scripts/rip-environment" ]; then
-  echo "No LinuxCNC build in $LCNC. Run millgui/harness/setup-linuxcnc first (or set LCNC_DIR)." >&2
+  echo "No LinuxCNC build in $LCNC. Run ferrum/harness/setup-linuxcnc first (or set LCNC_DIR)." >&2
   exit 2
 fi
 LCNC="$(cd "$LCNC" && pwd)"
-TARGET="${CARGO_TARGET_DIR_NML:-$MILLGUI/target-nml}"
+TARGET="${CARGO_TARGET_DIR_NML:-$FERRUM/target-nml}"
 
 if [ -z "${HARNESS_NO_BUILD:-}" ]; then
-  (cd "$MILLGUI" && LCNC_SYSROOT="$LCNC/sysroot" MILLGUI_SYSROOT="$LCNC/sysroot" CARGO_TARGET_DIR="$TARGET" \
-     cargo build -q -p millgui -p millgui-harness)
+  (cd "$FERRUM" && LCNC_SYSROOT="$LCNC/sysroot" FERRUM_SYSROOT="$LCNC/sysroot" CARGO_TARGET_DIR="$TARGET" \
+     cargo build -q -p ferrum-lcnc -p ferrum-harness)
 fi
 
 # Default output next to the repo checkout; pass --out to change it.
-OUT="$MILLGUI/harness-out"
+OUT="$FERRUM/harness-out"
 args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do
   case "${args[$i]}" in --out|-o) OUT="${args[$((i + 1))]}" ;; esac
@@ -35,13 +35,13 @@ done
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
-run=("$TARGET/debug/millgui-harness" --lcnc "$LCNC/src" --millgui "$TARGET/debug/millgui" --out "$OUT" "$@")
+run=("$TARGET/debug/ferrum-harness" --lcnc "$LCNC/src" --ferrum "$TARGET/debug/ferrum" --out "$OUT" "$@")
 envs=(HARNESS_DIR="$HERE" HARNESS_BOOT="${HARNESS_BOOT:-}" LD_LIBRARY_PATH="$LCNC/src/lib" PATH="$PATH")
 
 if [ "$(id -u)" = 0 ]; then
   id cncsim >/dev/null 2>&1 || useradd -m -s /bin/bash cncsim
   # cncsim must reach LinuxCNC, the repo and the build.
-  for p in "$LCNC" "$MILLGUI" "$TARGET"; do
+  for p in "$LCNC" "$FERRUM" "$TARGET"; do
     d="$p"
     while [ "$d" != / ]; do chmod o+rx "$d" 2>/dev/null || true; d="$(dirname "$d")"; done
   done

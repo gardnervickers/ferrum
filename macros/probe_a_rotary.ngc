@@ -1,4 +1,4 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; FIND A0 on a flat: o<probe_a_rotary> call [dir]; dir 1 when +A moves the
 ; top of the work towards the operator, -1 the other way (0 counts as 1).
 ; Work on the A axis (parallel to X) carries a flat facing up; the probe
@@ -13,7 +13,7 @@ o<probe_a_rotary> sub
 o10 if [#<_task> EQ 0]
     o<probe_a_rotary> return
 o10 endif
-o<millgui_rotary_ready> call [0]
+o<ferrum_rotary_ready> call [0]
 M73
 M50 P0
 G90 G94
@@ -22,16 +22,16 @@ o20 if [#<dir> EQ 0]
     #<dir> = 1
 o20 endif
 #<y1> = #5421
-o30 if [ABS[#<y1>] LT [2.5 * #<_millgui_mm>]]
+o30 if [ABS[#<y1>] LT [2.5 * #<_ferrum_mm>]]
     (ABORT, Start at least 2.5 mm away from work Y0 for the A0 flat probe)
 o30 endif
-o<millgui_touch> call [2] [-1] [2 * #3021]
-#<z1> = #<_millgui_hit>
-o<millgui_guarded_move> call [0] [0] [#<z1> + #3021 - #5422]
-o<millgui_guarded_move> call [0] [[0 - #<y1>] - #5421] [0]
-o<millgui_touch> call [2] [-1] [2 * #3021]
-#<z2> = #<_millgui_hit>
-o<millgui_guarded_move> call [0] [0] [#<z2> + #3021 - #5422]
+o<ferrum_touch> call [2] [-1] [2 * #3021]
+#<z1> = #<_ferrum_hit>
+o<ferrum_guarded_move> call [0] [0] [#<z1> + #3021 - #5422]
+o<ferrum_guarded_move> call [0] [[0 - #<y1>] - #5421] [0]
+o<ferrum_touch> call [2] [-1] [2 * #3021]
+#<z2> = #<_ferrum_hit>
+o<ferrum_guarded_move> call [0] [0] [#<z2> + #3021 - #5422]
 o40 if [#<y1> GT 0]
     #<angle> = [ATAN[#<z1> - #<z2>]/[2 * ABS[#<y1>]]]
 o40 else

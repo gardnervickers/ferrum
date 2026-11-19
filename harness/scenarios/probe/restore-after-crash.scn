@@ -1,9 +1,9 @@
 title A probe run cut off by a crash: defaults go back once homed, and homing is not disturbed
 needs probe-basic
-# What probe.rs leaves behind when millgui dies mid-run (Settings "probe"):
+# What probe.rs leaves behind when ferrum dies mid-run (Settings "probe"):
 # the marker and the saved defaults (#3004 = probe feed, distinctive here).
-seed .local/state/millgui/probe probe.restore-pending = 1
-seed .local/state/millgui/probe probe.default.000 = 3004=111.5
+seed .local/state/ferrum/probe probe.restore-pending = 1
+seed .local/state/ferrum/probe probe.default.000 = 3004=111.5
 wait prop.connected == true within 30
 do estop-reset
 wait stat.task_state == 2 within 10

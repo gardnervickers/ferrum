@@ -1,4 +1,4 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; FIND/MEASURE slot across X: finds the centre and width of a slot (valley)
 ; across X. The probe starts inside the slot, roughly centred, with the tip
 ; below the top; there is no Z motion. One measurement across X (-X wall, then +X,
@@ -9,14 +9,14 @@ o<probe_valley_x_center_start> sub
 o10 if [#<_task> EQ 0]
     o<probe_valley_x_center_start> return
 o10 endif
-o<millgui_probe_ready> call
+o<ferrum_probe_ready> call
 M73
 M50 P0
 G90 G94
 
-o<millgui_span_inside> call [0] [#3028] [#3032]
-#1001 = #<_millgui_width>
-#1002 = #<_millgui_center>
+o<ferrum_span_inside> call [0] [#3028] [#3032]
+#1001 = #<_ferrum_width>
+#1002 = #<_ferrum_center>
 
 (DEBUG, EVAL[vcp.getWidget{"x_probed_width"}.setValue{#1001}])
 (DEBUG, EVAL[vcp.getWidget{"x_center_probed"}.setValue{#1002}])

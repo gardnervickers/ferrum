@@ -1,4 +1,4 @@
-# millgui configuration: what a new machine has to tell it
+# Ferrum configuration: what a new machine has to tell it
 
 Status: plan, 2026-11-18, written against main `6c68340`. Nothing here is
 built yet. The inventory comes from reading the code, `mymill.ini`,
@@ -7,20 +7,20 @@ mill. Items marked **verify** are things the implementer should confirm in
 the simulator before relying on them.
 
 Audience: the thread that implements this. The goal is that someone with a
-working LinuxCNC mill who has never used Probe Basic can install millgui,
-start it, and be walked through everything it needs, and that millgui can
+working LinuxCNC mill who has never used Probe Basic can install Ferrum,
+start it, and be walked through everything it needs, and that Ferrum can
 later ship as its own project.
 
 ## 1. Summary
 
-millgui has about 25 real settings today, but most of them are not settings
+Ferrum has about 25 real settings today, but most of them are not settings
 yet. They are one of:
 
 - INI keys Probe Basic users already have (`[DISPLAY]`, `#30xx` probe values
   in `probe_basic.var`);
 - constants in the code that happen to match the PM-728VT (probe is T99, Z 0
   is the top of travel, millimetres everywhere, A is a rotary about X);
-- HAL signal names from `mymill.hal` written into `millgui/hal/*.hal`;
+- HAL signal names from `mymill.hal` written into `ferrum/hal/*.hal`;
 - G-code subroutines that live in this repo or in the Probe Basic
   submodule, several of which need `mymill.hal`'s latches to run at all.
 
@@ -34,14 +34,14 @@ differently:
 | Feature dead with a HAL error line | `probe.hal` nets `wireless-probe-tool-active`, which only `mymill.hal` has | Signal map in config, nets generated |
 | Works, shows Gardner's values | Table model, warm-up rpm, MDI library text | Plain settings with detected defaults |
 
-The proposal in one paragraph: millgui reads machine facts from the INI and
+The proposal in one paragraph: Ferrum reads machine facts from the INI and
 from HAL and never asks for them; everything else lives in one file,
-`millgui.toml`, beside the INI, which a SETUP screen writes and a person can
-also edit; a checker (`millgui --check`, and the same code at startup)
+`ferrum.toml`, beside the INI, which a SETUP screen writes and a person can
+also edit; a checker (`ferrum --check`, and the same code at startup)
 turns every requirement below into a row that is OK, needs attention, or
 blocks one named feature; a missing setting disables the one feature that
 needs it and never stops the GUI from starting. Gardner's mill becomes a
-profile (a `millgui.toml`, a signal map and its own subroutines) and stops
+profile (a `ferrum.toml`, a signal map and its own subroutines) and stops
 being the default.
 
 ## 2. Where settings live
@@ -50,27 +50,27 @@ Four layers, each with one writer.
 
 | Layer | File | Writer | Holds |
 | --- | --- | --- | --- |
-| Machine facts | the LinuxCNC INI | the user, PNCconf | axes, units, limits, velocities, spindle max, paths. millgui only reads |
-| millgui machine config | `millgui.toml` beside the INI (`[MILLGUI]CONFIG` to move it) | SETUP screen, or by hand | everything in section 4 marked "config" |
-| Operator state | `~/.local/state/millgui/*` (today's `settings.rs`) | millgui | jog speed, power feed values, GOTO list, conv field memory, warm-up stages |
-| Interpreter parameters | `[RS274NGC]PARAMETER_FILE` | LinuxCNC only | G30/G28, work offsets. millgui changes them through MDI and never writes the file |
+| Machine facts | the LinuxCNC INI | the user, PNCconf | axes, units, limits, velocities, spindle max, paths. Ferrum only reads |
+| Ferrum machine config | `ferrum.toml` beside the INI (`[FERRUM]CONFIG` to move it) | SETUP screen, or by hand | everything in section 4 marked "config" |
+| Operator state | `~/.local/state/ferrum/*` (today's `settings.rs`) | Ferrum | jog speed, power feed values, GOTO list, conv field memory, warm-up stages |
+| Interpreter parameters | `[RS274NGC]PARAMETER_FILE` | LinuxCNC only | G30/G28, work offsets. Ferrum changes them through MDI and never writes the file |
 
 Decisions for the implementer:
 
-- `millgui.toml` replaces `machine.toml` (its `[buttons]` and `[model]`
+- `ferrum.toml` replaces `machine.toml` (its `[buttons]` and `[model]`
   tables move in unchanged). Keep reading `machine.toml` when no
-  `millgui.toml` exists, so the Pi keeps working until its profile lands.
+  `ferrum.toml` exists, so the Pi keeps working until its profile lands.
 - Keep `serde(deny_unknown_fields)` but stop falling back to all defaults on
   one bad key: report the key in SETUP and use defaults for that table only.
 - Write with `toml_edit`, so comments and hand edits survive a save from the
   SETUP screen. Write to a temp file and rename.
-- The INI's `[MILLGUI]` section shrinks to `CONFIG` (optional). `MODULES`,
+- The INI's `[FERRUM]` section shrinks to `CONFIG` (optional). `MODULES`,
   `POSTGUI_HALFILE`, `REMOTE_PORT`, `REMOTE_ROOT`, `RENDERER`, `MDI_LIBRARY`
-  and `MACHINE_CONFIG` stay honoured as fallbacks, with `millgui.toml`
-  winning. millgui must never rewrite the INI while LinuxCNC runs (LinuxCNC
+  and `MACHINE_CONFIG` stay honoured as fallbacks, with `ferrum.toml`
+  winning. Ferrum must never rewrite the INI while LinuxCNC runs (LinuxCNC
   has it loaded, PNCconf regenerates it, `#INCLUDE` makes "which file" unclear).
-- Stock users set `[DISPLAY]DISPLAY = millgui` in their own INI. The
-  `millgui.ini` + `#INCLUDE mymill.ini` wrapper is a mymill arrangement for
+- Stock users set `[DISPLAY]DISPLAY = ferrum` in their own INI. The
+  `ferrum.ini` + `#INCLUDE mymill.ini` wrapper is a mymill arrangement for
   keeping Probe Basic alongside; it should not appear in the standalone docs.
 - Probe defaults stop depending on the parameter file. See 4.6.
 
@@ -124,14 +124,14 @@ probe_tripped = "auto"
 
 ### 3.1 Tiers
 
-millgui must be useful before any setup. Three tiers, decided at startup
+Ferrum must be useful before any setup. Three tiers, decided at startup
 from the checks, shown on SETUP:
 
 1. **Core** needs only a valid INI and a running LinuxCNC: RUN, MANUAL (jog,
    home, MDI, spindle, coolant, zero), FILES, OFFSETS, TOOLS, preview and the
-   travel check. No millgui subroutine, no HAL signal, no `millgui.toml`.
+   travel check. No Ferrum subroutine, no HAL signal, no `ferrum.toml`.
 2. **Tooling** adds the tool change dialog, the tool setter and probing.
-   Needs the probe/setter questions answered and millgui's macros on
+   Needs the probe/setter questions answered and Ferrum's macros on
    `SUBROUTINE_PATH`.
 3. **Extras**: JOB and CONV, pendant, drive and interlock pills, load
    colouring, remote screen, rotary probing. Each has its own row.
@@ -158,7 +158,7 @@ struct Check {
 
 It runs in three places from the same code:
 
-- `millgui --check <ini>`: prints the rows and exits non-zero when anything
+- `ferrum --check <ini>`: prints the rows and exits non-zero when anything
   blocks core. Works without LinuxCNC running (HAL checks report "LinuxCNC
   not running", not a failure). This is also what the docs tell a new user
   to run first, and what bug reports should paste.
@@ -172,13 +172,13 @@ It runs in three places from the same code:
 ### 3.3 SETUP screen and first run
 
 A new always-on module `setup` (nav entry at the end, a badge with the count
-of Attention rows). When no `millgui.toml` exists it opens first, with one
+of Attention rows). When no `ferrum.toml` exists it opens first, with one
 sentence: core works now; the rest is below.
 
 Rows whose fix is `Setting` open the normal keypad or a picker in place.
 Rows whose fix is `IniLines` show the exact lines to add and the section,
-with the text "LinuxCNC must be restarted"; millgui does not edit the INI
-from the GUI. `millgui --check <ini> --write-ini` may append the lines to
+with the text "LinuxCNC must be restarted"; Ferrum does not edit the INI
+from the GUI. `ferrum --check <ini> --write-ini` may append the lines to
 the INI with a `.bak` copy when LinuxCNC is not running (**decision for
 Gardner**, default: print only).
 
@@ -193,7 +193,7 @@ framework; skippable, re-enterable):
 3. **Tool change**: detected style, explained (4.5).
 4. **Probe**: do you have one; its tool number; live input test ("touch the
    probe: the row turns green while `motion.probe-input` is high"); feeds
-   and clearances with defaults; whether millgui's probe macros are found.
+   and clearances with defaults; whether Ferrum's probe macros are found.
 5. **Tool setter**: do you have one; jog over it and SET POSITION HERE
    (G30.1); live trip test; feeds; reference height.
 6. **Extras**: pendant, drive status, load, remote.
@@ -208,7 +208,7 @@ elsewhere (jog). Probe calibration stays on PROBE › CAL.
 ## 4. Inventory
 
 Columns: **Today** is where the value comes from now. **Detect** is what
-millgui can read without asking. **Set** is `config` (`millgui.toml`),
+Ferrum can read without asking. **Set** is `config` (`ferrum.toml`),
 `setup` (config, with a SETUP row worth showing), `ini` (user edits the
 INI), or `code` (not a setting: fix the assumption). **If missing or wrong**
 is the behaviour today on a machine that is not Gardner's.
@@ -221,12 +221,12 @@ is the behaviour today on a machine that is not Gardner's.
 | A2 | NML file | `[EMC]NML_FILE`, else the shim's default | INI | LinuxCNC default | ini | 15 s of retries, then exit 1 with one stderr line. Should show a window saying so |
 | A3 | Program folder | `[DISPLAY]PROGRAM_PREFIX`, else `nc_files` under the INI folder (`files.rs:118`) | INI; create if absent | `~/linuxcnc/nc_files` | ini | empty FILES list, no message |
 | A4 | Parameter file | `[RS274NGC]PARAMETER_FILE`, else `linuxcnc.var` (4 call sites) | INI | as LinuxCNC | ini | offsets table, G30 readout and probe defaults read as empty or zero |
-| A5 | Tool table | `[EMCIO]TOOL_TABLE`, else `tool.tbl` (`tools.rs:424`) | INI | as LinuxCNC | ini | TOOLS empty. millgui edits the file and sends a reload; a tool database program (`[EMCIO]DB_PROGRAM`) is not supported and must be detected and TOOLS made read-only |
+| A5 | Tool table | `[EMCIO]TOOL_TABLE`, else `tool.tbl` (`tools.rs:424`) | INI | as LinuxCNC | ini | TOOLS empty. Ferrum edits the file and sends a reload; a tool database program (`[EMCIO]DB_PROGRAM`) is not supported and must be detected and TOOLS made read-only |
 | A6 | `rs274` on PATH | `preview/rs274.rs:26` | PATH | n/a | check row | no preview, no travel check, silently |
 | A7 | `halcmd` on PATH, `liblinuxcnchal.so.0` loadable | `main.rs:164`, `hal/lib.rs:11` | try | n/a | check row | "HAL unavailable" note, every HAL module dead |
-| A8 | millgui's own files | `millgui/hal/<id>.hal`, `millgui/mdi.toml`, `millgui/machine.toml`, `millgui/web/dist`, all relative to the INI folder; binary at `millgui/bin/millgui` via `millgui/run` | n/a | n/a | code | A packaged millgui has no folder inside the user's config. Built-in copies of the MDI library and HAL templates; data in `/usr/share/millgui`; binary on PATH |
-| A9 | State and cache | `$MILLGUI_STATE`, `~/.local/state/millgui`, `~/.cache/millgui` | env | XDG | n/a | fine. State is per user, not per machine: key the folder by the INI's `[EMC]MACHINE` name so two configs on one PC do not share GOTO lists and probe markers |
-| A10 | `[DISPLAY]` keys under `#INCLUDE` | first `[DISPLAY]` wins, so `millgui.ini` repeats keys | n/a | n/a | docs | only matters for the wrapper layout; stock users edit their own `[DISPLAY]` |
+| A8 | Ferrum's own files | `ferrum/hal/<id>.hal`, `ferrum/mdi.toml`, `ferrum/machine.toml`, `ferrum/web/dist`, all relative to the INI folder; binary at `ferrum/bin/ferrum` via `ferrum/run` | n/a | n/a | code | A packaged Ferrum has no folder inside the user's config. Built-in copies of the MDI library and HAL templates; data in `/usr/share/ferrum`; binary on PATH |
+| A9 | State and cache | `$FERRUM_STATE`, `~/.local/state/ferrum`, `~/.cache/ferrum` | env | XDG | n/a | fine. State is per user, not per machine: key the folder by the INI's `[EMC]MACHINE` name so two configs on one PC do not share GOTO lists and probe markers |
+| A10 | `[DISPLAY]` keys under `#INCLUDE` | first `[DISPLAY]` wins, so `ferrum.ini` repeats keys | n/a | n/a | docs | only matters for the wrapper layout; stock users edit their own `[DISPLAY]` |
 
 ### 4.2 Axes, kinematics and units
 
@@ -267,10 +267,10 @@ is the behaviour today on a machine that is not Gardner's.
 
 ### 4.5 Tool change
 
-Three styles. millgui today implements only the third and hides the first
+Three styles. Ferrum today implements only the third and hides the first
 inside it.
 
-| Style | What the machine has | millgui does |
+| Style | What the machine has | Ferrum does |
 | --- | --- | --- |
 | `external` | an ATC or its own M6 remap that answers `iocontrol.0.tool-changed` itself, or `hal_manualtoolchange` | nothing; shows the tool number |
 | `dialog` | plain manual change: `iocontrol.0.tool-change` raised, someone must answer | shows the overlay, RESUME sets `tool-changed` |
@@ -280,7 +280,7 @@ inside it.
 | --- | --- | --- | --- | --- | --- | --- |
 | E1 | Who answers M6 | the overlay exists only when the `drawbar` module is listed (`modules.rs` `toolchange()`), and `drawbar.hal` nets signals named `tool-change-request`, `tool-change-confirmed`, `tool-number`, `spindle-request` | is `iocontrol.0.tool-changed` already driven by something (halcmd: the pin's signal has a writer)? Then `external`. Otherwise `dialog` | detected | setup: `toolchange.style` | no `drawbar`: **M6 waits forever** unless the user's HAL loops it back. With `drawbar` on a stock machine: five halcmd errors and a dead overlay. Phase 2: a `toolchange` module that owns the overlay and nets itself to `iocontrol.0.*` directly; `drawbar` becomes an add-on that only adds the drawbar rows |
 | E2 | Tool prepare loopback | `mymill.hal` loops `tool-prepare` to `tool-prepared` | pin connected | n/a | check row with the HAL line to add | T word hangs |
-| E3 | M6 remap | mymill remaps M6 to `m6_toolchange_optional_touch_off` with Python prolog/epilog (machine side, not millgui). RUN FROM SELECTED and the preview know M6 may be remapped (preview strips `REMAP` lines) | `[RS274NGC]REMAP` | none | n/a | fine without a remap. RESUME + TOUCH OFF needs the remap and the latch: hide it unless `toolchange.touch_off_after_change` is set up |
+| E3 | M6 remap | mymill remaps M6 to `m6_toolchange_optional_touch_off` with Python prolog/epilog (machine side, not Ferrum). RUN FROM SELECTED and the preview know M6 may be remapped (preview strips `REMAP` lines) | `[RS274NGC]REMAP` | none | n/a | fine without a remap. RESUME + TOUCH OFF needs the remap and the latch: hide it unless `toolchange.touch_off_after_change` is set up |
 | E4 | Probe tool rules | touch-off refused for the probe tool and T0; CYCLE START refused with the probe loaded (`main.rs:485`) | n/a | n/a | via F1 | wrong tool number makes these rules hit a cutter or miss the probe |
 | E5 | Scratch tools | T200 to T249 warn "touch off likely required" (`toolchange.rs:27`) | n/a | none | config: `toolchange.scratch_tools` | harmless but odd |
 | E6 | Unload | `o<unload_spindle>` (`M61 Q0 G49`, and Probe Basic's `#3991`) | n/a | send `M61 Q0` then `G49` as MDI | code | "unable to open file" error |
@@ -290,11 +290,11 @@ inside it.
 
 | # | Need | Today | Detect | Default | Set | If missing or wrong |
 | --- | --- | --- | --- | --- | --- | --- |
-| F1 | Probe tool number | `[PROBE]TOOL_NUMBER`, else 99, read in 7 places. `mymill.ini` has no `[PROBE]` section, so it is 99 by default everywhere; `tool_touch_off.ngc` (`#5400 EQ 99`), `mymill.hal` (`probe-manager.wireless-tool-number 99`) and `#3014` each carry their own copy | none reliable | none: ask | setup: `probe.tool`, read once into one place | wrong number: "Load the probe (T99) first" forever, or the spindle-start and cycle-start guards protect the wrong tool. The macros must take the number from millgui (a parameter it sets), not a literal |
+| F1 | Probe tool number | `[PROBE]TOOL_NUMBER`, else 99, read in 7 places. `mymill.ini` has no `[PROBE]` section, so it is 99 by default everywhere; `tool_touch_off.ngc` (`#5400 EQ 99`), `mymill.hal` (`probe-manager.wireless-tool-number 99`) and `#3014` each carry their own copy | none reliable | none: ask | setup: `probe.tool`, read once into one place | wrong number: "Load the probe (T99) first" forever, or the spindle-start and cycle-start guards protect the wrong tool. The macros must take the number from Ferrum (a parameter it sets), not a literal |
 | F2 | Probe exists and is wired | assumed | `motion.probe-input` has a signal | false | setup: `probe.enabled`, with the live test | G38 moves that never trip |
 | F3 | Probe status signals | `probe.hal` nets `wireless-probe-tool-active`, `wireless-probe-fault`, `probe-in` (all from `mymill.hal`'s `probe_manager`) | `probe_tripped` = the signal on `motion.probe-input`; the other two do not exist on stock machines | tripped only | `hal.probe_tripped`, `hal.probe_loaded`, `hal.probe_fault` | three halcmd errors; pill stuck on "PROBE NOT LOADED". With no `probe_loaded` signal, derive "loaded" from tool number = F1 |
-| F4 | Spindle lockout with the probe in | HAL (`spindle.0.inhibit` from probe_manager) plus a GUI message | is `spindle.0.inhibit` connected | n/a | Attention row | without the HAL interlock the only guard is millgui refusing its own spindle buttons; a program's M3 still spins the probe. Say so plainly; offer the HAL snippet |
-| F5 | Probe defaults `#3004` to `#3037` | read from the parameter file at start (`probe.rs:1375`); a run writes only the values that differ and restores after | n/a | below | setup: `[probe.defaults]`, `[toolsetter]` | **fresh machine: the file has no such lines, every value is 0.** The macros then abort ("feeds must be positive") at best. Also LinuxCNC only persists numbered parameters that are already listed in the file (**verify**), so values set by MDI vanish at restart. Change: millgui owns the defaults in `millgui.toml` and writes the full set before every probe run; nothing is read from the parameter file. Calibration results (`#3010`, `#3032`), which arrive as DEBUG lines, are saved to `millgui.toml` |
+| F4 | Spindle lockout with the probe in | HAL (`spindle.0.inhibit` from probe_manager) plus a GUI message | is `spindle.0.inhibit` connected | n/a | Attention row | without the HAL interlock the only guard is Ferrum refusing its own spindle buttons; a program's M3 still spins the probe. Say so plainly; offer the HAL snippet |
+| F5 | Probe defaults `#3004` to `#3037` | read from the parameter file at start (`probe.rs:1375`); a run writes only the values that differ and restores after | n/a | below | setup: `[probe.defaults]`, `[toolsetter]` | **fresh machine: the file has no such lines, every value is 0.** The macros then abort ("feeds must be positive") at best. Also LinuxCNC only persists numbered parameters that are already listed in the file (**verify**), so values set by MDI vanish at restart. Change: Ferrum owns the defaults in `ferrum.toml` and writes the full set before every probe run; nothing is read from the parameter file. Calibration results (`#3010`, `#3032`), which arrive as DEBUG lines, are saved to `ferrum.toml` |
 | F6 | Probe macros | 30-odd `o<probe_*>` and `o<mymill_probe_*>` subs, found through `SUBROUTINE_PATH = subroutines:subroutines/fusion_probing:vendor/probe_basic/...` | each needed file resolvable on `[RS274NGC]SUBROUTINE_PATH` | n/a | check row + ini | "Unable to open file <probe_...>" on every routine. See 5 |
 | F7 | Results | macros print `(DEBUG, EVAL[vcp.getWidget{"name"}.setValue{..}])`, parsed in `probe.rs:1183`; job checks read `#1001` to `#1010` | n/a | n/a | code | tied to Probe Basic's macro text. Fine while those macros are used; document as the macro contract |
 | F8 | Interpreter options | needs `[RS274NGC]` `HAL_PIN_VARS = 1` (mymill subs, job programs), `INI_VARS = 1`, and an `ON_ABORT_COMMAND` that leaves G90/G40 | INI | n/a | check row + ini | `#<_hal[...]>` not defined: every guarded macro and every job aborts at its first line |
@@ -317,7 +317,7 @@ in SETUP; the user confirms them before the first run.
 Setter: `fast_feed` 3004 = 300, `slow_feed` 3005 = 25, `traverse` 3006 =
 1500, `max_z` 3007 = none (must be taught), `retract` 3009 = 2,
 `reference_height` 3010 = none (blocks touch-off until set or calibrated).
-The hints (3025 to 3029) stay per run. 3030 and 3031 are set by millgui per
+The hints (3025 to 3029) stay per run. 3030 and 3031 are set by Ferrum per
 run and are not user defaults.
 
 ### 4.7 Tool setter
@@ -325,21 +325,21 @@ run and are not user defaults.
 | # | Need | Today | Detect | Default | Set | If missing or wrong |
 | --- | --- | --- | --- | --- | --- | --- |
 | G1 | Has a setter | assumed (UTIL card, TOUCH OFF buttons, PROBE › setter) | none | false | setup: `toolsetter.enabled` | buttons that start a G38 into nothing |
-| G2 | Setter position | G30 (`#5181` to `#5183`), set with `o<set_g30_position>` (G30.1), read from the parameter file at start and from the macro's DEBUG lines | parameter file | unset | setup step "jog over the setter, SET HERE" | G30 at 0,0,0: touch-off drives to machine zero and probes there. Block touch-off until G30 has been set through millgui once (remember that in `millgui.toml`) |
+| G2 | Setter position | G30 (`#5181` to `#5183`), set with `o<set_g30_position>` (G30.1), read from the parameter file at start and from the macro's DEBUG lines | parameter file | unset | setup step "jog over the setter, SET HERE" | G30 at 0,0,0: touch-off drives to machine zero and probes there. Block touch-off until G30 has been set through Ferrum once (remember that in `ferrum.toml`) |
 | G3 | G30 is the setter | hardcoded convention; MDI library says "G30 = tool setter, G28 = park" | n/a | G30 | config: `toolsetter.position = "g30"` or `[x, y, z]` | users who already use G30 for something else |
 | G4 | Reference height | `#3010` "spindle zero height", found by `o<probe_spindle_nose>`, which needs `[TOOL_SETTER]SPINDLE_NOSE_DIAMETER`, T0, and `mymill.hal`'s `spindle-nose-reference-valid` flipflop pulsed with M64 P7 | n/a | none | setup: either probe the nose (mymill profile) or type the value, or pick "lengths relative to a reference tool" | nose routine aborts on any other machine (`_hal[spindle-nose-reference-valid.out]` undefined). Generic path: a setter macro that measures a master tool or a typed height; the nose-reference validity latch stays mymill-only and its overlay line is hidden when `hal.nose_reference_valid` is unset |
 | G5 | Setter trip signal | `toolsetter-triggered` | same as probe input unless separate | probe input | `hal.toolsetter_tripped` | status row blank |
-| G6 | Air blast | `millgui.probe.blast-request` to `touchsetter-blast-manual-request-pin`; macros pulse M64 P5 | none | absent | `hal.setter_blast`, `toolsetter.blast_dout = 5` | UTIL button does nothing; hide when unset |
+| G6 | Air blast | `ferrum.probe.blast-request` to `touchsetter-blast-manual-request-pin`; macros pulse M64 P5 | none | absent | `hal.setter_blast`, `toolsetter.blast_dout = 5` | UTIL button does nothing; hide when unset |
 | G7 | Diameter modes | `#3011` to `#3013`; diameter probing "not implemented" in the macro | n/a | off | hidden | n/a |
 | G8 | Breakage tolerance | `#3037` | n/a | 0.5 | config | n/a |
 
 ### 4.8 HAL: modules and signal names
 
-Today each module has a hand-written `millgui/hal/<id>.hal` that nets
-millgui's pins to signal names that only exist in `mymill.hal`. `halcmd -k`
+Today each module has a hand-written `ferrum/hal/<id>.hal` that nets
+Ferrum's pins to signal names that only exist in `mymill.hal`. `halcmd -k`
 keeps going past failures and the first error goes to the message bar.
 
-| Module | Pins (`millgui.<id>.*`) | Nets to (mymill names) | Generic? |
+| Module | Pins (`ferrum.<id>.*`) | Nets to (mymill names) | Generic? |
 | --- | --- | --- | --- |
 | probe | wireless-selected, fault, tripped, toolsetter, blast-request, blast-active | `wireless-probe-tool-active`, `wireless-probe-fault`, `probe-in`, `toolsetter-triggered`, `touchsetter-blast-*` | tripped only |
 | drives | ready-x.., fault-x.. per axis | `x-hlfb-monitor-arm`, `x-hlfb-fault` (ClearPath HLFB, `[HLFB]ARM_DELAY`) | no; generic equivalent is `joint.N.amp-fault-in` / a per-axis "drive ok" signal |
@@ -347,15 +347,15 @@ keeps going past failures and the first error goes to the message bar.
 | interlock | held, probe-fault, drives-not-ready | `wireless-probe-fault` for both held and probe-fault | no; `held` should be the signal on `motion.feed-inhibit` |
 | pendant | connected, asleep, start, auto-request, ask-*/mode-* x4 | `whb.*` pins and `pdnt.*` nets of `xhc-whb04b-6.hal`; **unlinks** `halui.mode.*` and `halui.program.run` | WHB04B-6 with the stock example HAL only |
 | load | value (float 0..1) | nothing | yes, opt-in |
-| job | separate component `mymill-job`: stamp, skip-1..64, stop-after | read by compiled jobs as `#<_hal[mymill-job.*]>`; `M66 E0 L0` to sync | yes, but rename to `millgui-job` and needs F8 |
-| (outputs) | `outputs.hal`: two `setp hm2_7i76e...` | Gardner's 7i76E | no: belongs to the mymill config, not millgui |
+| job | separate component `mymill-job`: stamp, skip-1..64, stop-after | read by compiled jobs as `#<_hal[mymill-job.*]>`; `M66 E0 L0` to sync | yes, but rename to `ferrum-job` and needs F8 |
+| (outputs) | `outputs.hal`: two `setp hm2_7i76e...` | Gardner's 7i76E | no: belongs to the mymill config, not Ferrum |
 
 Plan:
 
-- **Signal map.** `[hal]` in `millgui.toml` maps a logical name to a HAL
-  signal or pin name. millgui creates its pins, then for each mapped name
-  runs the equivalent of `net <signal> millgui.<pin>`; if the name is a pin
-  with no signal, it creates `millgui-<name>` and nets both. An unmapped
+- **Signal map.** `[hal]` in `ferrum.toml` maps a logical name to a HAL
+  signal or pin name. Ferrum creates its pins, then for each mapped name
+  runs the equivalent of `net <signal> ferrum.<pin>`; if the name is a pin
+  with no signal, it creates `ferrum-<name>` and nets both. An unmapped
   name creates no pin and its UI is hidden. A mapped name that does not
   exist is one Attention row naming it. The hand-written `.hal` files go
   away for stock users; mymill's become its profile's `[hal]` table (or
@@ -376,20 +376,20 @@ Plan:
   failing HAL files.
 - **Post-GUI HAL file.** LinuxCNC leaves `[HAL]POSTGUI_HALFILE` to the GUI.
   A stock user's file names their old GUI's pins (`axisui.*`,
-  `gmoccapy.*`), so millgui must not run it blindly. Keep
-  `[MILLGUI]POSTGUI_HALFILE` (also `postgui = [...]` in the toml) as the
+  `gmoccapy.*`), so Ferrum must not run it blindly. Keep
+  `[FERRUM]POSTGUI_HALFILE` (also `postgui = [...]` in the toml) as the
   only files run, and add a row when `[HAL]POSTGUI_HALFILE` exists: "not
-  run by millgui; these lines reference another GUI", listing them.
+  run by Ferrum; these lines reference another GUI", listing them.
 - **Pendant.** Rename the module `pendant-whb04b`; the takeover of
   `halui.mode.*` is specific to that driver's behaviour. Other pendants
-  that jog through `axis.N.jog-*` in HAL need nothing from millgui. A
+  that jog through `axis.N.jog-*` in HAL need nothing from ferrum. A
   detected `whb.*` component with the module off is an Attention row,
   because without the takeover a wheel click aborts a running probe macro.
-- **E-stop and machine on.** millgui sends NML state commands; the chain is
+- **E-stop and machine on.** Ferrum sends NML state commands; the chain is
   the user's HAL. No setting. A row when `iocontrol.0.emc-enable-in` is
   unconnected would be noise; skip.
 
-### 4.9 Subroutines millgui calls
+### 4.9 Subroutines Ferrum calls
 
 | Call site | Sub | Needs beyond plain G-code |
 | --- | --- | --- |
@@ -397,10 +397,10 @@ Plan:
 | MANUAL power feed, GO TO, Z zero | `mymill_powerfeed` | `mymill_modes_begin` → `mymill.hal`'s mode-recovery latches, M64/M65 P8/P9, M66 E0 |
 | TOOLS › UNLOAD | `unload_spindle` | nothing (replace with MDI, E6) |
 | UTIL | `go_to_g30`, `set_g30_position` | `G53 G0 Z0` |
-| PROBE (stock Probe Basic) | `probe_{x,y}_{plus,minus}_wco`, `probe_z_minus_wco`, `probe_*_top_corner`, `probe_*_inside_corner`, `probe_round_boss`, `probe_round_pocket_center_start`, `probe_rect_pocket_center_start`, `probe_ridge_{x,y}`, `probe_valley_{x,y}_center_start`, `probe_top_left_edge_angle` (and its siblings), `probe_cal_round_pocket` | `#3014` to `#3033`; several end in G91 (millgui restores modes) |
+| PROBE (stock Probe Basic) | `probe_{x,y}_{plus,minus}_wco`, `probe_z_minus_wco`, `probe_*_top_corner`, `probe_*_inside_corner`, `probe_round_boss`, `probe_round_pocket_center_start`, `probe_rect_pocket_center_start`, `probe_ridge_{x,y}`, `probe_valley_{x,y}_center_start`, `probe_top_left_edge_angle` (and its siblings), `probe_cal_round_pocket` | `#3014` to `#3033`; several end in G91 (Ferrum restores modes) |
 | PROBE (this repo) | `probe_auto_stock_center/apply`, `probe_two_face/_apply`, `probe_a_*` (5), `probe_spindle_nose`, `tool_touch_off` | `mymill_probe_safe_move_*`, `mymill_probe_coordinate_ready`, `mymill_modes_*` (HAL latches again), `M50`, G30 |
 | JOB | the FIND routines above (the contact check after the guarded approach is written into the job, no `mymill_probe_assert_no_contact`), `go_to_home`; `o<probe>`/`f360_*` in Fusion-posted files are refused | `#<_hal[mymill-job.*]>`, `#<_task>` |
-| machine side, not millgui | `on_abort`, `m6_toolchange_optional_touch_off`, `python/toplevel.py` | M6 remap uses Python; that is the machine's choice and millgui must keep working without it |
+| machine side, not Ferrum | `on_abort`, `m6_toolchange_optional_touch_off`, `python/toplevel.py` | M6 remap uses Python; that is the machine's choice and Ferrum must keep working without it |
 
 What a stranger lacks: all of them. See 5 for what to ship.
 
@@ -428,7 +428,7 @@ What a stranger lacks: all of them. See 5 for what to ship.
 | J6 | Units choice | MM/IN per op exists | B3 | machine units | n/a | fine |
 | J7 | Fusion import | expects the shape written by `linuxcnc-probing.cps` (this repo's post) | n/a | n/a | docs; ship the post | other posts are refused with a reason, which is the designed behaviour |
 | J8 | Thread presets | built in (metric) | n/a | n/a | later | n/a |
-| J9 | Markers in built programs | `(MYMILL-JOB STAMP=`, `(MYMILL-PROBE`, `MYMILL-MEASURE` | n/a | n/a | code: accept both, write `MILLGUI-` | existing built jobs must still load: keep reading the old markers |
+| J9 | Markers in built programs | `(MYMILL-JOB STAMP=`, `(MYMILL-PROBE`, `MYMILL-MEASURE` | n/a | n/a | code: accept both, write `FERRUM-` | existing built jobs must still load: keep reading the old markers |
 
 ### 4.12 Display, input and remote
 
@@ -437,47 +437,47 @@ What a stranger lacks: all of them. See 5 for what to ship.
 | K1 | Screen size | drawn for 1920x1080, scaled to fit other windows (`main.rs:1015`); `run` forces `SLINT_SCALE_FACTOR=1` | window size | fit | config: `display.scale` | 1280x800 and 1024x768 panels are common on mills: the fit scale makes touch targets small. **verify** what 1280x800 and 1024x768 look like in the simulator and set a minimum supported size |
 | K2 | Fullscreen | fullscreen unless `--windowed` | n/a | fullscreen | config: `display.fullscreen` | desktop users |
 | K3 | Window system | `winit-x11` only (`app/Cargo.toml`) | `WAYLAND_DISPLAY` | X11 | code: enable the Wayland backend or state X11-only | LinuxCNC 2.9 images use X11; newer Debian defaults to Wayland |
-| K4 | Renderer | `[MILLGUI]RENDERER` / `MILLGUI_RENDERER`, auto by GL driver name | EGL | auto | config | fine |
+| K4 | Renderer | `[FERRUM]RENDERER` / `FERRUM_RENDERER`, auto by GL driver name | EGL | auto | config | fine |
 | K5 | Touch or mouse | hold-to-confirm, large targets | n/a | touch | config: `display.hold_ms` | fine |
 | K6 | DRO format | 3 decimals linear, 2 rotary | B3 | 3 (mm) / 4 (inch) | derived | inch |
 | K7 | Quick buttons | `[buttons]` mist, flood, drawbar, home_all | D7, modules | detected | setup | n/a |
-| K8 | MDI library | `millgui/mdi.toml`, text tuned to the mill ("max 4250", "G30 = tool setter", mist only) | D1, D7, G3 | built-in generic copy with rpm and coolant lines generated | file override stays | misleading help text |
+| K8 | MDI library | `ferrum/mdi.toml`, text tuned to the mill ("max 4250", "G30 = tool setter", mist only) | D1, D7, G3 | built-in generic copy with rpm and coolant lines generated | file override stays | misleading help text |
 | K9 | Remote screen | `REMOTE_PORT` (off), `REMOTE_ROOT`; no access control | n/a | off | config `[remote]`; SETUP row shows "anyone on the network can jog" when on | n/a |
-| K10 | Diagnostics | `MILLGUI_LOG_MESSAGES`, `MILLGUI_PERF` env | n/a | off | n/a | n/a |
+| K10 | Diagnostics | `FERRUM_LOG_MESSAGES`, `FERRUM_PERF` env | n/a | off | n/a | n/a |
 
 ## 5. What is specific to mymill, and what has to ship
 
 For a standalone release the repo splits along this line.
 
 **Stays in mymill (the PM-728VT profile):** `mymill.ini`, `mymill.hal`,
-`millgui.ini`, `xhc-whb04b-6.hal`, `hal_components/probe_manager.comp`,
+`ferrum.ini`, `xhc-whb04b-6.hal`, `hal_components/probe_manager.comp`,
 `outputs.hal`, `drives.hal`, `drawbar.hal`, `interlock.hal`, the nose
 reference routine, `mymill_modes_*` and the mode-recovery latches, the M6
 remap and its Python, the table model numbers, scratch tools, the deploy
 script's default host, the simulator's `make-config` (it rewrites
 `mymill.hal`).
 
-**Moves into millgui:**
+**Moves into Ferrum:**
 
 - The Rust workspace as it is.
-- A macro set under `/usr/share/millgui/macros`, added to the user's
+- A macro set under `/usr/share/ferrum/macros`, added to the user's
   `SUBROUTINE_PATH` by one INI line the checker prints. It must run on a
   machine with no extra HAL: no `mymill_modes_begin`, no M64 pulses, no
-  `#<_hal[...]>` except what millgui itself provides. millgui already
+  `#<_hal[...]>` except what Ferrum itself provides. Ferrum already
   restores modal state after every `o<...> call` (`worker.rs:186`), which is
   what `mymill_modes_*` was for, so the generic versions of power feed,
   auto stock, two face and touch-off can drop it. Rename `mymill_*` subs to
-  `millgui_*`.
+  `ferrum_*`.
 - The stock probe routines. Today they come from the Probe Basic fork
   (`vendor/probe_basic`, a private-fork submodule pinned to a commit that is
   not on its remote). Options: (a) vendor the needed `.ngc` files from
-  upstream Probe Basic into millgui with their licence and authorship
+  upstream Probe Basic into Ferrum with their licence and authorship
   (they are GPL; **verify** the exact licence text upstream); (b) require
   Probe Basic to be installed. Recommendation: (a). (b) defeats the point
   for users who "did not come from Probe Basic".
 - A generic simulator config for tests: a plain 3-axis sim (LinuxCNC's
   `sim` configs as a base) with a probe input, plus an inch variant and an
-  XYZA variant. The acceptance test for this whole plan is that millgui
+  XYZA variant. The acceptance test for this whole plan is that Ferrum
   starts on each with an empty SETUP "blocks" list for core and zero HAL
   errors.
 - The Fusion post (`linuxcnc-probing.cps`) if CAM import is advertised.
@@ -499,9 +499,9 @@ first-run story):**
   run, and `sim/README.md` records that the 2.9 branch head changed
   M5/at-speed behaviour.
 - Linking LinuxCNC's GPL libraries and shipping GPL macros constrains
-  millgui's licence, and Slint's licence options need checking against it.
+  Ferrum's licence, and Slint's licence options need checking against it.
   The repo has no LICENSE file. **Decision for Gardner before any release.**
-- millgui itself needs no Python. The simulator scripts and the mymill M6
+- Ferrum itself needs no Python. The simulator scripts and the mymill M6
   remap do; neither ships.
 
 ## 6. Build order
@@ -527,10 +527,10 @@ change it.
 7. Tests: unit tests for each parser; simulator runs on the stock mm, inch
    and XYZA configs.
 
-**Phase 2: `millgui.toml`, checker, module split.**
+**Phase 2: `ferrum.toml`, checker, module split.**
 1. Config struct, load/merge/write (`toml_edit`), `machine.toml` fallback.
 2. `checks.rs` with every row from section 4 that has "check row" or
-   "setup"; `millgui --check`.
+   "setup"; `ferrum --check`.
 3. `toolchange` module split from `drawbar` (E1).
 4. `[hal]` signal map and generated nets; mymill profile's map; delete the
    need for `hal/*.hal` on stock machines.
@@ -538,15 +538,15 @@ change it.
 
 **Phase 3: SETUP screen.** Rows, fixes, the guided steps, live probe and
 setter tests, first-run opening. Reviewer pass in the simulator with
-screenshots, as for every millgui milestone.
+screenshots, as for every Ferrum milestone.
 
-**Phase 4: probe and setter independence.** millgui-owned probe defaults
+**Phase 4: probe and setter independence.** ferrum-owned probe defaults
 written per run (F5), generic macro set (5), probe tool number in one
-place (F1), generic setter reference (G4), `millgui-job` rename with old
+place (F1), generic setter reference (G4), `ferrum-job` rename with old
 markers still read.
 
 **Phase 5: release shape.** Repo split, generic simulator configs in CI,
-native build, packages, docs ("your first hour with millgui" is the
+native build, packages, docs ("your first hour with Ferrum" is the
 `--check` output explained).
 
 ## 7. Decisions for Gardner
@@ -558,12 +558,12 @@ native build, packages, docs ("your first hour with millgui" is the
    for now", is less work but must then refuse to start on an inch INI
    rather than run with wrong numbers.
 2. **Probe macros.** Recommendation: vendor the needed Probe Basic `.ngc`
-   files into millgui (5, option a), licence permitting.
+   files into Ferrum (5, option a), licence permitting.
 3. **Licence.** Needed before a public repo; it also decides option 2.
-4. **INI edits.** Recommendation: millgui prints the lines; an explicit
+4. **INI edits.** Recommendation: Ferrum prints the lines; an explicit
    `--write-ini` flag may apply them with a backup while LinuxCNC is
    stopped. The GUI never edits the INI.
-5. **When to split the repo.** Recommendation: after phase 4, when millgui
+5. **When to split the repo.** Recommendation: after phase 4, when Ferrum
    starts clean on a stock simulator config. Splitting earlier means two
    repos change together for every phase.
 

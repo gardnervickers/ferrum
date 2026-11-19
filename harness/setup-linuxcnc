@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# One-time setup for the millgui test harness on Debian/Ubuntu (dev box, cloud
+# One-time setup for the ferrum test harness on Debian/Ubuntu (dev box, cloud
 # container or GitHub Actions): builds LinuxCNC v2.9.10 (the Pi's version) as a
-# run-in-place uspace sim, lays out the sysroot millgui's NML backend links
+# run-in-place uspace sim, lays out the sysroot ferrum's NML backend links
 # against, and installs the probe manager comp. Idempotent.
 #
-#   millgui/harness/setup-linuxcnc [LCNC_DIR]     (default: ~/lcnc)
+#   ferrum/harness/setup-linuxcnc [LCNC_DIR]     (default: ~/lcnc)
 set -euo pipefail
 LCNC="${1:-${LCNC_DIR:-$HOME/lcnc}}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"

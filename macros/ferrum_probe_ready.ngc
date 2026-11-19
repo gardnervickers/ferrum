@@ -1,5 +1,5 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
-; Preconditions for every probing macro: o<millgui_probe_ready> call
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Preconditions for every probing macro: o<ferrum_probe_ready> call
 ; [allow rotation]. The argument is optional (0 when left out); only an
 ; edge-angle run that will rewrite the work rotation passes 1. Checks,
 ; without moving or changing any state, that the probe tool #3014 is in the
@@ -7,10 +7,10 @@
 ; relies on are usable (slow feed #3015 >= 0; fast feed #3016, traverse
 ; #3017, XY reach #3018, XY clearance #3019, Z reach #3020 and Z clearance
 ; #3021 > 0; extra depth #3022 >= 0), and that the coordinates are ready
-; (o<millgui_coords_ready>: G40, machine units, no G52/G92, no rotation),
+; (o<ferrum_coords_ready>: G40, machine units, no G52/G92, no rotation),
 ; and that G43 is in effect with the probe's own tool table length.
 ; It aborts with a plain message otherwise.
-o<millgui_probe_ready> sub
+o<ferrum_probe_ready> sub
 #<allow_rotation> = #1
 o100 if [#3014 LE 0]
     (ABORT, Set the probe tool number in the probe settings first)
@@ -36,7 +36,7 @@ o133 endif
 o134 if [#3022 LT 0]
     (ABORT, Extra probe depth must not be negative)
 o134 endif
-o<millgui_coords_ready> call [#<allow_rotation>]
+o<ferrum_coords_ready> call [#<allow_rotation>]
 ; Z results are the tip by the tool length offset: it must be the probe's
 ; own (G43 with the table length). Applied offset = machine Z - program Z
 ; - work offset Z (G52/G92 are zero, checked above).
@@ -46,5 +46,5 @@ o140 endif
 o141 if [ABS[#<_abs_z> - #5422 - #[5203 + 20 * #5220] - #5403] GT 0.0001]
     (ABORT, The active tool length offset is not the probe's: apply G43 for the probe tool)
 o141 endif
-o<millgui_probe_ready> endsub
+o<ferrum_probe_ready> endsub
 M2

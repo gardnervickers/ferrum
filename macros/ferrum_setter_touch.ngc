@@ -1,5 +1,5 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
-; One measurement on the tool setter: o<millgui_setter_touch> call
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; One measurement on the tool setter: o<ferrum_setter_touch> call
 ; [radius]. The setter sits at the G30 position (#5181..#5183, machine
 ; coordinates). With diameter offset mode #3012 = 1 the spindle centre is
 ; moved [radius] off the setter centre in direction #3013 (0 X-, 1 X+,
@@ -14,9 +14,9 @@
 ; Returns the machine Z at which the setter tripped, computed from the
 ; G30 Z and the probed travel below it (so it does not depend on the work
 ; offset), and leaves the trip Z in program coordinates (with G49) in
-; #<_millgui_setter_trip>. Leaves G49 and G90 in effect: callers run it
+; #<_ferrum_setter_trip>. Leaves G49 and G90 in effect: callers run it
 ; under M73 and restore or apply the tool offset themselves.
-o<millgui_setter_touch> sub
+o<ferrum_setter_touch> sub
 #<radius> = #1
 #<dx> = 0
 #<dy> = 0
@@ -45,8 +45,8 @@ o210 if [#3005 GT 0]
     G90 G1 Z[#<trip> + #3009] F#3006
 o210 endif
 G90
-#<_millgui_setter_trip> = #<trip>
+#<_ferrum_setter_trip> = #<trip>
 #<machine_trip> = [#5183 + #<trip> - #<z_start>]
 G53 G1 Z0 F#3006
-o<millgui_setter_touch> endsub [#<machine_trip>]
+o<ferrum_setter_touch> endsub [#<machine_trip>]
 M2

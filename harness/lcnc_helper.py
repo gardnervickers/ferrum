@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LinuxCNC's own view of the machine, for the harness (never for millgui).
+"""LinuxCNC's own view of the machine, for the harness (never for ferrum).
 
 Reads one command per line on stdin, answers one JSON line on stdout:
   stat    -> every linuxcnc.stat() field
@@ -23,8 +23,8 @@ KINDS = {
 stat = linuxcnc.stat()
 err = linuxcnc.error_channel()
 seen = []
-# "errors-to-millgui": LinuxCNC's error channel is a queue with one reader;
-# the scenario lets millgui read it, as on the machine.
+# "errors-to-ferrum": LinuxCNC's error channel is a queue with one reader;
+# the scenario lets ferrum read it, as on the machine.
 draining = True
 
 

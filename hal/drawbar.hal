@@ -1,17 +1,17 @@
 # drawbar module: power drawbar state from mymill.hal's drawbar interlock.
 # It is the command to the drawbar, not a sensor. mymill.hal has no spindle
-# re-arm latch, so millgui.drawbar.spindle-rearm-required stays unlinked.
-net drawbar-extended => millgui.drawbar.extended
+# re-arm latch, so ferrum.drawbar.spindle-rearm-required stays unlinked.
+net drawbar-extended => ferrum.drawbar.extended
 
 # Manual tool change (M6 through iocontrol), as probe_basic_postgui.hal did
 # for qtpyvcp_manualtoolchange.
-net tool-change-request => millgui.drawbar.tool-change
-net tool-change-confirmed <= millgui.drawbar.tool-changed
-net tool-number => millgui.drawbar.tool-number
-net spindle-request => millgui.drawbar.spindle-request
+net tool-change-request => ferrum.drawbar.tool-change
+net tool-change-confirmed <= ferrum.drawbar.tool-changed
+net tool-number => ferrum.drawbar.tool-number
+net spindle-request => ferrum.drawbar.spindle-request
 # The dialog's controls: manual drawbar request and the touch-off latch.
-net millgui-drawbar-manual millgui.drawbar.manual-request => drawbar-manual-request-pin
-net millgui-touch-off-set millgui.drawbar.touch-off-set => tool-touch-off-request-latch.set
-net millgui-touch-off-reset millgui.drawbar.touch-off-reset => tool-touch-off-reset.in0
-net millgui-touch-off-requested tool-touch-off-request-latch.out => millgui.drawbar.touch-off-requested
-net millgui-nose-reference spindle-nose-reference-valid.out => millgui.drawbar.nose-reference-valid
+net ferrum-drawbar-manual ferrum.drawbar.manual-request => drawbar-manual-request-pin
+net ferrum-touch-off-set ferrum.drawbar.touch-off-set => tool-touch-off-request-latch.set
+net ferrum-touch-off-reset ferrum.drawbar.touch-off-reset => tool-touch-off-reset.in0
+net ferrum-touch-off-requested tool-touch-off-request-latch.out => ferrum.drawbar.touch-off-requested
+net ferrum-nose-reference spindle-nose-reference-valid.out => ferrum.drawbar.nose-reference-valid

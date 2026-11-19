@@ -1,5 +1,5 @@
 // SETUP (setup.rs): the configuration checker's rows in guided steps, the
-// millgui.toml settings each step asks for, and live input tests. Nothing
+// ferrum.toml settings each step asks for, and live input tests. Nothing
 // here moves the machine except the tool setter buttons, which UTIL has too.
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, SetupRow, SetupStep, StatusRow } from "state.slint";
@@ -148,7 +148,7 @@ export component SetupScreen inherits Rectangle {
                         x: 18px;
                         y: 12px;
                         width: parent.width - 36px;
-                        text: "New machine: jog, home, MDI, programs, offsets and tools work now. These steps set up the rest. Each change is saved to millgui.toml as you make it; FINISH ends setup.";
+                        text: "New machine: jog, home, MDI, programs, offsets and tools work now. These steps set up the rest. Each change is saved to ferrum.toml as you make it; FINISH ends setup.";
                         wrap: word-wrap;
                         font-family: Theme.body;
                         font-size: 22px;

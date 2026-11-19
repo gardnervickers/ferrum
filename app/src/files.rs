@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn lists_gcode_and_folders_only() {
-        let d = std::env::temp_dir().join(format!("millgui-files-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("ferrum-files-{}", std::process::id()));
         std::fs::create_dir_all(d.join("jobs")).unwrap();
         for n in ["a.ngc", "b.NC", "notes.txt", ".hidden.ngc"] {
             std::fs::write(d.join(n), "G0 X0\n").unwrap();

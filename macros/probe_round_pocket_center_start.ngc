@@ -1,4 +1,4 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; FIND/MEASURE bore: finds the centre and diameter of a round pocket. The
 ; probe starts inside the bore near its centre with the tip already below
 ; the top edge; there is no Z motion. Two passes, each measuring across X
@@ -13,19 +13,19 @@ o<probe_round_pocket_center_start> sub
 o10 if [#<_task> EQ 0]
     o<probe_round_pocket_center_start> return
 o10 endif
-o<millgui_probe_ready> call
+o<ferrum_probe_ready> call
 M73
 M50 P0
 G90 G94
 
-o<millgui_span_inside> call [0] [#3025] [#3032]
-o<millgui_span_inside> call [1] [#3025] [#3032]
-o<millgui_span_inside> call [0] [#3025] [#3032]
-#1001 = #<_millgui_width>
-#1002 = #<_millgui_center>
-o<millgui_span_inside> call [1] [#3025] [#3032]
-#1003 = #<_millgui_width>
-#1004 = #<_millgui_center>
+o<ferrum_span_inside> call [0] [#3025] [#3032]
+o<ferrum_span_inside> call [1] [#3025] [#3032]
+o<ferrum_span_inside> call [0] [#3025] [#3032]
+#1001 = #<_ferrum_width>
+#1002 = #<_ferrum_center>
+o<ferrum_span_inside> call [1] [#3025] [#3032]
+#1003 = #<_ferrum_width>
+#1004 = #<_ferrum_center>
 #1010 = [[#1001 + #1003] / 2]
 
 (DEBUG, EVAL[vcp.getWidget{"x_probed_width"}.setValue{#1001}])

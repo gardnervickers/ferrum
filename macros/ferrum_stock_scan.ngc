@@ -1,12 +1,12 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; Automatic stock scan: walks along an exterior lane until an exploratory
-; touch first misses. o<millgui_stock_scan> call [probe axis] [probe dir]
+; touch first misses. o<ferrum_stock_scan> call [probe axis] [probe dir]
 ; [step axis] [step dir] [max span] [step] [reach]: repeat a guarded step
 ; of [step] (the last one shortened to fit) along the step axis, then an
-; exploratory touch (millgui_stock_touch) along the probe axis; stop at the
+; exploratory touch (ferrum_stock_touch) along the probe axis; stop at the
 ; first miss and stay there. Aborts if [max span] is used up first.
 ; Returns the distance stepped (in #<_value>).
-o<millgui_stock_scan> sub
+o<ferrum_stock_scan> sub
 #<probe_axis> = #1
 #<probe_dir> = #2
 #<step_axis> = #3
@@ -31,17 +31,17 @@ o110 while [#<done> EQ 0]
     o112 if [#<advance> GT #<left>]
         #<advance> = #<left>
     o112 endif
-    o<millgui_stock_context> call [0]
+    o<ferrum_stock_context> call [0]
     o113 if [#<step_axis> EQ 0]
-        o<millgui_guarded_move> call [#<step_dir> * #<advance>] [0] [0]
+        o<ferrum_guarded_move> call [#<step_dir> * #<advance>] [0] [0]
     o113 else
-        o<millgui_guarded_move> call [0] [#<step_dir> * #<advance>] [0]
+        o<ferrum_guarded_move> call [0] [#<step_dir> * #<advance>] [0]
     o113 endif
     #<used> = [#<used> + #<advance>]
-    o<millgui_stock_touch> call [#<probe_axis>] [#<probe_dir>] [#<reach>]
+    o<ferrum_stock_touch> call [#<probe_axis>] [#<probe_dir>] [#<reach>]
     o114 if [#<_value> EQ 0]
         #<done> = 1
     o114 endif
 o110 endwhile
-o<millgui_stock_scan> endsub [#<used>]
+o<ferrum_stock_scan> endsub [#<used>]
 M2

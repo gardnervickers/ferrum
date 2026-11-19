@@ -1,5 +1,5 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
-; Edge position and angle from the top: o<millgui_edge_angle> call [axis]
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Edge position and angle from the top: o<ferrum_edge_angle> call [axis]
 ; [side]. [axis] 0 for the left/right edge (probing along X), 1 for the
 ; front/back edge (probing along Y); [side] -1 for left/front, +1 for
 ; right/back. The probe starts above the top, less than step-off #3023 in
@@ -24,7 +24,7 @@
 ;      in machine-aligned axes; the rotation turns about the work origin).
 ; Reports z_minus_probed_position #1009, the two edge widgets, edge_delta
 ; and edge_angle.
-o<millgui_edge_angle> sub
+o<ferrum_edge_angle> sub
 #<axis> = #1
 #<side> = #2
 o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
@@ -37,7 +37,7 @@ o120 if [[#3023 LE 0] OR [#3024 LE 0]]
     (ABORT, Probe step-off width and edge width must be positive)
 o120 endif
 #<rotate> = [[#3030 EQ 0] AND [#3031 EQ 1]]
-o<millgui_probe_ready> call [#<rotate>]
+o<ferrum_probe_ready> call [#<rotate>]
 M73
 M50 P0
 G90 G94
@@ -55,16 +55,16 @@ o140 endif
 #<z_stack> = [#3021 + #5410 + #3022]
 #<v_start> = #[5421 - #<axis>]
 
-o<millgui_top> call [#3020]
-#<top> = #<_millgui_top>
+o<ferrum_top> call [#3020]
+#<top> = #<_ferrum_top>
 
-o<millgui_guarded_move> call [#<ux> * #<side> * #3023] [#<uy> * #<side> * #3023] [0]
-o<millgui_guarded_move> call [0] [0] [0 - #<z_stack>]
-o<millgui_edge> call [#<axis>] [0 - #<side>] [#3018]
-#<first> = #<_millgui_edge>
-o<millgui_guarded_move> call [#<uy> * #<along> * #3024] [#<ux> * #<along> * #3024] [0]
-o<millgui_edge> call [#<axis>] [0 - #<side>] [#3018]
-#<second> = #<_millgui_edge>
+o<ferrum_guarded_move> call [#<ux> * #<side> * #3023] [#<uy> * #<side> * #3023] [0]
+o<ferrum_guarded_move> call [0] [0] [0 - #<z_stack>]
+o<ferrum_edge> call [#<axis>] [0 - #<side>] [#3018]
+#<first> = #<_ferrum_edge>
+o<ferrum_guarded_move> call [#<uy> * #<along> * #3024] [#<ux> * #<along> * #3024] [0]
+o<ferrum_edge> call [#<axis>] [0 - #<side>] [#3018]
+#<second> = #<_ferrum_edge>
 
 #<delta> = [[#<second> - #<first>] * [0 - #<side>]]
 #<angle> = [ATAN[#<delta>] / [#3024]]
@@ -73,11 +73,11 @@ o<millgui_edge> call [#<axis>] [0 - #<side>] [#3018]
 (DEBUG, EVAL[vcp.getWidget{"edge_delta"}.setValue{#<delta>}])
 (DEBUG, EVAL[vcp.getWidget{"edge_angle"}.setValue{#<angle>}])
 
-o<millgui_guarded_move> call [0] [0] [#<z_stack>]
+o<ferrum_guarded_move> call [0] [0] [#<z_stack>]
 o150 if [#<axis> EQ 0]
-    o<millgui_guarded_move> call [#<first> - #5420] [#<v_start> - #5421] [0]
+    o<ferrum_guarded_move> call [#<first> - #5420] [#<v_start> - #5421] [0]
 o150 else
-    o<millgui_guarded_move> call [#<v_start> - #5420] [#<first> - #5421] [0]
+    o<ferrum_guarded_move> call [#<v_start> - #5420] [#<first> - #5421] [0]
 o150 endif
 o200 if [#3030 EQ 0]
     o210 if [#<axis> EQ 0]
@@ -89,5 +89,5 @@ o200 if [#3030 EQ 0]
         G10 L2 P0 R#<angle>
     o220 endif
 o200 endif
-o<millgui_edge_angle> endsub
+o<ferrum_edge_angle> endsub
 M2

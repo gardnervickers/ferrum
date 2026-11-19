@@ -1,8 +1,8 @@
 title JOB: ADD STEP › TOOL CHECK AFTER EVERY TOOL; the job checks the tool on the setter and goes on
 needs probe-geometry drawbar
-errors-to-millgui    # millgui reads the check result from the error queue
+errors-to-ferrum    # ferrum reads the check result from the error queue
 include ../common/ready.scn
-# millgui writes the setter values (#3037) once LinuxCNC has been still 3 s.
+# ferrum writes the setter values (#3037) once LinuxCNC has been still 3 s.
 sleep 4
 # h_ops.ngc cuts air with T4, whose sim length is its table length, so
 # the job's check after it passes.

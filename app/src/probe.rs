@@ -9,13 +9,13 @@
 //!   before the macro and the saved default written back afterwards, after a
 //!   success, a failure or STOP alike. A state file marks a run in progress
 //!   so a crash mid-run is repaired at the next start (`restore_pending`).
-//! - Defaults: millgui.toml's `[probe.defaults]` and `[toolsetter]` values
+//! - Defaults: ferrum.toml's `[probe.defaults]` and `[toolsetter]` values
 //!   (probe_defaults.rs), else the parameter file's, else starting values;
 //!   #3014 is `[probe]tool`. When these differ from what LinuxCNC holds,
 //!   the whole set is written once LinuxCNC is quiet (as a restore). If
 //!   the marker says an earlier run never restored them, the saved copy
 //!   stands in for the parameter file. A default changed on DEFAULTS or in
-//!   SETUP is saved to millgui.toml. Calibration macros change #3010/#3032
+//!   SETUP is saved to ferrum.toml. Calibration macros change #3010/#3032
 //!   themselves; their reported value becomes the new default (and is
 //!   saved) so the restore keeps it.
 //! - Results arrive as the macros' `(DEBUG, EVAL[vcp.getWidget{..}...])`
@@ -272,7 +272,7 @@ const RESULT_GRACE: Duration = Duration::from_millis(400);
 /// How long after a STOP before the defaults are put back.
 const ABORT_SETTLE: Duration = Duration::from_millis(600);
 
-/// How long LinuxCNC must sit still before millgui writes the defaults.
+/// How long LinuxCNC must sit still before ferrum writes the defaults.
 const QUIET_FOR: Duration = Duration::from_secs(3);
 
 pub struct Probe {
@@ -305,7 +305,7 @@ pub struct Probe {
     probe_tool: i32,
     /// Where each owned default came from (probe_defaults::DEFS).
     sources: BTreeMap<u16, crate::probe_defaults::Source>,
-    /// The millgui.toml defaults are saved to, and the file a new one
+    /// The ferrum.toml defaults are saved to, and the file a new one
     /// starts from; None in the simulator.
     toml: Option<(std::path::PathBuf, Option<std::path::PathBuf>)>,
     machine: Handle,
@@ -625,8 +625,8 @@ impl Probe {
             }
             _ => vec![self.plain_call(&t).ok_or("No routine for this target")?],
         };
-        // Every routine checks #3015-#3022 (o<millgui_probe_ready>), so the
-        // op carries them all and does not depend on millgui having written
+        // Every routine checks #3015-#3022 (o<ferrum_probe_ready>), so the
+        // op carries them all and does not depend on ferrum having written
         // its settings to LinuxCNC before the job runs.
         let mut nums: Vec<u16> = (3015..=3022).collect();
         nums.extend(self.used_params(t.kind).into_iter().filter(|n| *n != 3030 && *n != 3014 && !(3015..=3022).contains(n)));
@@ -726,7 +726,7 @@ impl Probe {
         }
         steps.push(call);
         // mymill.hal latches "nose reference valid" from digital out 7;
-        // millgui's own nose macro uses no HAL, so millgui pulses it after a
+        // ferrum's own nose macro uses no HAL, so ferrum pulses it after a
         // nose run that succeeded (only where that latch exists).
         if t.kind == "nose" && self.io.as_ref().is_some_and(|io| io.read().nose_reference.is_some()) {
             steps.extend(["M64 P7", "G4 P0.1", "M65 P7"].map(String::from));
@@ -931,7 +931,7 @@ impl Probe {
                     self.runv.remove(&n);
                     self.save_defaults();
                     if let Err(e) = self.save_toml(n, *v) {
-                        self.note(format!("Not saved to millgui.toml: {e}"), true);
+                        self.note(format!("Not saved to ferrum.toml: {e}"), true);
                     }
                 }
             }
@@ -1283,7 +1283,7 @@ impl Probe {
         saved
     }
 
-    /// Save an owned default to millgui.toml (not in the simulator).
+    /// Save an owned default to ferrum.toml (not in the simulator).
     fn save_toml(&mut self, n: u16, v: f64) -> Result<(), String> {
         let Some(d) = crate::probe_defaults::def(n) else { return Ok(()) };
         self.sources.insert(n, crate::probe_defaults::Source::Toml);
@@ -1341,7 +1341,7 @@ impl Probe {
         Self::assign_lines(self.defaults.iter().map(|(n, v)| (*n, *v)))
     }
 
-    /// An owned default as millgui uses it now, and where it came from.
+    /// An owned default as ferrum uses it now, and where it came from.
     pub fn default_of(&self, n: u16) -> (Option<f64>, crate::probe_defaults::Source) {
         let src = self.sources.get(&n).copied().unwrap_or(crate::probe_defaults::Source::Missing);
         (if src == crate::probe_defaults::Source::Missing { None } else { self.defaults.get(&n).copied() }, src)
@@ -1577,7 +1577,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
             }
         }
     }
-    // millgui's own values on top: millgui.toml, else those, else seeds.
+    // ferrum's own values on top: ferrum.toml, else those, else seeds.
     let mut defaults = base.clone();
     let mut sources = BTreeMap::new();
     for (n, (v, src)) in pd::resolve(mc, &base, crate::machine_info::get().units.inch()) {

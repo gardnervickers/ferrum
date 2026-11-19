@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stand-in for the 7i76E card in the LinuxCNC simulator (millgui/sim).
+"""Stand-in for the 7i76E card in the LinuxCNC simulator (ferrum/sim).
 
 Exports the hm2_7i76e.0.* pins mymill.hal's logic uses, so that file runs
 unchanged apart from motion: HLFB inputs report ready, the probe trips when

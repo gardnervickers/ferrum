@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-build millgui for the Pi 5 (Debian 12 arm64) from macOS or Linux.
+# Cross-build ferrum for the Pi 5 (Debian 12 arm64) from macOS or Linux.
 # clang/lld from nixpkgs plus the Pi's own glibc and libstdc++ (./sysroot,
 # from scripts/fetch-sysroot) give an ABI match with LinuxCNC's C++ libraries.
 # Rust and the aarch64-unknown-linux-gnu target come from rustup.
@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 export LCNC_SYSROOT="$ROOT/sysroot"
 export PKG_CONFIG_SYSROOT_DIR="$LCNC_SYSROOT"
-export PKG_CONFIG_LIBDIR="$LCNC_SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:$MILLGUI_SYSROOT/usr/share/pkgconfig"
+export PKG_CONFIG_LIBDIR="$LCNC_SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:$FERRUM_SYSROOT/usr/share/pkgconfig"
 export PKG_CONFIG_ALLOW_CROSS=1
 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="$ROOT/scripts/aarch64-cc"
 export CC_aarch64_unknown_linux_gnu="$ROOT/scripts/aarch64-cc"

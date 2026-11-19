@@ -1,12 +1,12 @@
-//! millgui's machine layer: the [`Machine`] trait over LinuxCNC (through the
+//! ferrum's machine layer: the [`Machine`] trait over LinuxCNC (through the
 //! `lcnc` crate) or the in-process simulator, and the worker thread that owns
-//! the connection and applies millgui's mode rules.
+//! the connection and applies ferrum's mode rules.
 
 mod sim;
 mod worker;
 
 pub use lcnc::*;
-/// Older names used throughout millgui.
+/// Older names used throughout ferrum.
 pub use lcnc::{InterpState as Interp, TaskMode as Mode};
 pub use sim::Sim;
 pub use worker::{keep_modes, set_axis_joints, spawn, Event, Handle, KEEP_MODES};

@@ -1,5 +1,5 @@
-# millgui machine settings. Lives beside mdi.toml in millgui/ (or set
-# [MILLGUI]MACHINE_CONFIG in the INI). Leave a key out to use the default
+# ferrum machine settings. Lives beside mdi.toml in ferrum/ (or set
+# [FERRUM]MACHINE_CONFIG in the INI). Leave a key out to use the default
 # shown here; a file that fails to parse falls back to these defaults and
 # says so in the status line.
 

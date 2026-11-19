@@ -1,18 +1,18 @@
-//! Connecting millgui's HAL pins to the machine's, without a hand-written
+//! Connecting ferrum's HAL pins to the machine's, without a hand-written
 //! HAL file. A module names each pin it can use with a logical name
-//! (`probe_tripped`); `[hal]` in millgui.toml maps the name to a signal or
+//! (`probe_tripped`); `[hal]` in ferrum.toml maps the name to a signal or
 //! pin of the machine, and some names have an obvious default
-//! (`motion.probe-input`). A module with its own `millgui/hal/<id>.hal`
+//! (`motion.probe-input`). A module with its own `ferrum/hal/<id>.hal`
 //! beside the INI (the mymill profile) uses that file instead.
 
 use std::process::Command;
 
-/// A pin a module can connect: `millgui.<pin>`, `[hal]<name>`, default target.
+/// A pin a module can connect: `ferrum.<pin>`, `[hal]<name>`, default target.
 #[derive(Clone, Copy, Debug)]
 pub struct Link {
     pub name: &'static str,
     pub pin: &'static str,
-    /// millgui reads the pin (an IN pin).
+    /// ferrum reads the pin (an IN pin).
     pub input: bool,
     pub auto: Option<&'static str>,
 }
@@ -54,7 +54,7 @@ pub enum Plan {
     Skip,
 }
 
-/// Decide how to connect `ours` (an IN or OUT pin of millgui) to
+/// Decide how to connect `ours` (an IN or OUT pin of ferrum) to
 /// `theirs`, which `their` describes: None for a signal, Some((dir, sig))
 /// for a pin.
 pub fn plan(ours: &str, ours_in: bool, their: Option<(String, String)>, theirs: &str) -> Plan {
@@ -62,14 +62,14 @@ pub fn plan(ours: &str, ours_in: bool, their: Option<(String, String)>, theirs: 
         None => Plan::Join(theirs.to_string()),
         Some((_, sig)) if !sig.is_empty() => Plan::Join(sig),
         Some((dir, _)) if ours_in && dir == "IN" => Plan::Skip,
-        Some(_) => Plan::New(format!("millgui-{}", ours.trim_start_matches("millgui.").replace('.', "-"))),
+        Some(_) => Plan::New(format!("ferrum-{}", ours.trim_start_matches("ferrum.").replace('.', "-"))),
     }
 }
 
-/// Connect `millgui.<pin>` to `theirs` (a signal or a pin). Returns what
+/// Connect `ferrum.<pin>` to `theirs` (a signal or a pin). Returns what
 /// was done, for the log.
 pub fn link(pin: &str, ours_in: bool, theirs: &str) -> Result<String, String> {
-    let ours = format!("millgui.{pin}");
+    let ours = format!("ferrum.{pin}");
     let their = if is_signal(theirs) {
         None
     } else {
@@ -89,14 +89,14 @@ mod tests {
 
     #[test]
     fn plans() {
-        assert_eq!(plan("millgui.probe.tripped", true, None, "probe-in"), Plan::Join("probe-in".into()));
+        assert_eq!(plan("ferrum.probe.tripped", true, None, "probe-in"), Plan::Join("probe-in".into()));
         let pin = |d: &str, s: &str| Some((d.to_string(), s.to_string()));
-        assert_eq!(plan("millgui.probe.tripped", true, pin("IN", "sim-probe"), "motion.probe-input"), Plan::Join("sim-probe".into()));
-        assert_eq!(plan("millgui.probe.tripped", true, pin("IN", ""), "motion.probe-input"), Plan::Skip);
+        assert_eq!(plan("ferrum.probe.tripped", true, pin("IN", "sim-probe"), "motion.probe-input"), Plan::Join("sim-probe".into()));
+        assert_eq!(plan("ferrum.probe.tripped", true, pin("IN", ""), "motion.probe-input"), Plan::Skip);
         assert_eq!(
-            plan("millgui.toolchange.tool-changed", false, pin("IN", ""), "iocontrol.0.tool-changed"),
-            Plan::New("millgui-toolchange-tool-changed".into())
+            plan("ferrum.toolchange.tool-changed", false, pin("IN", ""), "iocontrol.0.tool-changed"),
+            Plan::New("ferrum-toolchange-tool-changed".into())
         );
-        assert_eq!(plan("millgui.toolchange.tool-change", true, pin("OUT", ""), "iocontrol.0.tool-change"), Plan::New("millgui-toolchange-tool-change".into()));
+        assert_eq!(plan("ferrum.toolchange.tool-change", true, pin("OUT", ""), "iocontrol.0.tool-change"), Plan::New("ferrum-toolchange-tool-change".into()));
     }
 }

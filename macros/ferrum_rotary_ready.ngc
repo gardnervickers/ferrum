@@ -1,28 +1,28 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; Common checks for the rotary A probe macros (probe_a_*):
-; o<millgui_rotary_ready> call [need xy clearance]. Runs
-; o<millgui_probe_ready> (probe loaded, settings usable, G40, machine
+; o<ferrum_rotary_ready> call [need xy clearance]. Runs
+; o<ferrum_probe_ready> (probe loaded, settings usable, G40, machine
 ; units, no G52/G92, no rotation), then refuses a Z clearance #3021 under
 ; 10 mm and, when the argument is 1, an XY clearance #3019 under 5 mm (both
 ; converted to machine units), and a tip with no effective radius
-; (#5410/2 - #3032). Sets #<_millgui_mm> to one
+; (#5410/2 - #3032). Sets #<_ferrum_mm> to one
 ; millimetre in machine units for the callers' own small distances. No
 ; motion.
-o<millgui_rotary_ready> sub
-o<millgui_probe_ready> call
+o<ferrum_rotary_ready> sub
+o<ferrum_probe_ready> call
 o100 if [#<_metric_machine> EQ 1]
-    #<_millgui_mm> = 1
+    #<_ferrum_mm> = 1
 o100 else
-    #<_millgui_mm> = [1 / 25.4]
+    #<_ferrum_mm> = [1 / 25.4]
 o100 endif
-o105 if [#3021 LT [10 * #<_millgui_mm>]]
+o105 if [#3021 LT [10 * #<_ferrum_mm>]]
     (ABORT, Rotary probing requires Z clearance #3021 of at least 10 mm)
 o105 endif
-o106 if [[#1 EQ 1] AND [#3019 LT [5 * #<_millgui_mm>]]]
+o106 if [[#1 EQ 1] AND [#3019 LT [5 * #<_ferrum_mm>]]]
     (ABORT, Rotary probing requires XY clearance #3019 of at least 5 mm)
 o106 endif
 o108 if [[[#5410 / 2] - #3032] LE 0]
     (ABORT, Effective probe tip radius must be positive)
 o108 endif
-o<millgui_rotary_ready> endsub
+o<ferrum_rotary_ready> endsub
 M2

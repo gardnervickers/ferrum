@@ -1,4 +1,4 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; FIND/MEASURE round boss: finds the top, centre and diameter of a round
 ; boss. The probe starts above the boss's centre, within #3020 of its top.
 ; It touches the top, then measures across X and across Y from outside
@@ -14,25 +14,25 @@ o<probe_round_boss> sub
 o10 if [#<_task> EQ 0]
     o<probe_round_boss> return
 o10 endif
-o<millgui_probe_ready> call
+o<ferrum_probe_ready> call
 M73
 M50 P0
 G90 G94
 
-o<millgui_touch> call [2] [-1] [#3020]
-#1009 = #<_millgui_hit>
+o<ferrum_touch> call [2] [-1] [#3020]
+#1009 = #<_ferrum_hit>
 #<z_clear> = [#1009 + #3021]
 #<z_probe> = [#1009 - #5410 - #3022]
-o<millgui_guarded_move> call [0] [0] [#<z_clear> - #5422]
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
 
-o<millgui_span_outside> call [0] [#3025] [#<z_clear>] [#<z_probe>]
-o<millgui_span_outside> call [1] [#3025] [#<z_clear>] [#<z_probe>]
-o<millgui_span_outside> call [0] [#3025] [#<z_clear>] [#<z_probe>]
-#1001 = #<_millgui_width>
-#1002 = #<_millgui_center>
-o<millgui_span_outside> call [1] [#3025] [#<z_clear>] [#<z_probe>]
-#1003 = #<_millgui_width>
-#1004 = #<_millgui_center>
+o<ferrum_span_outside> call [0] [#3025] [#<z_clear>] [#<z_probe>]
+o<ferrum_span_outside> call [1] [#3025] [#<z_clear>] [#<z_probe>]
+o<ferrum_span_outside> call [0] [#3025] [#<z_clear>] [#<z_probe>]
+#1001 = #<_ferrum_width>
+#1002 = #<_ferrum_center>
+o<ferrum_span_outside> call [1] [#3025] [#<z_clear>] [#<z_probe>]
+#1003 = #<_ferrum_width>
+#1004 = #<_ferrum_center>
 #1010 = [[#1001 + #1003] / 2]
 
 (DEBUG, EVAL[vcp.getWidget{"z_minus_probed_position"}.setValue{#1009}])

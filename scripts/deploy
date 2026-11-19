@@ -1,24 +1,29 @@
 #!/usr/bin/env bash
-# Build and copy millgui to the Pi's config checkout. Only millgui's own files
+# Build and copy ferrum to the Pi's config checkout. Only ferrum's own files
 # are written; mymill.ini and the Probe Basic setup are not touched.
 set -euo pipefail
-PI="${MILLGUI_PI:-cnc@cncmill.localdomain}"
-DEST="${MILLGUI_DEST:-linuxcnc/configs/mymill}"
+PI="${FERRUM_PI:-cnc@cncmill.localdomain}"
+DEST="${FERRUM_DEST:-linuxcnc/configs/mymill}"
 cd "$(dirname "$0")/.."
 scripts/build
 scripts/build-web >/dev/null
-ssh "$PI" "mkdir -p $DEST/millgui/bin"
-scp -q target/aarch64-unknown-linux-gnu/release/millgui "$PI:$DEST/millgui/bin/millgui.new"
-scp -q run boot mdi.toml "$PI:$DEST/millgui/"
-# The JOB page used to run millgui/job_helper.py; it is built in now.
-ssh "$PI" "rm -f $DEST/millgui/job_helper.py"
+# Ferrum was called millgui: move a pre-rename install to ferrum/ and leave
+# millgui -> ferrum and millgui.ini -> ferrum.ini links, so launchers and an
+# INI SUBROUTINE_PATH that still say millgui keep working.
+ssh "$PI" "cd $DEST && if [ -d millgui ] && [ ! -L millgui ] && [ ! -e ferrum ]; then mv millgui ferrum && ln -s ferrum millgui; fi"
+ssh "$PI" "mkdir -p $DEST/ferrum/bin"
+scp -q target/aarch64-unknown-linux-gnu/release/ferrum "$PI:$DEST/ferrum/bin/ferrum.new"
+scp -q run boot mdi.toml "$PI:$DEST/ferrum/"
+# The JOB page used to run ferrum/job_helper.py; it is built in now.
+ssh "$PI" "rm -f $DEST/ferrum/job_helper.py"
 # machine.toml is edited on the machine: install it only the first time.
-ssh "$PI" "test -e $DEST/millgui/machine.toml" || scp -q machine.toml "$PI:$DEST/millgui/"
-scp -q ../millgui.ini "$PI:$DEST/"
-ssh "$PI" "mkdir -p $DEST/millgui/hal"
-scp -q hal/*.hal "$PI:$DEST/millgui/hal/"
-ssh "$PI" "rm -rf $DEST/millgui/web/dist.new && mkdir -p $DEST/millgui/web/dist.new"
-scp -q web/dist/* "$PI:$DEST/millgui/web/dist.new/"
-ssh "$PI" "rm -rf $DEST/millgui/web/dist && mv $DEST/millgui/web/dist.new $DEST/millgui/web/dist"
-ssh "$PI" "mv $DEST/millgui/bin/millgui.new $DEST/millgui/bin/millgui && chmod +x $DEST/millgui/run $DEST/millgui/boot"
+ssh "$PI" "test -e $DEST/ferrum/machine.toml" || scp -q machine.toml "$PI:$DEST/ferrum/"
+scp -q ../ferrum.ini "$PI:$DEST/"
+ssh "$PI" "cd $DEST && if [ -f millgui.ini ] && [ ! -L millgui.ini ]; then mv millgui.ini millgui.ini.pre-ferrum && ln -s ferrum.ini millgui.ini; fi"
+ssh "$PI" "mkdir -p $DEST/ferrum/hal"
+scp -q hal/*.hal "$PI:$DEST/ferrum/hal/"
+ssh "$PI" "rm -rf $DEST/ferrum/web/dist.new && mkdir -p $DEST/ferrum/web/dist.new"
+scp -q web/dist/* "$PI:$DEST/ferrum/web/dist.new/"
+ssh "$PI" "rm -rf $DEST/ferrum/web/dist && mv $DEST/ferrum/web/dist.new $DEST/ferrum/web/dist"
+ssh "$PI" "mv $DEST/ferrum/bin/ferrum.new $DEST/ferrum/bin/ferrum && chmod +x $DEST/ferrum/run $DEST/ferrum/boot"
 echo "deployed to $PI:$DEST"

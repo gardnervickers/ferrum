@@ -1,4 +1,4 @@
-title A stock machine runs PROBE with millgui's own macros: left edge and top face of the stock block
+title A stock machine runs PROBE with ferrum's own macros: left edge and top face of the stock block
 needs stock
 # stock.py's block (mm: X 40..120, Y -60..-10, top -100; inch: X 1.5..4.5,
 # Y -2.5..-0.5, top -4), in tip Z; the tip is machine Z less T99's length.

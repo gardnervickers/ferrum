@@ -478,7 +478,7 @@ fn wrap(position: usize, total: usize, op: &Op, setup: Option<&Setup>, body: &[S
 }
 
 /// A TOOL CHECK op: the tool in the spindle on the setter
-/// (`o<millgui_tool_check>`, which aborts the job when it is off its table
+/// (`o<ferrum_tool_check>`, which aborts the job when it is off its table
 /// length by more than the breakage tolerance). With no cutting tool in
 /// the spindle there is nothing to check: it says so and goes on.
 pub fn tool_check_body(tag: &str, probe_tool: i64) -> Vec<String> {
@@ -486,7 +486,7 @@ pub fn tool_check_body(tag: &str, probe_tool: i64) -> Vec<String> {
         "M5".into(),
         "M9".into(),
         format!("o<job_{}_check> if [[#<_current_tool> GT 0] AND [#<_current_tool> NE {}]]", tag, probe_tool),
-        "  o<millgui_tool_check> call".into(),
+        "  o<ferrum_tool_check> call".into(),
         format!("o<job_{}_check> else", tag),
         "  (MSG, Tool check: no cutting tool in the spindle to check)".into(),
         format!("o<job_{}_check> endif", tag),
@@ -1011,7 +1011,7 @@ mod tests {
                 "  M5",
                 "  M9",
                 "  o<job_op5_check> if [[#<_current_tool> GT 0] AND [#<_current_tool> NE 99]]",
-                "    o<millgui_tool_check> call",
+                "    o<ferrum_tool_check> call",
                 "  o<job_op5_check> else",
                 "    (MSG, Tool check: no cutting tool in the spindle to check)",
                 "  o<job_op5_check> endif",

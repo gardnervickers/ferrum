@@ -1,4 +1,4 @@
-( millgui harness: a square of side ${dist} from the work origin, then back )
+( ferrum harness: a square of side ${dist} from the work origin, then back )
 G90 G17 G40 G80
 G0 X0 Y0
 G1 X${dist} F${feed}

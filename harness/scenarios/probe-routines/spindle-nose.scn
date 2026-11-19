@@ -3,7 +3,7 @@ needs probe-basic probe-geometry
 # Empty spindle; the nose (D40 from [TOOL_SETTER]) comes down over the
 # setter, offset by its radius, and trips at ${setter_depth} below Z0.
 include ../common/ready.scn
-sleep 4                                   # millgui's default write runs 3 s after things go still
+sleep 4                                   # ferrum's default write runs 3 s after things go still
 idle 30
 # A wrong value first, so a pass means the routine measured it.
 mdi #3010=280

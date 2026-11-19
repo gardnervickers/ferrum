@@ -1,6 +1,6 @@
-//! millgui: the mill's LinuxCNC display program.
+//! ferrum: the mill's LinuxCNC display program.
 //!
-//! LinuxCNC starts it as `millgui -ini <file>`. `--sim` runs against the
+//! LinuxCNC starts it as `ferrum -ini <file>`. `--sim` runs against the
 //! simulated machine instead (the default on builds without NML, e.g. the Mac).
 
 mod boot;
@@ -99,7 +99,7 @@ fn parse_args() -> Args {
         a.sim = true;
     }
     // Absolute, so the INI's folder is known whatever the working folder
-    // (`millgui --boot millgui.ini` names it relative).
+    // (`ferrum --boot ferrum.ini` names it relative).
     a.ini = a.ini.map(|p| std::fs::canonicalize(&p).unwrap_or(p));
     a
 }
@@ -140,11 +140,11 @@ fn connect_machine(sim: bool, open: Option<PathBuf>, nml: Option<String>) -> Res
 }
 
 /// Create module pins, mark the component ready, then net them with each
-/// enabled module's `millgui/hal/<id>.hal` and the optional
-/// [MILLGUI]POSTGUI_HALFILE. Returns the component, which must live as long
+/// enabled module's `ferrum/hal/<id>.hal` and the optional
+/// [FERRUM]POSTGUI_HALFILE. Returns the component, which must live as long
 /// as the GUI (dropping it calls hal_exit).
 fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<String>) -> Option<lcnc::hal::Component> {
-    let comp = match lcnc::hal::Component::new("millgui") {
+    let comp = match lcnc::hal::Component::new("ferrum") {
         Ok(c) => c,
         Err(e) => {
             notes.push(format!("HAL unavailable: {e}"));
@@ -161,13 +161,13 @@ fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<Stri
         return Some(comp);
     }
     let Some(ini) = cfg.path.as_ref() else { return Some(comp) };
-    // A module's own millgui/hal/<id>.hal (the mymill profile), else its
-    // pins connect through [hal] in millgui.toml or their default targets.
+    // A module's own ferrum/hal/<id>.hal (the mymill profile), else its
+    // pins connect through [hal] in ferrum.toml or their default targets.
     let mc = machine_cfg::get();
     let mut files: Vec<PathBuf> = Vec::new();
     let mut known: Vec<&str> = Vec::new();
     for m in modules.iter_mut() {
-        let file = PathBuf::from(format!("millgui/hal/{}.hal", m.id()));
+        let file = PathBuf::from(format!("ferrum/hal/{}.hal", m.id()));
         let has_file = cfg.dir().join(&file).is_file();
         if has_file {
             files.push(file);
@@ -178,7 +178,7 @@ fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<Stri
             match target {
                 Some(t) => match halmap::link(l.pin, l.input, t) {
                     Ok(done) => {
-                        eprintln!("millgui: HAL {done}");
+                        eprintln!("ferrum: HAL {done}");
                         m.linked(l.name);
                     }
                     Err(e) => notes.push(format!("[hal]{}: {e}", l.name)),
@@ -248,9 +248,9 @@ mod hal_tests {
 
     #[test]
     fn summary_names_the_failed_lines() {
-        let e = "millgui/hal/drawbar.hal:4: Pin 'spindle-rearm-required-pin' does not exist\nmillgui/hal/drawbar.hal:9: Pin 'x.set' does not exist\n";
+        let e = "ferrum/hal/drawbar.hal:4: Pin 'spindle-rearm-required-pin' does not exist\nferrum/hal/drawbar.hal:9: Pin 'x.set' does not exist\n";
         assert_eq!(
-            halcmd_summary(Path::new("millgui/hal/drawbar.hal"), e),
+            halcmd_summary(Path::new("ferrum/hal/drawbar.hal"), e),
             "HAL drawbar.hal: line 4: Pin 'spindle-rearm-required-pin' does not exist (+1 more; the rest connected)"
         );
     }
@@ -701,7 +701,8 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
 }
 
 fn main() -> Result<(), slint::PlatformError> {
-    // Under `millgui --boot` LinuxCNC starts this copy only to hold its
+    settings::migrate_legacy();
+    // Under `ferrum --boot` LinuxCNC starts this copy only to hold its
     // session open; the launcher is the display.
     boot::attach_if_launched();
     let args = parse_args();
@@ -718,7 +719,7 @@ fn main() -> Result<(), slint::PlatformError> {
     jobcore::mill_ops::set_machine_top(&mi.units.gcode(mi.z_top));
     machine::set_axis_joints(std::array::from_fn(|i| mi.jog_joint(i).map(|j| j as u8)));
     if let Some(u) = &mi.units_unknown {
-        notes.push(format!("[TRAJ]LINEAR_UNITS = {u} is not a unit millgui knows; showing millimetres"));
+        notes.push(format!("[TRAJ]LINEAR_UNITS = {u} is not a unit ferrum knows; showing millimetres"));
     }
     let hal: Box<dyn checks::Hal> = if args.sim { Box::new(checks::NoHal) } else { Box::new(checks::Halcmd::new()) };
     let (modules, problems) = modules::build(&cfg, hal.as_ref());
@@ -757,7 +758,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // while the splash shows.
     let (choice, why) = renderer::choose(&cfg);
     let renderer = renderer::install(choice);
-    eprintln!("millgui: drawing with {why}");
+    eprintln!("ferrum: drawing with {why}");
     let ui = MainWindow::new()?;
     if !args.windowed && !args.sim {
         ui.window().set_fullscreen(true);
@@ -783,7 +784,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // only once, when the window first draws, which is the splash.
     if renderer == renderer::Choice::Gpu {
         if let Err(e) = plot::use_gpu(&ui) {
-            eprintln!("millgui: GPU backplot unavailable ({e:?})");
+            eprintln!("ferrum: GPU backplot unavailable ({e:?})");
         }
     }
     ui.show()?;
@@ -806,7 +807,7 @@ async fn run(
         #[cfg(unix)]
         {
             let Some(ini) = args.ini.clone() else {
-                eprintln!("millgui: --boot needs the INI file: millgui --boot millgui.ini");
+                eprintln!("ferrum: --boot needs the INI file: ferrum --boot ferrum.ini");
                 std::process::exit(2);
             };
             boot::show(&ui, 0, boot::footer(None, Some(&ini)));
@@ -846,7 +847,7 @@ async fn run(
     let live = ui.global::<Live>();
     if !notes.is_empty() {
         for n in &notes {
-            eprintln!("millgui: {n}");
+            eprintln!("ferrum: {n}");
         }
         live.set_message(notes.join("; ").into());
         live.set_message_error(true);
@@ -968,8 +969,8 @@ async fn run(
                         plot::with(|p| plot::redraw_due(ui, p, Duration::from_millis(15)));
                     }
                     Event::Message(m) => {
-                        if std::env::var_os("MILLGUI_LOG_MESSAGES").is_some() {
-                            eprintln!("millgui: message {:?}: {:?}", m.kind, m.text);
+                        if std::env::var_os("FERRUM_LOG_MESSAGES").is_some() {
+                            eprintln!("ferrum: message {:?}: {:?}", m.kind, m.text);
                         }
                         // Macros report results as DEBUG lines.
                         if UTIL.with(|u| u.borrow().as_ref().is_some_and(|u| util::message(u, &m))) {
@@ -1048,7 +1049,7 @@ async fn run(
         }
         let attention = rows.iter().filter(|c| c.level != checks::Level::Ok && c.level != checks::Level::Info).count();
         if attention > 0 {
-            eprintln!("millgui: {attention} setup items need attention; run millgui --check {}", cfg.path.as_ref().map_or(String::new(), |p| p.display().to_string()));
+            eprintln!("ferrum: {attention} setup items need attention; run ferrum --check {}", cfg.path.as_ref().map_or(String::new(), |p| p.display().to_string()));
         }
     }
     textentry::wire(&ui);
@@ -1095,7 +1096,7 @@ async fn run(
     let util_state = if args.sim { settings::Settings::memory() } else { settings::Settings::at("util") };
     let (util, _util_timer) = util::wire(&ui, &handle, &cfg, tc_io.clone(), setter.clone(), util_state);
     UTIL.with(|u| *u.borrow_mut() = Some(util));
-    // SETUP: the check's rows with their fixes. With no millgui.toml it
+    // SETUP: the check's rows with their fixes. With no ferrum.toml it
     // opens first (not in the simulator, nor when -screen names one).
     {
         let mut asked = machine_cfg::get().clone();
@@ -1119,10 +1120,10 @@ async fn run(
         None
     };
 
-    // Remote (web) screen: [remote]port (or [MILLGUI]REMOTE_PORT) serves the browser build.
+    // Remote (web) screen: [remote]port (or [FERRUM]REMOTE_PORT) serves the browser build.
     let _remote = match machine_cfg.remote_port(&cfg) {
         Some(Ok(port)) => {
-            let root = machine_cfg.remote_root(&cfg).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("millgui/web"));
+            let root = machine_cfg.remote_root(&cfg).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("ferrum/web"));
             let root = if root.is_absolute() { root } else { cfg.dir().join(root) };
             match remote::start(&ui, port, root) {
                 Ok((timer, r)) => {
@@ -1271,7 +1272,7 @@ async fn run(
 fn write_ini(cfg: &Config, rows: &[checks::Check]) {
     let Some(path) = &cfg.path else { return };
     if checks::Halcmd::new().running() {
-        eprintln!("\nmillgui: LinuxCNC is running; stop it before --write-ini changes {}", path.display());
+        eprintln!("\nferrum: LinuxCNC is running; stop it before --write-ini changes {}", path.display());
         std::process::exit(2);
     }
     match checks::write_ini(path, rows) {
@@ -1283,7 +1284,7 @@ fn write_ini(cfg: &Config, rows: &[checks::Check]) {
             }
         }
         Err(e) => {
-            eprintln!("\nmillgui: {e}");
+            eprintln!("\nferrum: {e}");
             std::process::exit(2);
         }
     }
@@ -1331,7 +1332,7 @@ fn fit_desktop_window(ui: &MainWindow) {
             sized = true;
             w.with_winit_window(|ww| {
                 let Some(m) = ww.current_monitor().or_else(|| ww.primary_monitor()) else {
-                    eprintln!("millgui: no screen size known; the window keeps its size");
+                    eprintln!("ferrum: no screen size known; the window keeps its size");
                     return;
                 };
                 let ms = m.size();
@@ -1528,7 +1529,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
                 live.set_offsets_view("timeline".into());
                 use history::Target::{Tool, Wcs};
                 history::record(Wcs(0), &[0.0; 5], &[215.638, -94.431, -322.444, 0.0, 0.0], "During MDI or a probe routine", [0.0; 2]);
-                history::record(Tool(7), &[0.0, 4.0], &[109.232, 4.0], "Tool table changed outside millgui", [0.0; 2]);
+                history::record(Tool(7), &[0.0, 4.0], &[109.232, 4.0], "Tool table changed outside ferrum", [0.0; 2]);
                 history::record(Wcs(0), &[215.638, -94.431, -322.444, 0.0, 0.0], &[215.638, -94.431, -322.394, 0.0, 0.0], "Zero Z here", [0.0; 2]);
                 history::record(Tool(7), &[109.232, 4.0], &[109.212, 4.0], "Wear adjust -0.020 length", [-0.02, 0.0]);
                 history::record(Wcs(1), &[0.0; 5], &[120.0, -40.0, -300.0, 0.0, 1.5], "During program bracket-sample.ngc", [0.0; 2]);
@@ -1550,13 +1551,13 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
             "pick" => actions.invoke_job_add_step(),
             t if t.starts_with("conv-sec-") => actions.invoke_conv_section(t[9..].into()),
             t if t.starts_with("conv-") => actions.invoke_conv_type(t[5..].into()),
-            other => eprintln!("millgui: unknown --show {other}"),
+            other => eprintln!("ferrum: unknown --show {other}"),
         }
     }
     let _ = &conv;
     ui.show()?;
     headless::save(&window, out).map_err(slint::PlatformError::Other)?;
-    eprintln!("millgui: wrote {}", out.display());
+    eprintln!("ferrum: wrote {}", out.display());
     Ok(())
 }
 
@@ -1569,7 +1570,7 @@ fn restore_fn(offsets: &Rc<RefCell<offsets::Offsets>>, tools: &Rc<RefCell<tools:
     })
 }
 
-/// Sample programs for headless screenshots (millgui/testdata/nc_files).
+/// Sample programs for headless screenshots (ferrum/testdata/nc_files).
 fn sim_nc_dir() -> PathBuf {
     let dir = job::cache_dir().join("sim-nc");
     let _ = std::fs::create_dir_all(&dir);

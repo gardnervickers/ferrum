@@ -1,8 +1,7 @@
 // The product's name and marks, and the start-up splash.
 //
-// The name is not final: `Brand.name` is the one place it is spelled for
-// people (window title, splash, marks). The binary, crates and
-// folders keep "millgui".
+// `Brand.name` is the one place the name is spelled for people (window
+// title, splash, marks).
 import { Theme } from "theme.slint";
 import { Btn } from "widgets.slint";
 
@@ -48,9 +47,9 @@ export global Boot {
     // Failure: the lines that say why, and where the full log is.
     in-out property <string> error;
     in-out property <string> log;
-    // Bottom line: "LinuxCNC 2.9.10 · millgui.ini".
+    // Bottom line: "LinuxCNC 2.9.10 · ferrum.ini".
     in-out property <string> footer;
-    // Only the launcher (`millgui --boot`) can start LinuxCNC again.
+    // Only the launcher (`ferrum --boot`) can start LinuxCNC again.
     in-out property <bool> can-retry;
     callback retry();
     callback quit();
@@ -152,7 +151,7 @@ component StepChip inherits HorizontalLayout {
 }
 
 // The start-up splash. It covers the window while LinuxCNC starts and
-// millgui connects, then fades out (and lets touches through at once).
+// ferrum connects, then fades out (and lets touches through at once).
 export component Splash inherits Rectangle {
     background: Theme.page;
     // The entrance plays once: the tile rises in, the name's letters

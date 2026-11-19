@@ -1,6 +1,6 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
-; FIND top face (millgui's TOP). The probe starts above the surface, within
-; #3020 of it, and touches straight down once (o<millgui_top>: fast touch,
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND top face (ferrum's TOP). The probe starts above the surface, within
+; #3020 of it, and touches straight down once (o<ferrum_top>: fast touch,
 ; back off #3021, slow touch). The surface Z (tip bottom by the tool length
 ; offset, in the coordinates before any write) is reported as
 ; z_minus_probed_position / #1009. With #3030 = 0 the active work offset's
@@ -11,13 +11,13 @@ o<probe_z_minus_wco> sub
 o10 if [#<_task> EQ 0]
     o<probe_z_minus_wco> return
 o10 endif
-o<millgui_probe_ready> call
+o<ferrum_probe_ready> call
 M73
 M50 P0
 G90 G94
-o<millgui_top> call [#3020]
+o<ferrum_top> call [#3020]
 o20 if [#3030 EQ 0]
-    G10 L20 P0 Z[#5422 - #<_millgui_top>]
+    G10 L20 P0 Z[#5422 - #<_ferrum_top>]
 o20 endif
 o<probe_z_minus_wco> endsub
 M2

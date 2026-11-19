@@ -1,14 +1,14 @@
-//! millgui.toml: millgui's own settings for one machine, beside the INI
-//! (`[MILLGUI]CONFIG` moves it). The INI keeps LinuxCNC's machine facts;
+//! ferrum.toml: ferrum's own settings for one machine, beside the INI
+//! (`[FERRUM]CONFIG` moves it). The INI keeps LinuxCNC's machine facts;
 //! this file holds what LinuxCNC does not know: which modules, how M6 is
 //! answered, the probe, the HAL signal names, the backplot table.
 //!
 //! Every key is optional. A missing key means "detect" or the default; a
 //! table with a bad key is reported and that table alone falls back to its
-//! defaults. With no millgui.toml, `machine.toml` (`[MILLGUI]MACHINE_CONFIG`,
-//! else `millgui/machine.toml`) is still read for `[buttons]` and `[model]`,
-//! and the INI's `[MILLGUI]` keys (MODULES, POSTGUI_HALFILE, REMOTE_PORT,
-//! REMOTE_ROOT, RENDERER, MDI_LIBRARY) are honoured; millgui.toml wins.
+//! defaults. With no ferrum.toml, `machine.toml` (`[FERRUM]MACHINE_CONFIG`,
+//! else `ferrum/machine.toml`) is still read for `[buttons]` and `[model]`,
+//! and the INI's `[FERRUM]` keys (MODULES, POSTGUI_HALFILE, REMOTE_PORT,
+//! REMOTE_ROOT, RENDERER, MDI_LIBRARY) are honoured; ferrum.toml wins.
 
 use crate::config::Config;
 use crate::{Live, MainWindow};
@@ -24,7 +24,9 @@ use std::sync::OnceLock;
 const BUILTIN: &str = include_str!("../../machine.toml");
 
 /// The file name looked for beside the INI.
-pub const FILE: &str = "millgui.toml";
+pub const FILE: &str = "ferrum.toml";
+/// The settings file's name before the rename; read when there is no ferrum.toml.
+pub const LEGACY_FILE: &str = "millgui.toml";
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -139,7 +141,7 @@ fn split_words(t: &str) -> Vec<String> {
 #[derive(Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ModulesSec {
-    /// In nav order; unset: `[MILLGUI]MODULES`, else the default list.
+    /// In nav order; unset: `[FERRUM]MODULES`, else the default list.
     pub enabled: Option<Words>,
 }
 
@@ -157,9 +159,9 @@ pub struct SpindleSec {
 #[serde(rename_all = "lowercase")]
 pub enum ToolChangeStyle {
     /// Something in the machine's HAL (an ATC, hal_manualtoolchange, a
-    /// remap) answers; millgui shows the tool number.
+    /// remap) answers; ferrum shows the tool number.
     External,
-    /// millgui's tool change overlay answers.
+    /// ferrum's tool change overlay answers.
     Dialog,
     /// The overlay plus a power drawbar and touch-off latch (mymill).
     Drawbar,
@@ -231,7 +233,7 @@ pub struct RemoteSec {
 pub struct DisplaySec {
     pub renderer: Option<String>,
     pub mdi_library: Option<String>,
-    /// HAL files run after millgui's pins exist (relative to the INI).
+    /// HAL files run after ferrum's pins exist (relative to the INI).
     pub postgui: Option<Words>,
 }
 
@@ -304,18 +306,23 @@ impl MachineCfg {
         (c, problems)
     }
 
-    /// millgui.toml beside the INI (or `[MILLGUI]CONFIG`); without one, the
+    /// ferrum.toml beside the INI (or `[FERRUM]CONFIG`); without one, the
     /// older machine.toml. Problems go to `notes`, prefixed with the file.
     pub fn load(cfg: &Config, notes: &mut Vec<String>) -> Self {
-        let named = cfg.get("MILLGUI", "CONFIG").map(|p| cfg.dir().join(p.trim()));
+        let named = cfg.get("FERRUM", "CONFIG").map(|p| cfg.dir().join(p.trim()));
         let path = named.clone().unwrap_or_else(|| cfg.dir().join(FILE));
         if let Some(c) = Self::read(&path, notes) {
             return c;
         }
-        if named.is_some() {
-            notes.push(format!("{}: [MILLGUI]CONFIG names a file that is not there", path.display()));
+        if named.is_none() {
+            if let Some(c) = Self::read(&cfg.dir().join(LEGACY_FILE), notes) {
+                return c;
+            }
         }
-        let old = cfg.get("MILLGUI", "MACHINE_CONFIG").map(|p| cfg.dir().join(p)).unwrap_or_else(|| cfg.dir().join("millgui/machine.toml"));
+        if named.is_some() {
+            notes.push(format!("{}: [FERRUM]CONFIG names a file that is not there", path.display()));
+        }
+        let old = cfg.get("FERRUM", "MACHINE_CONFIG").map(|p| cfg.dir().join(p)).unwrap_or_else(|| cfg.dir().join("ferrum/machine.toml"));
         Self::read(&old, notes).unwrap_or_default()
     }
 
@@ -327,10 +334,14 @@ impl MachineCfg {
         Some(c)
     }
 
-    /// The millgui.toml SETUP writes (the one read, or the one millgui
+    /// The ferrum.toml SETUP writes (the one read, or the one ferrum
     /// would read), and the older file to start a new one from.
     pub fn target(&self, cfg: &Config) -> (PathBuf, Option<PathBuf>) {
-        let path = cfg.get("MILLGUI", "CONFIG").map(|p| cfg.dir().join(p.trim())).unwrap_or_else(|| cfg.dir().join(FILE));
+        let path = cfg.get("FERRUM", "CONFIG").map(|p| cfg.dir().join(p.trim())).unwrap_or_else(|| {
+            // A machine set up before the rename keeps its millgui.toml.
+            let legacy = cfg.dir().join(LEGACY_FILE);
+            if !cfg.dir().join(FILE).exists() && legacy.exists() { legacy } else { cfg.dir().join(FILE) }
+        });
         let seed = self.path.clone().filter(|p| *p != path);
         (path, seed)
     }
@@ -349,12 +360,12 @@ impl MachineCfg {
         self.raw.get(table).and_then(|t| t.as_table()).is_some_and(|t| t.contains_key(key))
     }
 
-    /// The modules, in nav order: `[modules]enabled`, else `[MILLGUI]MODULES`,
+    /// The modules, in nav order: `[modules]enabled`, else `[FERRUM]MODULES`,
     /// else `default`.
     pub fn module_ids(&self, cfg: &Config, default: &str) -> Vec<String> {
         match &self.modules.enabled {
             Some(w) => w.0.clone(),
-            None => split_words(cfg.get("MILLGUI", "MODULES").unwrap_or(default)),
+            None => split_words(cfg.get("FERRUM", "MODULES").unwrap_or(default)),
         }
     }
 
@@ -362,7 +373,7 @@ impl MachineCfg {
     pub fn postgui(&self, cfg: &Config) -> Vec<String> {
         match &self.display.postgui {
             Some(w) => w.0.clone(),
-            None => cfg.get("MILLGUI", "POSTGUI_HALFILE").map(|s| vec![s.trim().to_string()]).unwrap_or_default(),
+            None => cfg.get("FERRUM", "POSTGUI_HALFILE").map(|s| vec![s.trim().to_string()]).unwrap_or_default(),
         }
     }
 
@@ -372,20 +383,20 @@ impl MachineCfg {
             // 0: off, even when the INI names a port.
             return (p != 0).then_some(Ok(p));
         }
-        let p = cfg.get("MILLGUI", "REMOTE_PORT")?;
-        Some(p.trim().parse::<u16>().map_err(|_| "[MILLGUI]REMOTE_PORT is not a port number".to_string()))
+        let p = cfg.get("FERRUM", "REMOTE_PORT")?;
+        Some(p.trim().parse::<u16>().map_err(|_| "[FERRUM]REMOTE_PORT is not a port number".to_string()))
     }
 
     pub fn remote_root(&self, cfg: &Config) -> Option<String> {
-        self.remote.root.clone().or_else(|| cfg.get("MILLGUI", "REMOTE_ROOT").map(String::from))
+        self.remote.root.clone().or_else(|| cfg.get("FERRUM", "REMOTE_ROOT").map(String::from))
     }
 
     pub fn renderer(&self, cfg: &Config) -> Option<String> {
-        self.display.renderer.clone().or_else(|| cfg.get("MILLGUI", "RENDERER").map(String::from))
+        self.display.renderer.clone().or_else(|| cfg.get("FERRUM", "RENDERER").map(String::from))
     }
 
     pub fn mdi_library(&self, cfg: &Config) -> Option<String> {
-        self.display.mdi_library.clone().or_else(|| cfg.get("MILLGUI", "MDI_LIBRARY").map(String::from))
+        self.display.mdi_library.clone().or_else(|| cfg.get("FERRUM", "MDI_LIBRARY").map(String::from))
     }
 
     /// The probe's tool number: `[probe]tool`, else `[PROBE]TOOL_NUMBER`, else 99.
@@ -422,7 +433,7 @@ impl MachineCfg {
 /// removed for None. Comments and layout are kept. Refused when the result
 /// would not read cleanly.
 pub fn edited(text: &str, key: &str, value: Option<toml_edit::Item>) -> Result<String, String> {
-    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| format!("millgui.toml does not read: {}", e.message()))?;
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| format!("ferrum.toml does not read: {}", e.message()))?;
     let (tables, k) = key.rsplit_once('.').ok_or("bad key")?;
     let top = tables.split('.').next().unwrap_or(tables);
     match value {
@@ -436,7 +447,7 @@ pub fn edited(text: &str, key: &str, value: Option<toml_edit::Item>) -> Result<S
                     n.set_implicit(nested);
                     toml_edit::Item::Table(n)
                 });
-                t = e.as_table_like_mut().ok_or_else(|| format!("[{tables}] in millgui.toml is not a table"))?;
+                t = e.as_table_like_mut().ok_or_else(|| format!("[{tables}] in ferrum.toml is not a table"))?;
             }
             t.insert(k, v);
         }
@@ -458,15 +469,15 @@ pub fn edited(text: &str, key: &str, value: Option<toml_edit::Item>) -> Result<S
     Ok(out)
 }
 
-pub const HEADER: &str = "# millgui's settings for this machine (millgui/docs/millgui-toml.md).\n# SETUP writes what it changes here; every key is optional.\n";
+pub const HEADER: &str = "# ferrum's settings for this machine (ferrum/docs/ferrum-toml.md).\n# SETUP writes what it changes here; every key is optional.\n";
 
-/// A new millgui.toml: the older machine.toml's settings, under a header.
+/// A new ferrum.toml: the older machine.toml's settings, under a header.
 pub fn new_file_text(seed: Option<&Path>) -> String {
     let old = seed.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
     if old.is_empty() { HEADER.to_string() } else { format!("{HEADER}\n{old}") }
 }
 
-/// Write one key to the millgui.toml at `path` (started from `seed`, the
+/// Write one key to the ferrum.toml at `path` (started from `seed`, the
 /// older machine.toml, when there is none yet).
 pub fn write_key(path: &Path, seed: Option<&Path>, key: &str, value: Option<toml_edit::Item>) -> Result<(), String> {
     let (text, new) = match std::fs::read_to_string(path) {
@@ -486,7 +497,7 @@ pub fn write_file(path: &Path, text: &str) -> Result<(), String> {
 
 static CFG: OnceLock<MachineCfg> = OnceLock::new();
 
-/// Load millgui.toml; the first call wins.
+/// Load ferrum.toml; the first call wins.
 pub fn init(cfg: &Config, notes: &mut Vec<String>) -> &'static MachineCfg {
     if let Some(c) = CFG.get() {
         return c;
@@ -522,7 +533,7 @@ mod tests {
 
     #[test]
     fn mymill_profile_reads_clean() {
-        let c = parse(include_str!("../../../millgui.toml"));
+        let c = parse(include_str!("../../../ferrum.toml"));
         assert_eq!(c.toolchange.style, Some(ToolChangeStyle::Drawbar));
         assert_eq!(c.probe.tool, Some(99));
         assert!(c.model.known());
@@ -568,8 +579,8 @@ mod tests {
     #[test]
     fn toml_wins_over_the_ini() {
         let mut ini = Config::default();
-        ini.insert("MILLGUI", "MODULES", "run files");
-        ini.insert("MILLGUI", "REMOTE_PORT", "80x");
+        ini.insert("FERRUM", "MODULES", "run files");
+        ini.insert("FERRUM", "REMOTE_PORT", "80x");
         ini.insert("PROBE", "TOOL_NUMBER", "7");
         ini.insert("SPINDLE_0", "MAX_FORWARD_VELOCITY", "3000");
         ini.insert("SPINDLE_0", "MAX_REVERSE_VELOCITY", "0");

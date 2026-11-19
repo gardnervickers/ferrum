@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Record the Python job helper's replies for the jobcore conformance test.
 
-Development tool only; millgui never runs it. From the repository root:
+Development tool only; ferrum never runs it. From the repository root:
 
-    python3 millgui/crates/jobcore/tests/record_fixtures.py
+    python3 ferrum/crates/jobcore/tests/record_fixtures.py
 
 For every ``tests/fixtures/<name>.jsonl`` this runs ``tests/job_helper.py``'s (the original Python helper, kept only as the reference)
 ``main()`` in a fresh temporary config folder (holding a copy of
@@ -128,13 +128,13 @@ def record_one(name):
     from mymill_vcp import job_session
     job_session._default_job_name = lambda: 'JOB 01-02 0304'
 
-    spec = importlib.util.spec_from_file_location('job_helper', os.path.join(REPO, 'millgui', 'crates', 'jobcore', 'tests', 'job_helper.py'))
+    spec = importlib.util.spec_from_file_location('job_helper', os.path.join(REPO, 'ferrum', 'crates', 'jobcore', 'tests', 'job_helper.py'))
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
 
     def load_vendored(module_name):
         path = os.path.join(REPO, 'vendor', 'probe_basic', 'src', 'widgets', 'conversational', module_name + '.py')
-        s = importlib.util.spec_from_file_location('millgui_' + module_name, path)
+        s = importlib.util.spec_from_file_location('ferrum_' + module_name, path)
         m = importlib.util.module_from_spec(s)
         s.loader.exec_module(m)
         return m

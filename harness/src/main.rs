@@ -1,5 +1,5 @@
-//! millgui-harness: end-to-end scenarios against the LinuxCNC simulator.
-//! See ../README.md. Normally started through `millgui/harness/run`.
+//! ferrum-harness: end-to-end scenarios against the LinuxCNC simulator.
+//! See ../README.md. Normally started through `ferrum/harness/run`.
 
 mod eval;
 mod image;
@@ -19,7 +19,7 @@ struct Args {
     scenarios: Vec<String>,
     out: PathBuf,
     lcnc: PathBuf,
-    millgui: PathBuf,
+    ferrum: PathBuf,
     display: Option<String>,
     update_goldens: bool,
     list: bool,
@@ -28,7 +28,7 @@ struct Args {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: millgui-harness [--configs a,b] [--out DIR] [--lcnc DIR] [--millgui BIN]\n\
+        "usage: ferrum-harness [--configs a,b] [--out DIR] [--lcnc DIR] [--ferrum BIN]\n\
          \x20                      [--display :N] [--port N] [--update-goldens] [--list] [SCENARIO...]\n\
          SCENARIO is a name under scenarios/ (\"basics/home\"), a directory of them, or a path."
     );
@@ -52,9 +52,9 @@ fn parse_args() -> Args {
         lcnc: std::env::var_os("LCNC_DIR")
             .map(|d| PathBuf::from(d).join("src"))
             .unwrap_or_else(|| Path::new(&home).join("lcnc/src")),
-        millgui: std::env::var_os("MILLGUI_BIN")
+        ferrum: std::env::var_os("FERRUM_BIN")
             .map(PathBuf::from)
-            .unwrap_or_else(|| hd.join("../target-nml/debug/millgui")),
+            .unwrap_or_else(|| hd.join("../target-nml/debug/ferrum")),
         display: None,
         update_goldens: false,
         list: false,
@@ -68,7 +68,7 @@ fn parse_args() -> Args {
             }
             "--out" | "-o" => a.out = it.next().map(PathBuf::from).unwrap_or_else(|| usage()),
             "--lcnc" => a.lcnc = it.next().map(PathBuf::from).unwrap_or_else(|| usage()),
-            "--millgui" => a.millgui = it.next().map(PathBuf::from).unwrap_or_else(|| usage()),
+            "--ferrum" => a.ferrum = it.next().map(PathBuf::from).unwrap_or_else(|| usage()),
             "--display" => a.display = it.next(),
             "--port" => {
                 a.port = it
@@ -220,7 +220,7 @@ fn start_display(n: &str) -> Result<Vec<std::process::Child>, String> {
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    // A window manager gives millgui a full-size window.
+    // A window manager gives ferrum a full-size window.
     if let Ok(wm) = Command::new("openbox")
         .env("DISPLAY", n)
         .stdout(std::process::Stdio::null())
@@ -279,10 +279,10 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    if !a.millgui.exists() {
+    if !a.ferrum.exists() {
         eprintln!(
-            "no millgui build at {} (build with the NML backend; see README.md)",
-            a.millgui.display()
+            "no ferrum build at {} (build with the NML backend; see README.md)",
+            a.ferrum.display()
         );
         return ExitCode::from(2);
     }
@@ -305,7 +305,7 @@ fn main() -> ExitCode {
     };
     let env = Env {
         lcnc: a.lcnc.clone(),
-        millgui_bin: a.millgui.canonicalize().unwrap_or(a.millgui.clone()),
+        ferrum_bin: a.ferrum.canonicalize().unwrap_or(a.ferrum.clone()),
         display,
         port: a.port,
         harness_dir: hd.clone(),
@@ -456,8 +456,8 @@ fn prepare(c: &Config, dir: &Path, port: u16) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
         }
     }
-    // millgui's websocket on the harness port.
-    let ini = dir.join("millgui.ini");
+    // ferrum's websocket on the harness port.
+    let ini = dir.join("ferrum.ini");
     let text = std::fs::read_to_string(&ini).map_err(|e| format!("{}: {e}", ini.display()))?;
     let mut lines: Vec<String> = text
         .lines()
@@ -466,8 +466,8 @@ fn prepare(c: &Config, dir: &Path, port: u16) -> Result<(), String> {
         .collect();
     let at = lines
         .iter()
-        .position(|l| l.trim() == "[MILLGUI]")
-        .ok_or("prepared millgui.ini has no [MILLGUI] section")?;
+        .position(|l| l.trim() == "[FERRUM]")
+        .ok_or("prepared ferrum.ini has no [FERRUM] section")?;
     lines.insert(at + 1, format!("REMOTE_PORT = {port}"));
     std::fs::write(&ini, lines.join("\n") + "\n").map_err(|e| e.to_string())
 }
@@ -520,12 +520,12 @@ fn run_one(
             std::fs::write(&p, text).map_err(|e| e.to_string())?;
         }
         let mut s = Session::start(env, &cfg, log)?;
-        if sc.errors_to_millgui {
-            s.errors_to_millgui()?;
+        if sc.errors_to_ferrum {
+            s.errors_to_ferrum()?;
         }
         if !s.props.lock().unwrap().contains_key("screen") {
             return Err(
-                "millgui did not mirror its screen: build lacks harness mode (MILLGUI_HARNESS)"
+                "ferrum did not mirror its screen: build lacks harness mode (FERRUM_HARNESS)"
                     .into(),
             );
         }
@@ -575,7 +575,7 @@ fn run_one(
                 ));
             }
         }
-        // Any error LinuxCNC or millgui reported fails the scenario unless allowed.
+        // Any error LinuxCNC or ferrum reported fails the scenario unless allowed.
         std::thread::sleep(Duration::from_millis(300));
         let mut errs = s.errors()?;
         errs.extend(s.ui_errors.lock().unwrap().iter().cloned());
@@ -739,7 +739,7 @@ fn step(
         }
         Step::Wait { expr, within } => wait_for(s, expr, *within),
         Step::Expect(expr) => {
-            // millgui's properties reach the harness a status tick or two
+            // ferrum's properties reach the harness a status tick or two
             // after LinuxCNC's: give them a moment, LinuxCNC's none.
             let lag = if expr.trim_start().starts_with("prop.")
                 || expr.trim_start().starts_with("ui-errors")
@@ -838,7 +838,7 @@ fn report(out: &Path, results: &[Result_]) {
             names.push(&r.scenario);
         }
     }
-    let mut md = String::from("## millgui harness\n\n| scenario |");
+    let mut md = String::from("## ferrum harness\n\n| scenario |");
     for c in &configs {
         md += &format!(" {c} |");
     }
@@ -880,12 +880,12 @@ fn report(out: &Path, results: &[Result_]) {
     let _ = std::fs::write(out.join("report.md"), &md);
 
     let mut h = String::from(
-        "<!doctype html><meta charset=utf-8><title>millgui harness</title><style>\
+        "<!doctype html><meta charset=utf-8><title>ferrum harness</title><style>\
          body{font:14px system-ui,sans-serif;margin:16px;background:#111;color:#ddd}\
          table{border-collapse:collapse}td,th{border:1px solid #444;padding:4px 8px}\
          .PASS{color:#6c6}.FAIL{color:#f66;font-weight:bold}.XFAIL{color:#aa8}.XPASS{color:#fb4}.SKIP{color:#777}\
          pre{background:#222;padding:8px;white-space:pre-wrap}img{max-width:640px;border:1px solid #444;margin:4px}\
-         details{margin:8px 0}a{color:#8bf}</style><h1>millgui harness</h1><table><tr><th>scenario</th>",
+         details{margin:8px 0}a{color:#8bf}</style><h1>ferrum harness</h1><table><tr><th>scenario</th>",
     );
     for c in &configs {
         h += &format!("<th>{}</th>", esc(c));

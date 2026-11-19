@@ -1071,6 +1071,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferrum-harness"
+version = "0.1.0"
+dependencies = [
+ "png 0.17.16",
+ "serde_json",
+ "tungstenite",
+]
+
+[[package]]
+name = "ferrum-lcnc"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "ctrlc",
+ "jobcore",
+ "lcnc",
+ "libc",
+ "libloading",
+ "machine",
+ "png 0.17.16",
+ "preview",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "toml 0.8.23",
+ "toml_edit 0.22.27",
+ "tungstenite",
+ "uimirror",
+]
+
+[[package]]
+name = "ferrum-web"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "js-sys",
+ "png 0.17.16",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "uimirror",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "field-offset"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2518,53 +2565,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "millgui"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "ctrlc",
- "jobcore",
- "lcnc",
- "libc",
- "libloading",
- "machine",
- "png 0.17.16",
- "preview",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "toml 0.8.23",
- "toml_edit 0.22.27",
- "tungstenite",
- "uimirror",
-]
-
-[[package]]
-name = "millgui-harness"
-version = "0.1.0"
-dependencies = [
- "png 0.17.16",
- "serde_json",
- "tungstenite",
-]
-
-[[package]]
-name = "millgui-web"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "js-sys",
- "png 0.17.16",
- "serde_json",
- "slint",
- "slint-build",
- "uimirror",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]

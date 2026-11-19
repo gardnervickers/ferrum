@@ -1,6 +1,6 @@
 //! Operator settings remembered between runs (power feed values, GOTO
 //! locations, jog speed): `key = value` lines in
-//! `$MILLGUI_STATE` or `~/.local/state/millgui/settings`. Never machine config.
+//! `$FERRUM_STATE` or `~/.local/state/ferrum/settings`. Never machine config.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -10,10 +10,35 @@ pub struct Settings {
     values: BTreeMap<String, String>,
 }
 
+/// Carry over what Ferrum's old name (millgui) left behind: `MILLGUI_*`
+/// environment variables become `FERRUM_*` when those are unset, and
+/// `~/.local/state/millgui` and `~/.cache/millgui` move to `ferrum` when
+/// the new folders do not exist yet. Call first thing in `main`, before
+/// any thread starts.
+pub fn migrate_legacy() {
+    for name in ["STATE", "RENDERER", "MACROS", "PERF", "LOG_MESSAGES", "HARNESS", "BOOT"] {
+        let new = format!("FERRUM_{name}");
+        if std::env::var_os(&new).is_none() {
+            if let Some(v) = std::env::var_os(format!("MILLGUI_{name}")) {
+                std::env::set_var(&new, v);
+            }
+        }
+    }
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return };
+    for dir in [".local/state", ".cache"] {
+        let (old, new) = (home.join(dir).join("millgui"), home.join(dir).join("ferrum"));
+        if old.is_dir() && !new.exists() {
+            if let Err(e) = std::fs::rename(&old, &new) {
+                eprintln!("ferrum: could not move {} to {}: {e}", old.display(), new.display());
+            }
+        }
+    }
+}
+
 impl Settings {
     pub fn load() -> Self {
-        let path = std::env::var_os("MILLGUI_STATE").map(PathBuf::from).or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state/millgui/settings"))
+        let path = std::env::var_os("FERRUM_STATE").map(PathBuf::from).or_else(|| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state/ferrum/settings"))
         });
         let mut values = BTreeMap::new();
         if let Some(text) = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()) {
@@ -28,8 +53,8 @@ impl Settings {
 
     /// The folder the state files live in.
     pub fn dir() -> Option<PathBuf> {
-        std::env::var_os("MILLGUI_STATE").map(PathBuf::from).and_then(|p| p.parent().map(PathBuf::from)).or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state/millgui"))
+        std::env::var_os("FERRUM_STATE").map(PathBuf::from).and_then(|p| p.parent().map(PathBuf::from)).or_else(|| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state/ferrum"))
         })
     }
 
@@ -85,7 +110,7 @@ impl Settings {
             && std::fs::write(&tmp, text).is_ok()
             && std::fs::rename(&tmp, path).is_ok();
         if !ok {
-            eprintln!("millgui: could not save {}", path.display());
+            eprintln!("ferrum: could not save {}", path.display());
         }
     }
 }

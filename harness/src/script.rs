@@ -4,10 +4,10 @@
 //! title   Home and jog                # shown in the report
 //! needs   probe-basic                 # skip on configs without every tag
 //! xfail   inch: B3, inch not handled  # expected to fail on a config or tag
-//! allow-error  Probe tripped          # LinuxCNC/millgui error text that is fine (any case)
-//! errors-to-millgui                   # only millgui reads LinuxCNC's error queue (errors checked via millgui)
+//! allow-error  Probe tripped          # LinuxCNC/ferrum error text that is fine (any case)
+//! errors-to-ferrum                   # only ferrum reads LinuxCNC's error queue (errors checked via ferrum)
 //! include common/ready.scn            # another file's steps, here
-//! seed    .local/state/millgui/probe probe.restore-pending=1   # a line in a file under HOME, before start
+//! seed    .local/state/ferrum/probe probe.restore-pending=1   # a line in a file under HOME, before start
 //!
 //! do      jog-start 0 1               # an Actions callback; args are JSON or bare words
 //! set     mdi-text "G0 X1"            # a two-way Live property the remote may set
@@ -88,7 +88,7 @@ pub struct Scenario {
     /// (config name or tag, reason)
     pub xfail: Vec<(String, String)>,
     pub allow_errors: Vec<String>,
-    pub errors_to_millgui: bool,
+    pub errors_to_ferrum: bool,
     /// Files written under the run's fresh HOME before LinuxCNC starts: (path, line).
     pub seeds: Vec<(String, String)>,
     pub steps: Vec<Line>,
@@ -164,8 +164,8 @@ impl Scenario {
                     }
                     continue;
                 }
-                "errors-to-millgui" => {
-                    self.errors_to_millgui = true;
+                "errors-to-ferrum" => {
+                    self.errors_to_ferrum = true;
                     continue;
                 }
                 "allow-error" => {

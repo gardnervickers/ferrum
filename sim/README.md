@@ -1,6 +1,6 @@
-# millgui in the LinuxCNC simulator
+# Ferrum in the LinuxCNC simulator
 
-Runs millgui against a real LinuxCNC 2.9.10 (task, interpreter, motion,
+Runs Ferrum against a real LinuxCNC 2.9.10 (task, interpreter, motion,
 halui, the M6 remap, Probe Basic's macros) with the mill's own `mymill.ini`,
 `mymill.hal` and subroutines. Only the 7i76E is faked (`sim_card.py`), so
 the drawbar and spindle interlocks, HLFB arming, probe manager and touch-off
@@ -37,14 +37,14 @@ make -j"$(nproc)"
 sudo make setuid      # or run as a normal user; LinuxCNC refuses root
 ```
 
-Headers and libraries for millgui's NML backend, laid out as a sysroot:
+Headers and libraries for Ferrum's NML backend, laid out as a sysroot:
 
 ```sh
 mkdir -p ~/lcnc/sysroot/usr/include
 ln -s ~/lcnc/src/include ~/lcnc/sysroot/usr/include/linuxcnc
 ln -s ~/lcnc/src/lib ~/lcnc/sysroot/usr/lib
-cd millgui
-LCNC_SYSROOT=~/lcnc/sysroot CARGO_TARGET_DIR=target-nml cargo build -p millgui
+cd Ferrum
+LCNC_SYSROOT=~/lcnc/sysroot CARGO_TARGET_DIR=target-nml cargo build -p Ferrum
 ```
 
 Build the probe manager comp once (`halcompile --install` on
@@ -53,14 +53,14 @@ Build the probe manager comp once (`halcompile --install` on
 ## Each run
 
 ```sh
-millgui/sim/make-config ~/simcfg --probe-basic vendor/probe_basic
+ferrum/sim/make-config ~/simcfg --probe-basic vendor/probe_basic
 source ~/lcnc/src/scripts/rip-environment
 cd ~/simcfg
-MILLGUI_BIN=$PWD/../mymill/millgui/target-nml/debug/millgui MILLGUI_RENDERER=software \
-  linuxcnc millgui.ini
+FERRUM_BIN=$PWD/../mymill/ferrum/target-nml/debug/ferrum FERRUM_RENDERER=software \
+  linuxcnc ferrum.ini
 ```
 
-`MILLGUI_LOG_MESSAGES=1` prints every LinuxCNC message to stderr. Without a
+`FERRUM_LOG_MESSAGES=1` prints every LinuxCNC message to stderr. Without a
 window manager the window opens at 800x600; run one (openbox) on the X
 display for a full-size window.
 
@@ -68,7 +68,7 @@ Handy pins: `halcmd setp hm2_7i76e.0.sim.force-probe 1` holds the probe
 tripped, `sim.force-setter` the tool setter.
 
 The pendant is a stand-in (`sim_pendant.py`, component `whb`) with the
-nets of `xhc-whb04b-6.hal` that millgui cares about. Press START/PAUSE with
+nets of `xhc-whb04b-6.hal` that Ferrum cares about. Press START/PAUSE with
 `halcmd setp whb.sim.press-start 1` then `0`; turn the wheel (the driver
 asks for MANUAL) with `whb.sim.wheel 1` then `0`; unplug it with
 `whb.sim.connected 0`.
@@ -77,19 +77,19 @@ asks for MANUAL) with `whb.sim.wheel 1` then `0`; unplug it with
 
 `make-stock-config` builds a simulator from one of LinuxCNC's own sample
 configs, as a stranger would have it: no mymill HAL, no Probe Basic, no
-`millgui.toml`. Use it to check that millgui works on machines that are not
+`ferrum.toml`. Use it to check that Ferrum works on machines that are not
 Gardner's:
 
 ```sh
 L=~/lcnc/src/configs/sim/axis
-millgui/sim/make-stock-config ~/sims/inch   $L/axis.ini --remote 8088      # inch, XYZ
-millgui/sim/make-stock-config ~/sims/mm     $L/axis_mm.ini --remote 8088   # mm, XYZ
-millgui/sim/make-stock-config ~/sims/gantry $L/gantry/gantry.ini --remote 8088              # inch, XYZY gantry
-millgui/sim/make-stock-config ~/sims/xyza   $L/wrapped_rotary/wrapped_rotary.ini --remote 8088  # mm, XYZA, no home switches
-cd ~/sims/inch && MILLGUI_BIN=... linuxcnc axis.ini
+ferrum/sim/make-stock-config ~/sims/inch   $L/axis.ini --remote 8088      # inch, XYZ
+ferrum/sim/make-stock-config ~/sims/mm     $L/axis_mm.ini --remote 8088   # mm, XYZ
+ferrum/sim/make-stock-config ~/sims/gantry $L/gantry/gantry.ini --remote 8088              # inch, XYZY gantry
+ferrum/sim/make-stock-config ~/sims/xyza   $L/wrapped_rotary/wrapped_rotary.ini --remote 8088  # mm, XYZA, no home switches
+cd ~/sims/inch && FERRUM_BIN=... linuxcnc axis.ini
 ```
 
 The sample configs answer M6 with `hal_manualtoolchange` and have no probe
-input. This is for trying millgui by hand on LinuxCNC's own samples (home
+input. This is for trying Ferrum by hand on LinuxCNC's own samples (home
 switches, XYZY joint order); the automated checks on stock machines are in
-`millgui/harness` (`sim-mm`, `sim-inch`, `sim-xyza`, `sim-gantry`).
+`ferrum/harness` (`sim-mm`, `sim-inch`, `sim-xyza`, `sim-gantry`).

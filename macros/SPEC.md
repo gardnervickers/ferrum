@@ -1,7 +1,7 @@
 # Probe macro behaviour specification (clean-room)
 
 This document specifies, from observed behaviour and from the interfaces
-millgui depends on, what each probing subroutine that millgui calls must do.
+Ferrum depends on, what each probing subroutine that Ferrum calls must do.
 It exists so that new LinuxCNC probe macros can be written under the MIT
 licence **without reading Probe Basic's GPL-3 G-code** (or the repo files
 derived from it).
@@ -14,8 +14,8 @@ derived from it).
   order, LinuxCNC system parameters, formulas) are stated exactly.
 - Where the existing behaviour looks like a defect, it is described as
   observed and marked **Quirk**, with a recommendation. An implementer should
-  either reproduce it or change it on purpose, together with millgui.
-- Implementers of the MIT macros should work from this file, millgui's
+  either reproduce it or change it on purpose, together with ferrum.
+- Implementers of the MIT macros should work from this file, Ferrum's
   source (MIT) and LinuxCNC's documentation only.
 
 Reference environment: LinuxCNC 2.9.10, `mymill.ini`
@@ -28,9 +28,9 @@ tool T99.
 
 ## 1. Inventory and provenance
 
-### 1.1 Macros millgui calls
+### 1.1 Macros Ferrum calls
 
-`MACROS` in `millgui/app/src/probe.rs` lists 34 names (the first call of each
+`MACROS` in `ferrum/app/src/probe.rs` lists 34 names (the first call of each
 PROBE target). The two multi-step flows add two more calls that are not in
 `MACROS`: `probe_auto_stock_apply` and `probe_two_face_apply`. All 36 were
 found on the subroutine path.
@@ -53,9 +53,9 @@ found on the subroutine path.
 | probe_auto_stock_center, probe_auto_stock_apply | `subroutines/` | repo-own | **yes**: via probe_auto_edge, which calls probe_x_± / probe_y_± |
 | probe_a_rotary, probe_a_setup_cylinder_center, probe_a_measure_diameter, probe_a_measure_runout, probe_a_measure_deflection | `subroutines/` | repo-own | no GPL calls; they call `f360_*` helpers from `subroutines/fusion_probing/` (provenance not established in the repo: no licence header; treat as unknown and replace too) |
 
-### 1.2 GPL helpers that millgui's macros need
+### 1.2 GPL helpers that Ferrum's macros need
 
-These are not called by millgui directly but by the macros above. An MIT set
+These are not called by Ferrum directly but by the macros above. An MIT set
 must provide equivalents (any names; the specified ones keep the repo-own
 callers working unchanged):
 
@@ -64,10 +64,10 @@ callers working unchanged):
 | probe_x_minus, probe_x_plus, probe_y_minus, probe_y_plus | every XY family, probe_two_face, probe_auto_edge | §3.2 "Edge touch" |
 | probe_z_minus_sub | corners, edge angle, boss, ridge, calibration | §3.3 "Top touch" |
 
-Not needed by millgui: `set_g30_position`, `go_to_g30`, `go_to_home`,
+Not needed by Ferrum: `set_g30_position`, `go_to_g30`, `go_to_home`,
 `unload_spindle`, `toolsetter_wco`, the `probe_cal_*` variants other than the
 round pocket, the non-center-start pocket/valley variants, and the
-`probe_*_top_side` / `probe_corner_*_edge_angle` macros. millgui does SET G30
+`probe_*_top_side` / `probe_corner_*_edge_angle` macros. Ferrum does SET G30
 with `G30.1` itself and GO TO G30 with its own MDI lines; the simulator
 (`crates/machine/src/sim.rs`) fakes `set_g30_position`, `go_to_home` and
 `unload_spindle` output only for compatibility, and `util.rs` still accepts
@@ -84,11 +84,11 @@ Their behaviour is summarised where it matters (§3.4, §11, §12, §13).
 
 ---
 
-## 2. How millgui calls a macro (the caller's contract)
+## 2. How Ferrum calls a macro (the caller's contract)
 
 ### 2.1 Call lines
 
-| PROBE target (mode / shape / spot) | Call line millgui sends | Arguments |
+| PROBE target (mode / shape / spot) | Call line Ferrum sends | Arguments |
 |---|---|---|
 | FIND / block / LEFT EDGE | `o<probe_x_plus_wco> call` | none |
 | FIND / block / RIGHT EDGE | `o<probe_x_minus_wco> call` | none |
@@ -117,25 +117,25 @@ Their behaviour is summarised where it matters (§3.4, §11, §12, §13).
 All numbers are sent as plain decimals inside brackets. Most macros take no
 arguments and read everything from `#30xx`.
 
-### 2.2 What millgui does around the call
+### 2.2 What Ferrum does around the call
 
 1. **GUI pre-checks** (`Probe::check`), before anything is sent: machine on,
    all homed, idle; for probe targets T`#3014` in the spindle, cutter
    compensation off (G40), G52/G92 offset all zero, target WCS rotation 0,
    `#3031` = 0; tool-setter target needs a tool that is not the probe and
    is > 0; nose target needs T0 and the HAL nose reference not already
-   valid; rotary targets need an A axis. (When this was written millgui
-   refused probing on inch machines; it no longer does, and millgui's own
+   valid; rotary targets need an A axis. (When this was written Ferrum
+   refused probing on inch machines; it no longer does, and Ferrum's own
    macros work in machine units.)
-2. If the chosen FIND work system differs from the active one, millgui sends
+2. If the chosen FIND work system differs from the active one, Ferrum sends
    e.g. `G55` first, so **the macro always writes the active WCS (`#5220`)**
    and never needs a WCS argument.
 3. Per-run `#30xx` values that differ from the saved defaults are written as
-   `#n=v` MDI lines before the call; for FIND with the probe, millgui also
+   `#n=v` MDI lines before the call; for FIND with the probe, Ferrum also
    forces `#3030 = 0` (write work offset). MEASURE and CAL runs do **not**
    force `#3030`: the parameter-file value applies (0 on mymill).
 4. The call line is sent.
-5. Afterwards, whatever happened (success, abort, STOP), millgui writes the
+5. Afterwards, whatever happened (success, abort, STOP), Ferrum writes the
    defaults back, re-selects the original WCS and re-sends the original
    distance mode (G90/G91). Independently, the machine worker
    (`crates/machine/src/worker.rs`) snapshots units, plane, feed mode, WCS,
@@ -173,7 +173,7 @@ Constraints this places on macros:
 
 ### 2.4 Result messages (the interface contract)
 
-Results reach millgui as LinuxCNC DEBUG messages whose text (after the
+Results reach Ferrum as LinuxCNC DEBUG messages whose text (after the
 interpreter strips `DEBUG,` and substitutes parameters) has the form
 
     EVAL[vcp.getWidget{"<name>"}.setValue{<number>}]
@@ -187,14 +187,14 @@ a parameter (six decimals); any `f64`-parsable text works.
 
 Rules that implementers must keep:
 
-1. **Widget names are exact and case-sensitive** (list in §14). millgui maps
+1. **Widget names are exact and case-sensitive** (list in §14). Ferrum maps
    known names to labels in `result_label` and shows unknown names verbatim.
 2. Every EVAL line received during a run is listed in the result panel, in
    order, one line per message (first value only). Duplicates are shown
    twice.
 3. **A name whose last `_`-separated part is a number 3004..3037** (e.g.
    `calibration_offset_3032`) is treated as "this is the new value of
-   `#30NN`": millgui stores it as the default and saves it to `millgui.toml`
+   `#30NN`": Ferrum stores it as the default and saves it to `ferrum.toml`
    immediately, even if the run later fails. Do not use such names for
    anything else.
 4. The two flows parse panel methods positionally:
@@ -202,12 +202,12 @@ Rules that implementers must keep:
    equal to the token; `two_face_probe_panel.receive_result` exactly 6
    values with value 1 equal to the token (§11).
 5. **Any operator error message during a run fails the run**; its text is
-   shown as "`<target>` failed: `<text>`". millgui does not match on abort
+   shown as "`<target>` failed: `<text>`". Ferrum does not match on abort
    wording anywhere, and the harness scenarios do not either, so abort texts
    may be reworded freely. Plain `(DEBUG,…)` or `(MSG,…)` lines without
    `EVAL[` are harmless. Never use ABORT for information.
 6. Result lines can arrive up to 400 ms after LinuxCNC reports idle; that is
-   handled by millgui.
+   handled by ferrum.
 
 Note: the repo's Python test suite under `tests/` (for the old QtPyVCP
 screen) asserts on the *source text* of several macros
@@ -224,7 +224,7 @@ behaviour tests, not porting.
 
 ### 3.1 Parameters and system values
 
-`#30xx` settings (names as millgui's PROBE/SETUP screens show them; mm on
+`#30xx` settings (names as Ferrum's PROBE/SETUP screens show them; mm on
 mymill):
 
 | # | Meaning | Read by |
@@ -254,12 +254,12 @@ mymill):
 | 3026 / 3027 | Rect pocket X / Y hint | rect pocket |
 | 3028 / 3029 | Ridge/valley X / Y hint | ridge, valley |
 | 3030 | Result mode: 0 write work offset, 1 position only | all FIND macros, cal, rotary setup, flows' apply |
-| 3031 | WCO rotation: 1 also writes the edge angle as WCS rotation | edge-angle (millgui requires 0) |
+| 3031 | WCO rotation: 1 also writes the edge angle as WCS rotation | edge-angle (Ferrum requires 0) |
 | 3032 | Calibration offset (mm subtracted from the tip radius) | all XY compensation; written by cal |
 | 3033 | Ring gauge diameter | cal |
-| 3034 / 3035 | Cal block X / Y width | not used by millgui's macros |
+| 3034 / 3035 | Cal block X / Y width | not used by Ferrum's macros |
 | 3036 | Cal axis selector | cal (see Quirk Q3) |
-| 3037 | Breakage tolerance | millgui_tool_check (millgui's own, not a Probe Basic macro) |
+| 3037 | Breakage tolerance | ferrum_tool_check (Ferrum's own, not a Probe Basic macro) |
 
 LinuxCNC system parameters used: `#5061..#5063` probed X/Y/Z (current
 program coordinates, including tool length offset), `#5070` 1 if the last
@@ -302,7 +302,7 @@ distance] [clearance] [calibration offset]`; callers pass
 
 Behaviour, for direction `s` = +1 (plus) or −1 (minus) along axis A:
 
-1. Cancel G92 offsets (side effect, kept for parity; millgui refuses to
+1. Cancel G92 offsets (side effect, kept for parity; Ferrum refuses to
    start with G92 set anyway).
 2. Abort if the tool in the spindle is not `tool` (message: the probe tool N is not in the spindle).
 3. Fast probing move (contact required: LinuxCNC errors out if the full
@@ -377,7 +377,7 @@ Applies to every vendor macro in §4–§9 unless stated otherwise:
 - In position-only mode (`#3030` = 1) the corner/edge-angle macros abort if
   an edge helper returned no value (message: no X/Y edge value came
   back).
-- Units: none assumed; everything is in program units. millgui only runs
+- Units: none assumed; everything is in program units. Ferrum only runs
   them in mm.
 
 ---
@@ -392,7 +392,7 @@ within `#3018` of it, approaching from outside.
 Behaviour: exactly one edge touch (§3.2) with reach `#3018`, then, if
 `#3030` = 0, write that axis of the active WCS so the edge is 0.
 
-| Macro | millgui spot | Probe moves | Edge | Widget / param | Writes |
+| Macro | Ferrum spot | Probe moves | Edge | Widget / param | Writes |
 |---|---|---|---|---|---|
 | probe_x_plus_wco | LEFT EDGE | +X | touch + r_eff | x_plus_probed_position / #1006 | X |
 | probe_x_minus_wco | RIGHT EDGE | −X | touch − r_eff | x_minus_probed_position / #1005 | X |
@@ -510,14 +510,14 @@ Sequence:
 | probe_top_back_edge_angle | back (Y+) | +Y | −Y | −X by #3024 | first − second |
 
 Outputs: `z_minus_probed_position`/#1009, two edge widgets, `edge_delta` /
-#1011, `edge_angle` / #1012 (degrees). millgui labels the angle "Edge angle
+#1011, `edge_angle` / #1012 (degrees). Ferrum labels the angle "Edge angle
 (not applied)" because it requires `#3031` = 0.
 
 ---
 
 ## 8. Round and rectangular pocket and boss
 
-### 8.1 probe_round_pocket_center_start (millgui "BORE")
+### 8.1 probe_round_pocket_center_start (Ferrum "BORE")
 
 Start: inside the bore near its centre, tip already below the top edge.
 No Z motion, no Z write. Hint `D_h` = `#3025`.
@@ -537,7 +537,7 @@ Second pass emits `x_probed_width`/#1001 (inside width), `x_center_probed`,
 §3.2 edge widget. If `#3030` = 0 writes X and Y so the centre is X0 Y0.
 Ends at the centre, same Z, G90.
 
-### 8.2 probe_rect_pocket_center_start (millgui "POCKET CENTER")
+### 8.2 probe_rect_pocket_center_start (Ferrum "POCKET CENTER")
 
 Like 8.1 but **one pass**, separate hints: X reaches `#3018 + #3026/2` then
 `#3018 + #3026`; Y reaches `#3018 + #3027/2` then `#3018 + #3027`.
@@ -575,7 +575,7 @@ which the guarded plunge turns into an abort.
 
 ## 9. Ridge and valley (slot)
 
-### 9.1 probe_valley_x_center_start / probe_valley_y_center_start (millgui "SLOT")
+### 9.1 probe_valley_x_center_start / probe_valley_y_center_start (Ferrum "SLOT")
 
 Start: inside the slot, roughly centred, tip below the top. No Z motion.
 X version: X− touch with reach `#3018 + #3028/2`, then X+ touch with reach
@@ -589,7 +589,7 @@ X version: X− touch with reach `#3018 + #3028/2`, then X+ touch with reach
 
 Ends at the centre, same Z, G90.
 
-### 9.2 probe_ridge_x / probe_ridge_y (millgui "RIDGE")
+### 9.2 probe_ridge_x / probe_ridge_y (Ferrum "RIDGE")
 
 Start: above the ridge's middle within `#3020`. Hint `W` = `#3028` (X) or
 `#3029` (Y).
@@ -621,7 +621,7 @@ loaded tool. Both use the repo-own mode-capture helpers and HAL latches.
 
 ### 10.1 tool_touch_off
 
-Callers: millgui CAL › TOOL LENGTH (no arguments), and the M6 remap
+Callers: Ferrum CAL › TOOL LENGTH (no arguments), and the M6 remap
 `m6_toolchange_optional_touch_off` (repo-own) after the tool change when the
 HAL pin `tool-touch-off-request-latch.out` is set (it first pulses digital
 out 6 to reset the request and sets the tool with M61).
@@ -663,7 +663,7 @@ Motion:
 10. Restore modes with kind "new measured table offset" (applies G43 H<tool>)
     and release the recovery latch.
 
-Outputs: tool table entry only. No DEBUG/EVAL lines (millgui shows "Done").
+Outputs: tool table entry only. No DEBUG/EVAL lines (Ferrum shows "Done").
 Units: assumes mm (forces G21 during the run).
 
 Quirk Q9: the formula is right only when the G30 Z equals machine Z 0,
@@ -700,7 +700,7 @@ Motion:
 6. `#3010 = | z_trip − z_top |`; machine Z 0; restore modes (kind normal).
 7. Publish: `#1009` = z_trip, `#3010` as above, `#3007 = 1.001 · #3010`.
    Emit `z_minus_probed_position` (= z_trip), `spindle_zero_height_3010`,
-   `z_max_travel_3007` (millgui saves both as new defaults, §2.4 rule 3).
+   `z_max_travel_3007` (Ferrum saves both as new defaults, §2.4 rule 3).
 8. Pulse digital out 7 (sets the HAL nose-reference flip-flop), wait, and
    abort if the pin did not go true (publication failed). Release the recovery latch.
 
@@ -715,12 +715,12 @@ calls must run in the same LinuxCNC session. Both return immediately without
 moving or changing state when `#<_task>` = 0. Both save and auto-restore
 modal state (M73), so a successful call leaves modes as found.
 
-### 11.1 probe_two_face (millgui "CENTER IN X" / "CENTER IN Y")
+### 11.1 probe_two_face (Ferrum "CENTER IN X" / "CENTER IN Y")
 
 Arguments: `[axis]` 0 = X, 1 = Y; `[dir]` −1 or +1 (direction the probe
 moves); `[stage]` 1 or 2; `[token]` positive integer.
 
-millgui sends stage 1 with dir +1 when the first side is LEFT or FRONT and
+Ferrum sends stage 1 with dir +1 when the first side is LEFT or FRONT and
 −1 for RIGHT or BACK; stage 2 with the opposite dir after the operator jogs
 to the other side.
 
@@ -752,7 +752,7 @@ Context = units, active WCS, tool number, tool diameter, tool-offset mode,
 every axis, and `#3014..#3019`. Context checks also abort on cutter comp,
 WCS rotation or G52/G92 (§12 wording: "…before two-face probing").
 
-millgui requires 6 values and value 1 = its token. **Quirk Q4.**
+Ferrum requires 6 values and value 1 = its token. **Quirk Q4.**
 
 ### 11.2 probe_two_face_apply
 
@@ -764,7 +764,7 @@ zero"). Then sets the current WCS (G10 L20 P0) on that axis so the
 current position reads `current − center` (i.e. the centre becomes 0).
 Emits `two_face_probe_panel.receive_result{3, token, first, second, width, center}`.
 
-### 11.3 probe_auto_stock_center (millgui "STOCK CENTER")
+### 11.3 probe_auto_stock_center (Ferrum "STOCK CENTER")
 
 Arguments: `[side]` 0 LEFT, 1 RIGHT, 2 FRONT, 3 BACK (the face the probe
 starts beside); `[span]` max outward search span (> 0); `[token]` positive
@@ -821,7 +821,7 @@ Sequence:
    `/tmp/mymill-auto-stock-trace.log` (optional).
 
 Ends `#3019` outside the far face at the tangent midpoint, at the start Z.
-millgui requires 9 values with value 0 = token; it reads size from values
+Ferrum requires 9 values with value 0 = token; it reads size from values
 5, 6 and centre from 7, 8.
 
 ### 11.4 probe_auto_stock_apply
@@ -832,7 +832,7 @@ measurement"), token matches ("Stale automatic stock result"), context is
 unchanged (including Z height and the WCS offsets), widths > 0, and
 `#3030` = 0 (same "PROBE POS N…" wording). Sets the current WCS (G10 L20 P0)
 so the current position reads `current − center` on X and Y. Emits
-`auto_stock_panel.receive_applied{token, center_x, center_y}` (millgui
+`auto_stock_panel.receive_applied{token, center_x, center_y}` (Ferrum
 ignores it and reports "Center written to G5x").
 
 ---
@@ -866,7 +866,7 @@ Used by tool_touch_off (kind 1) and probe_spindle_nose (kind 2).
 
 Quirk Q10: after an abort inside these macros the latch stays set and every
 later touch-off/nose run aborts until `o<mymill_restore_modes> call` runs.
-The old screen had a Utilities button for it; **millgui has none**.
+The old screen had a Utilities button for it; **Ferrum has none**.
 
 ---
 
@@ -884,7 +884,7 @@ Common to all five:
 - Abort if `#5400` ≠ `#3014` ("Load configured probe tool…").
 - A axis is assumed parallel to X; "rotary direction" argument: 1 means +A
   moves the top of the work towards the operator, −1 the other way, 0
-  is taken as 1. millgui always passes 1.
+  is taken as 1. Ferrum always passes 1.
 - Helper semantics (any implementation): tip radius = `r_eff`; traverse =
   `#3017` (abort if ≤ 0); Z clearance = `#3021`; XY clearance = `#3019`.
   "Probe Z/Y (dir, dmax)": contact-required probing move of
@@ -917,7 +917,7 @@ bound), `margin = max(10 mm, #3019)`.
    → `y2 = touch − r_eff`; back off; rise.
 5. `y_axis = (y1 + y2)/2`, `R = |y2 − y1|/2` (abort if 0),
    `z_axis = top − R`.
-6. Verify pass (argument > 0.5; millgui passes 0): repeat 1–5, abort if
+6. Verify pass (argument > 0.5; Ferrum passes 0): repeat 1–5, abort if
    either centre moved by more than 0.10 mm, average the two.
 7. Rise; rotate back to `A_start`. If `#<_task>` = 1 and `#3030` = 0:
    add `y_axis` to the WCS Y offset and `z_axis` to the Z offset.
@@ -983,7 +983,7 @@ to `A_start`, Y0 and the start X (guarded).
 
 ---
 
-## 15. Calibration: probe_cal_round_pocket (millgui CAL › PROBE TIP)
+## 15. Calibration: probe_cal_round_pocket (Ferrum CAL › PROBE TIP)
 
 Ring gauge of known diameter `#3033`. Start: above the gauge's top face,
 near the **left (X−) wall**, less than `#3023` outside the bore edge, within
@@ -1005,7 +1005,7 @@ near the **left (X−) wall**, less than `#3023` outside the bore edge, within
    macro ends in G91, Quirk Q7).
 8. Per axis `e = |#3033 − width| / 2`. `#3032` = |mean(eX, eY)| when
    `#3036` = 0, |eX| when 1, |eY| otherwise. Emit
-   `calibration_offset_3032` with the new value (millgui saves it).
+   `calibration_offset_3032` with the new value (Ferrum saves it).
 9. If `#3030` = 0: write X and Y of the active WCS to the gauge centre.
 
 Formula check: with a true effective radius `r_t`, width (cal 0) =
@@ -1019,18 +1019,18 @@ only when `r_t ≤ d/2` (Quirk Q1).
 | # | Quirk | Recommendation |
 |---|---|---|
 | Q1 | The calibration offset is *subtracted* from the radius, and the calibration routine takes the absolute value, so it can never represent an effective radius larger than `d/2` (tool-table tip diameter too small). | Keep the sign convention (`r_eff = d/2 − #3032`); allow a signed result, or check that the table diameter is not below the true ball. |
-| Q2 | The cal routine emits `calibration_offset_3032 = 0` before measuring; millgui saves it as the default at once, so a failed calibration leaves the saved offset at 0. | Emit `calibration_offset_3032` once, only with the final value. Set `#3032` = 0 internally. |
-| Q3 | `#3036` semantics: macro 0 = average of X and Y, 1 = X, 2 = Y. millgui labels the values 0 "X", 1 "Y", 2 "X+Y". | Decide one meaning and fix millgui's label table (`PARAMS` in probe.rs) or the macro together. |
-| Q4 | probe_two_face stage 2 requires `token` > stage-1 token, but millgui sends the **same** token in stage 2 (and that token again to apply), so with the current macro the second face always aborts "does not match first touch". The old QtPyVCP panel used a new, larger token for stage 2 and passed that one to apply. | Either accept `token ≥` the stored token in stage 2, or change millgui to send a new token for stage 2 and that stage-2 token to apply (apply must equal the stage-2 token). Keep value 1 of the result = the token sent. |
-| Q5 | Edge-angle macros write the *other* axis' offset as the raw start coordinate (Y for left/right, X for front/back) instead of "start + current offset", which is only meaningful when that offset was 0. They also always zero the WCS rotation, even in position-only mode. | Leave the other axis unchanged (or zero it at the start point properly) and only touch rotation when `#3031` = 1. Coordinate with millgui's result text. |
+| Q2 | The cal routine emits `calibration_offset_3032 = 0` before measuring; Ferrum saves it as the default at once, so a failed calibration leaves the saved offset at 0. | Emit `calibration_offset_3032` once, only with the final value. Set `#3032` = 0 internally. |
+| Q3 | `#3036` semantics: macro 0 = average of X and Y, 1 = X, 2 = Y. Ferrum labels the values 0 "X", 1 "Y", 2 "X+Y". | Decide one meaning and fix Ferrum's label table (`PARAMS` in probe.rs) or the macro together. |
+| Q4 | probe_two_face stage 2 requires `token` > stage-1 token, but Ferrum sends the **same** token in stage 2 (and that token again to apply), so with the current macro the second face always aborts "does not match first touch". The old QtPyVCP panel used a new, larger token for stage 2 and passed that one to apply. | Either accept `token ≥` the stored token in stage 2, or change Ferrum to send a new token for stage 2 and that stage-2 token to apply (apply must equal the stage-2 token). Keep value 1 of the result = the token sent. |
+| Q5 | Edge-angle macros write the *other* axis' offset as the raw start coordinate (Y for left/right, X for front/back) instead of "start + current offset", which is only meaningful when that offset was 0. They also always zero the WCS rotation, even in position-only mode. | Leave the other axis unchanged (or zero it at the start point properly) and only touch rotation when `#3031` = 1. Coordinate with Ferrum's result text. |
 | Q6 | CAL (ring) and MEASURE runs do not force `#3030`; with the mymill parameter file (`#3030` = 0) the ring calibration writes Z (ring top) and X/Y (ring centre) into the active WCS. | Calibration should never write a WCS; ignore `#3030` there. |
-| Q7 | probe_cal_round_pocket ends in G91. millgui and the machine worker restore the distance mode, but a new macro should end in G90. | End all macros in G90. |
+| Q7 | probe_cal_round_pocket ends in G91. Ferrum and the machine worker restore the distance mode, but a new macro should end in G90. | End all macros in G90. |
 | Q8 | probe_ridge_y's plunges are unchecked for contact. | Check every positioning move. |
 | Q9 | tool_touch_off is exact only when G30 Z = machine Z 0 (§10.1). | Measure the nose reference and the tool from the same start height, or include `#5183` in the formula. |
-| Q10 | Mode-recovery latch with no millgui button (§13). | Add the button or make the macros self-recovering. |
+| Q10 | Mode-recovery latch with no Ferrum button (§13). | Add the button or make the macros self-recovering. |
 | Q11 | Vendor macros have no `#<_task>` guard and cancel G92 silently. | Guard motion and state with `#<_task>`; abort instead of cancelling G92. |
-| Q12 | Round boss / bore / ring emit centre values twice (first and second pass), and every edge touch emits its own `*_probed_position` line; millgui lists all of them. | Optional to keep; the final values must come last. |
-| Q13 | The edge helper's fast and slow moves are contact-required (G38.2), so a miss is a LinuxCNC probe error rather than the macro's own "no probe point recorded" message. | Either is acceptable to millgui (any error fails the run). |
+| Q12 | Round boss / bore / ring emit centre values twice (first and second pass), and every edge touch emits its own `*_probed_position` line; Ferrum lists all of them. | Optional to keep; the final values must come last. |
+| Q13 | The edge helper's fast and slow moves are contact-required (G38.2), so a miss is a LinuxCNC probe error rather than the macro's own "no probe point recorded" message. | Either is acceptable to Ferrum (any error fails the run). |
 | Q14 | Many routines report `#5061`/`#5062` (stylus centre) rather than the compensated edge returned by the helper; centres are therefore uncompensated means and widths are compensated afterwards. | Equivalent results; keep the documented formulas. |
 
 ---
@@ -1070,7 +1070,7 @@ recovery arm / clear; pins `mode-recovery-pending.out`,
 `[TOOL_SETTER]SPINDLE_NOSE_DIAMETER`.
 
 Units summary: the vendor (Probe Basic) families are unit-agnostic; the
-tool setter, spindle nose and rotary macros force or assume mm. millgui's
+tool setter, spindle nose and rotary macros force or assume mm. Ferrum's
 own macros work in machine units (mm or inch) and refuse to run when the
 program units differ from the machine's.
 
@@ -1078,7 +1078,7 @@ program units differ from the machine's.
 
 ## 18. Test geometry needs
 
-What a simulator (millgui's sim or the LinuxCNC harness, whose only part
+What a simulator (Ferrum's sim or the LinuxCNC harness, whose only part
 today is an outside block plus the setter at G30) needs so each family can
 be exercised. Sizes are suggestions in mm; all walls vertical and at least
 `d + #3022 + 2` deep so a plunge of `z_stack` reaches them; tip diameter as

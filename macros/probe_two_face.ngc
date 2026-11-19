@@ -1,12 +1,12 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; FIND centre in X or Y between two opposite outside faces, in two stages:
 ; o<probe_two_face> call [axis] [dir] [stage] [token]; axis 0 = X, 1 = Y;
 ; dir +1 or -1 is the direction the probe moves; stage 1 or 2; token a
 ; positive integer. Each stage starts with the probe at depth beside one
 ; face, outside the stock and within #3018 of it, and makes one touch
-; towards it (o<millgui_touch>), giving the face = stylus centre + dir x
+; towards it (o<ferrum_touch>), giving the face = stylus centre + dir x
 ; effective tip radius (#5410/2 - #3032). Stage 1 records the first face
-; and the setup (millgui_two_face_context); stage 2 must follow on the
+; and the setup (ferrum_two_face_context); stage 2 must follow on the
 ; same axis in the opposite direction with the same or a later token and
 ; an unchanged setup, and gives width = (second - first) x first dir and
 ; centre = their mean. Each stage reports
@@ -22,13 +22,13 @@ M73
 #<dir> = #2
 #<stage> = #3
 #<token> = #4
-o100 if [EXISTS[#<_millgui_tf_valid>]]
-    #<previous> = #<_millgui_tf_valid>
+o100 if [EXISTS[#<_ferrum_tf_valid>]]
+    #<previous> = #<_ferrum_tf_valid>
 o100 else
     #<previous> = 0
 o100 endif
 ; A new call invalidates any earlier result before anything can fail.
-#<_millgui_tf_valid> = 0
+#<_ferrum_tf_valid> = 0
 o101 if [[#<axis> NE 0] AND [#<axis> NE 1]]
     (ABORT, Invalid two-face axis)
 o101 endif
@@ -45,14 +45,14 @@ o105 if [#<stage> EQ 2]
     o106 if [#<previous> NE 1]
         (ABORT, First face is not valid - start over)
     o106 endif
-    o107 if [[#<axis> NE #<_millgui_tf_axis>] OR [#<dir> NE [0 - #<_millgui_tf_dir>]] OR [#<token> LT #<_millgui_tf_token>]]
+    o107 if [[#<axis> NE #<_ferrum_tf_axis>] OR [#<dir> NE [0 - #<_ferrum_tf_dir>]] OR [#<token> LT #<_ferrum_tf_token>]]
         (ABORT, Opposite face does not match first touch)
     o107 endif
-    o<millgui_two_face_context> call [0]
+    o<ferrum_two_face_context> call [0]
 o105 else
-    o<millgui_two_face_context> call [1]
+    o<ferrum_two_face_context> call [1]
 o105 endif
-o<millgui_probe_ready> call
+o<ferrum_probe_ready> call
 o110 if [[#3015 LT 0] OR [#3016 LE 0] OR [#3017 LE 0] OR [#3018 LE 0] OR [#3019 LE 0]]
     (ABORT, Invalid probing feeds or travel settings)
 o110 endif
@@ -61,31 +61,31 @@ o111 if [#3032 GE [#5410 / 2]]
 o111 endif
 M50 P0
 G90 G94
-o<millgui_touch> call [#<axis>] [#<dir>] [#3018]
+o<ferrum_touch> call [#<axis>] [#<dir>] [#3018]
 G90
-#<edge> = [#<_millgui_hit> + [#<dir> * [[#5410 / 2] - #3032]]]
-o<millgui_two_face_context> call [0]
+#<edge> = [#<_ferrum_hit> + [#<dir> * [[#5410 / 2] - #3032]]]
+o<ferrum_two_face_context> call [0]
 o120 if [#<stage> EQ 1]
-    #<_millgui_tf_axis> = #<axis>
-    #<_millgui_tf_dir> = #<dir>
-    #<_millgui_tf_first> = #<edge>
-    #<_millgui_tf_second> = 0
-    #<_millgui_tf_width> = 0
-    #<_millgui_tf_center> = 0
+    #<_ferrum_tf_axis> = #<axis>
+    #<_ferrum_tf_dir> = #<dir>
+    #<_ferrum_tf_first> = #<edge>
+    #<_ferrum_tf_second> = 0
+    #<_ferrum_tf_width> = 0
+    #<_ferrum_tf_center> = 0
 o120 else
-    #<_millgui_tf_second> = #<edge>
-    #<_millgui_tf_width> = [[#<_millgui_tf_second> - #<_millgui_tf_first>] * #<_millgui_tf_dir>]
-    o121 if [#<_millgui_tf_width> LE 0]
+    #<_ferrum_tf_second> = #<edge>
+    #<_ferrum_tf_width> = [[#<_ferrum_tf_second> - #<_ferrum_tf_first>] * #<_ferrum_tf_dir>]
+    o121 if [#<_ferrum_tf_width> LE 0]
         (ABORT, Opposite faces do not enclose stock - start over)
     o121 endif
-    #<_millgui_tf_center> = [[#<_millgui_tf_first> + #<_millgui_tf_second>] / 2]
+    #<_ferrum_tf_center> = [[#<_ferrum_tf_first> + #<_ferrum_tf_second>] / 2]
 o120 endif
-#<_millgui_tf_token> = #<token>
-#<_millgui_tf_valid> = #<stage>
-#<f> = #<_millgui_tf_first>
-#<s> = #<_millgui_tf_second>
-#<w> = #<_millgui_tf_width>
-#<c> = #<_millgui_tf_center>
+#<_ferrum_tf_token> = #<token>
+#<_ferrum_tf_valid> = #<stage>
+#<f> = #<_ferrum_tf_first>
+#<s> = #<_ferrum_tf_second>
+#<w> = #<_ferrum_tf_width>
+#<c> = #<_ferrum_tf_center>
 (DEBUG, EVAL[vcp.getWidget{"two_face_probe_panel"}.receive_result{#<stage>,#<token>,#<f>,#<s>,#<w>,#<c>}])
 o<probe_two_face> endsub
 M2

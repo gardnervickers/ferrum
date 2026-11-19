@@ -4,7 +4,7 @@
 # runtime as LinuxCNC's libnml), fontconfig and LinuxCNC. Rerun after
 # upgrading Debian or LinuxCNC on the Pi.
 set -euo pipefail
-PI="${MILLGUI_PI:-cnc@cncmill.localdomain}"
+PI="${FERRUM_PI:-cnc@cncmill.localdomain}"
 cd "$(dirname "$0")/.."
 rm -rf sysroot.new && mkdir -p sysroot.new
 A=usr/lib/aarch64-linux-gnu

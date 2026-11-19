@@ -6,7 +6,7 @@ needs probe-basic probe-geometry
 # (50) along it and touches again: angle = atan(delta / 50), +2 on every
 # edge. It writes X (or Y) so the first touch is 0 and Z at the top.
 #
-# The other axis is left alone (millgui's macros; Probe Basic's wrote the
+# The other axis is left alone (ferrum's macros; Probe Basic's wrote the
 # start's work coordinate there, SPEC.md Q5): tilt_*_wy / tilt_*_wx are
 # its wcs0 value.
 include ../common/probe-start.scn

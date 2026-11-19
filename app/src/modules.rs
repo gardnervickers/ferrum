@@ -1,7 +1,7 @@
 //! Feature modules. Each machine capability or screen is one module; the
-//! `[MILLGUI]MODULES` list in millgui.ini decides which exist. A module that
+//! `[FERRUM]MODULES` list in ferrum.ini decides which exist. A module that
 //! is not listed is never constructed: no nav entry, no HAL pins, no postgui
-//! nets (`millgui/hal/<id>.hal`), no status pills.
+//! nets (`ferrum/hal/<id>.hal`), no status pills.
 
 use crate::config::Config;
 use lcnc::hal::{Component, In, Out};
@@ -44,13 +44,13 @@ pub trait Module {
     }
 
     /// Create the HAL pins this module owns, before hal_ready. Pins are named
-    /// `millgui.<id>.<pin>` and netted by `millgui/hal/<id>.hal`.
+    /// `ferrum.<id>.<pin>` and netted by `ferrum/hal/<id>.hal`.
     fn create_pins(&mut self, _comp: &Component) -> Result<(), String> {
         Ok(())
     }
 
     /// Pins that connect without a HAL file: `[hal]<name>` or the default
-    /// target (crate::halmap). Ignored when `millgui/hal/<id>.hal` exists.
+    /// target (crate::halmap). Ignored when `ferrum/hal/<id>.hal` exists.
     fn hal_links(&self) -> &'static [crate::halmap::Link] {
         &[]
     }
@@ -103,7 +103,7 @@ pub trait Module {
     }
 }
 
-/// Tool setter pins (millgui/hal/probe.hal).
+/// Tool setter pins (ferrum/hal/probe.hal).
 pub struct SetterHal {
     pub blast_request: Out<bool>,
     pub blast_active: In<bool>,
@@ -114,7 +114,7 @@ pub struct SetterHal {
     pub blast_wired: Cell<bool>,
 }
 
-/// Modules enabled when millgui.ini does not list any. The mill-specific
+/// Modules enabled when ferrum.ini does not list any. The mill-specific
 /// ones (drives, drawbar, interlock, pendant, load) need HAL signals a stock
 /// machine does not have, so they are only built when listed.
 pub const DEFAULT_MODULES: &str = "run job manual probe tools offsets conv files util";
@@ -230,7 +230,7 @@ impl Module for Probe {
     }
 }
 
-/// Servo drive readiness from HLFB, per axis (millgui/hal/drives.hal).
+/// Servo drive readiness from HLFB, per axis (ferrum/hal/drives.hal).
 struct Drives {
     axes: Vec<char>,
     ready: Vec<(char, In<bool>)>,
@@ -400,9 +400,9 @@ impl Module for Interlock {
     }
 }
 
-/// Cutting load for the backplot (millgui/hal/load.hal). Opt-in: list
-/// `load` in [MILLGUI]MODULES once a load signal is netted to the pin.
-/// `millgui.load.value` is a float, 0 (idle) to 1 (full load); the HAL file
+/// Cutting load for the backplot (ferrum/hal/load.hal). Opt-in: list
+/// `load` in [FERRUM]MODULES once a load signal is netted to the pin.
+/// `ferrum.load.value` is a float, 0 (idle) to 1 (full load); the HAL file
 /// does the scaling, so any source works (spindle current, drive torque).
 #[derive(Default)]
 struct Load {
@@ -435,8 +435,8 @@ impl Module for Load {
     }
 }
 
-/// The WHB04B pendant (millgui/hal/pendant.hal, xhc-whb04b-6.hal). Its
-/// START/PAUSE button comes to millgui instead of LinuxCNC: halui would
+/// The WHB04B pendant (ferrum/hal/pendant.hal, xhc-whb04b-6.hal). Its
+/// START/PAUSE button comes to ferrum instead of LinuxCNC: halui would
 /// switch to AUTO (which aborts a running MDI command or probe macro) and
 /// skip CYCLE START's checks and its G90 setup. The pill says whether the
 /// pendant is there.
@@ -459,7 +459,7 @@ struct Pendant {
 /// One press can raise both pins one after the other.
 const PENDANT_DEBOUNCE: Duration = Duration::from_millis(700);
 
-/// Mode requests millgui passes from the pendant to halui.
+/// Mode requests ferrum passes from the pendant to halui.
 const PENDANT_MODES: [&str; 4] = ["manual", "teleop", "joint", "mdi"];
 
 /// Whether a pendant mode request may reach halui now: nothing running,
@@ -603,9 +603,9 @@ mod tests {
 
     #[test]
     fn unlisted_modules_do_not_exist() {
-        let d = std::env::temp_dir().join(format!("millgui-mod-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("ferrum-mod-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
-        std::fs::write(d.join("m.ini"), "[MILLGUI]\nMODULES = run jog bogus\n").unwrap();
+        std::fs::write(d.join("m.ini"), "[FERRUM]\nMODULES = run jog bogus\n").unwrap();
         let cfg = Config::load(&d.join("m.ini")).unwrap();
         let (mods, problems) = build(&cfg, &crate::checks::NoHal);
         let ids: Vec<_> = mods.iter().map(|m| m.id()).collect();

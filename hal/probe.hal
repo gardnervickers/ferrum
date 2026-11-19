@@ -1,9 +1,9 @@
 # probe module: probe_manager state (mymill.hal).
-net wireless-probe-tool-active => millgui.probe.wireless-selected
-net wireless-probe-fault => millgui.probe.fault
-net probe-in => millgui.probe.tripped
+net wireless-probe-tool-active => ferrum.probe.wireless-selected
+net wireless-probe-fault => ferrum.probe.fault
+net probe-in => ferrum.probe.tripped
 # Tool setter air blast (UTIL): a pulse on the manual request input of the
 # or2 in mymill.hal; touchsetter-blast-pulse times the air itself.
-net millgui-blast-request millgui.probe.blast-request => touchsetter-blast-manual-request-pin
-net touchsetter-blast-active => millgui.probe.blast-active
-net toolsetter-triggered => millgui.probe.toolsetter
+net ferrum-blast-request ferrum.probe.blast-request => touchsetter-blast-manual-request-pin
+net touchsetter-blast-active => ferrum.probe.blast-active
+net toolsetter-triggered => ferrum.probe.toolsetter

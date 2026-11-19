@@ -1,5 +1,5 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
-; Inside corner of a pocket or step: o<millgui_inside_corner> call [sx]
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Inside corner of a pocket or step: o<ferrum_inside_corner> call [sx]
 ; [sy]. [sx] -1 for a left corner (the wall on the corner's -X side), +1
 ; for a right one; [sy] -1 front, +1 back. The probe starts above the top
 ; surface outside the pocket, diagonally beyond the corner, less than
@@ -16,8 +16,8 @@
 ;      Z0 at the top (written once, after the last move).
 ; Reports z_minus_probed_position #1009 and the two edge widgets
 ; (#1005..#1008). Moves are guarded G38.3 moves at #3017. Checks
-; o<millgui_probe_ready> first; modal state is restored on return.
-o<millgui_inside_corner> sub
+; o<ferrum_probe_ready> first; modal state is restored on return.
+o<ferrum_inside_corner> sub
 #<sx> = #1
 #<sy> = #2
 o100 if [[ABS[#<sx>] NE 1] OR [ABS[#<sy>] NE 1]]
@@ -26,31 +26,31 @@ o100 endif
 o110 if [#3023 LE 0]
     (ABORT, Probe step-off width must be positive)
 o110 endif
-o<millgui_probe_ready> call
+o<ferrum_probe_ready> call
 M73
 M50 P0
 G90 G94
 #<z_stack> = [#3021 + #5410 + #3022]
 
-o<millgui_top> call [#3020]
-#<top> = #<_millgui_top>
+o<ferrum_top> call [#3020]
+#<top> = #<_ferrum_top>
 
-o<millgui_guarded_move> call [0 - #<sx> * #3023] [0 - #<sy> * #3023] [0]
-o<millgui_guarded_move> call [0] [0] [0 - #<z_stack>]
+o<ferrum_guarded_move> call [0 - #<sx> * #3023] [0 - #<sy> * #3023] [0]
+o<ferrum_guarded_move> call [0] [0] [0 - #<z_stack>]
 #<x1> = #5420
 #<y1> = #5421
 
-o<millgui_edge> call [0] [#<sx>] [#3018]
-#<x_edge> = #<_millgui_edge>
-o<millgui_guarded_move> call [#<x1> - #5420] [0] [0]
-o<millgui_edge> call [1] [#<sy>] [#3018]
-#<y_edge> = #<_millgui_edge>
-o<millgui_guarded_move> call [0] [#<y1> - #5421] [0]
+o<ferrum_edge> call [0] [#<sx>] [#3018]
+#<x_edge> = #<_ferrum_edge>
+o<ferrum_guarded_move> call [#<x1> - #5420] [0] [0]
+o<ferrum_edge> call [1] [#<sy>] [#3018]
+#<y_edge> = #<_ferrum_edge>
+o<ferrum_guarded_move> call [0] [#<y1> - #5421] [0]
 
-o<millgui_guarded_move> call [0] [0] [#<z_stack>]
-o<millgui_guarded_move> call [#<x_edge> - #5420] [#<y_edge> - #5421] [0]
+o<ferrum_guarded_move> call [0] [0] [#<z_stack>]
+o<ferrum_guarded_move> call [#<x_edge> - #5420] [#<y_edge> - #5421] [0]
 o200 if [#3030 EQ 0]
     G10 L20 P0 X[#5420 - #<x_edge>] Y[#5421 - #<y_edge>] Z[#5422 - #<top>]
 o200 endif
-o<millgui_inside_corner> endsub
+o<ferrum_inside_corner> endsub
 M2

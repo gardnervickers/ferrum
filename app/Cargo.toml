@@ -1,8 +1,12 @@
 [package]
-name = "millgui"
+name = "ferrum-lcnc"
 version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
+
+[[bin]]
+name = "ferrum"
+path = "src/main.rs"
 
 [dependencies]
 lcnc = { path = "../crates/lcnc" }
@@ -17,7 +21,7 @@ png = "0.17"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
-# SETUP edits millgui.toml and keeps its comments.
+# SETUP edits ferrum.toml and keeps its comments.
 toml_edit = "0.22"
 serde_json = "1"
 tungstenite = "0.29"
@@ -34,6 +38,6 @@ slint = { version = "1.19", default-features = false, features = ["backend-winit
 [target.'cfg(target_os = "linux")'.dependencies]
 libloading = "0.8"
 
-# millgui --boot: a terminal for LinuxCNC's start script (boot.rs).
+# ferrum --boot: a terminal for LinuxCNC's start script (boot.rs).
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

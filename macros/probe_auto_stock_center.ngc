@@ -1,9 +1,9 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; FIND stock centre: measures an axis-aligned rectangular block by walking
 ; round its outside at one depth. o<probe_auto_stock_center> call [side]
 ; [span] [token]; side = the face the probe starts beside (0 LEFT, 1 RIGHT,
 ; 2 FRONT, 3 BACK), span = largest stock size to search (> 0), token =
-; positive integer receipt for millgui. The probe starts at depth outside
+; positive integer receipt for ferrum. The probe starts at depth outside
 ; that face, within #3018 of it. It touches the face, scans along it both
 ; ways with short exploratory touches until they miss (the face's ends),
 ; moves just inside the near face beyond each end and touches the two side
@@ -21,25 +21,25 @@ o10 endif
 M73
 #<side> = #1
 #<span> = #2
-#<_millgui_as_token> = #3
-#<_millgui_as_valid> = 0
+#<_ferrum_as_token> = #3
+#<_ferrum_as_valid> = 0
 o100 if [[#<side> LT 0] OR [#<side> GT 3] OR [FIX[#<side>] NE #<side>]]
     (ABORT, Choose LEFT 0, RIGHT 1, FRONT 2, or BACK 3)
 o100 endif
 o101 if [#<span> LE 0]
     (ABORT, Automatic stock maximum span must be positive)
 o101 endif
-o102 if [[#<_millgui_as_token> LE 0] OR [FIX[#<_millgui_as_token>] NE #<_millgui_as_token>]]
+o102 if [[#<_ferrum_as_token> LE 0] OR [FIX[#<_ferrum_as_token>] NE #<_ferrum_as_token>]]
     (ABORT, Automatic stock receipt token must be a positive integer)
 o102 endif
-o<millgui_probe_ready> call
+o<ferrum_probe_ready> call
 o103 if [[#3015 LT 0] OR [#3016 LE 0] OR [#3017 LE 0] OR [#3018 LE 0] OR [#3019 LE 0]]
     (ABORT, Automatic stock probe feeds, reach, and clearance must be positive)
 o103 endif
 o104 if [[#5410 LE 0] OR [[[#5410 / 2] - #3032] LE 0]]
     (ABORT, Automatic stock probe radius or calibration is invalid)
 o104 endif
-o<millgui_stock_context> call [1]
+o<ferrum_stock_context> call [1]
 M50 P0
 G90 G94
 
@@ -69,16 +69,16 @@ o113 if [#<span> LT [2 * #<step>]]
 o113 endif
 
 ; 1. The near face.
-o<millgui_stock_edge> call [#<n_axis>] [#<n_dir>]
+o<ferrum_stock_edge> call [#<n_axis>] [#<n_dir>]
 #<near> = #<_value>
 #<lane> = #[5420 + #<n_axis>]
 #<t_start> = #[5420 + #<t_axis>]
 
 ; 2. Both ends of the near face, staying outside it.
-o<millgui_stock_scan> call [#<n_axis>] [#<n_dir>] [#<t_axis>] [1] [#<span>] [#<step>] [#3018]
+o<ferrum_stock_scan> call [#<n_axis>] [#<n_dir>] [#<t_axis>] [1] [#<span>] [#<step>] [#3018]
 #<t_plus_miss> = #[5420 + #<t_axis>]
-o<millgui_axis_move> call [#<t_axis>] [#<t_start> - #<t_plus_miss>]
-o<millgui_stock_scan> call [#<n_axis>] [#<n_dir>] [#<t_axis>] [-1] [#<span>] [#<step>] [#3018]
+o<ferrum_axis_move> call [#<t_axis>] [#<t_start> - #<t_plus_miss>]
+o<ferrum_stock_scan> call [#<n_axis>] [#<n_dir>] [#<t_axis>] [-1] [#<span>] [#<step>] [#3018]
 #<t_minus_miss> = #[5420 + #<t_axis>]
 
 ; 3. A lane just inside the near face, beyond the -t end.
@@ -86,21 +86,21 @@ o<millgui_stock_scan> call [#<n_axis>] [#<n_dir>] [#<t_axis>] [-1] [#<span>] [#<
 o120 if [ABS[#<inside> - #<near>] GE #<span>]
     (ABORT, Initial inward sample exceeds the maximum stock span)
 o120 endif
-o<millgui_axis_move> call [#<n_axis>] [#<inside> - #<lane>]
+o<ferrum_axis_move> call [#<n_axis>] [#<inside> - #<lane>]
 
 ; 4. The -t face, then round the outside to the +t face.
-o<millgui_stock_edge> call [#<t_axis>] [1]
+o<ferrum_stock_edge> call [#<t_axis>] [1]
 #<t_minus_edge> = #<_value>
-o<millgui_axis_move> call [#<t_axis>] [#<t_minus_miss> - #[5420 + #<t_axis>]]
-o<millgui_axis_move> call [#<n_axis>] [#<lane> - #<inside>]
-o<millgui_axis_move> call [#<t_axis>] [#<t_plus_miss> - #<t_minus_miss>]
-o<millgui_axis_move> call [#<n_axis>] [#<inside> - #<lane>]
-o<millgui_stock_edge> call [#<t_axis>] [-1]
+o<ferrum_axis_move> call [#<t_axis>] [#<t_minus_miss> - #[5420 + #<t_axis>]]
+o<ferrum_axis_move> call [#<n_axis>] [#<lane> - #<inside>]
+o<ferrum_axis_move> call [#<t_axis>] [#<t_plus_miss> - #<t_minus_miss>]
+o<ferrum_axis_move> call [#<n_axis>] [#<inside> - #<lane>]
+o<ferrum_stock_edge> call [#<t_axis>] [-1]
 #<t_plus_edge> = #<_value>
-o<millgui_axis_move> call [#<t_axis>] [#<t_plus_miss> - #[5420 + #<t_axis>]]
+o<ferrum_axis_move> call [#<t_axis>] [#<t_plus_miss> - #[5420 + #<t_axis>]]
 
 ; 5. The +t face must be there at this sample.
-o<millgui_stock_touch> call [#<t_axis>] [-1] [#3018]
+o<ferrum_stock_touch> call [#<t_axis>] [-1] [#3018]
 o130 if [#<_value> NE 1]
     (ABORT, Adjacent face was not found at the interior sample)
 o130 endif
@@ -110,7 +110,7 @@ o130 endif
 o131 if [#<left> LT #<step>]
     (ABORT, Maximum stock span leaves no room to find the opposite face)
 o131 endif
-o<millgui_stock_scan> call [#<t_axis>] [-1] [#<n_axis>] [#<n_dir>] [#<left>] [#<step>] [#3018]
+o<ferrum_stock_scan> call [#<t_axis>] [-1] [#<n_axis>] [#<n_dir>] [#<left>] [#<step>] [#3018]
 #<far_miss> = #[5420 + #<n_axis>]
 
 ; 7. Out to the far lane, along it to the middle, touch the far face.
@@ -118,14 +118,14 @@ o<millgui_stock_scan> call [#<t_axis>] [-1] [#<n_axis>] [#<n_dir>] [#<left>] [#<
 o132 if [ABS[#<far_lane> - #<near>] GT [#<span> + #3019]]
     (ABORT, Opposite face approach exceeds stock span plus clearance)
 o132 endif
-o<millgui_axis_move> call [#<n_axis>] [#<far_lane> - #<far_miss>]
+o<ferrum_axis_move> call [#<n_axis>] [#<far_lane> - #<far_miss>]
 #<t_mid> = [[#<t_minus_edge> + #<t_plus_edge>] / 2]
-o<millgui_axis_move> call [#<t_axis>] [#<t_mid> - #<t_plus_miss>]
-o<millgui_stock_edge> call [#<n_axis>] [0 - #<n_dir>]
+o<ferrum_axis_move> call [#<t_axis>] [#<t_mid> - #<t_plus_miss>]
+o<ferrum_stock_edge> call [#<n_axis>] [0 - #<n_dir>]
 #<far> = #<_value>
 
 ; 8. Consistency.
-o<millgui_stock_context> call [0]
+o<ferrum_stock_context> call [0]
 o140 if [[#<t_minus_edge> GE #<t_plus_edge>] OR [[#<t_plus_edge> - #<t_minus_edge>] GT [#<span> * 2]]]
     (ABORT, Automatic stock tangent faces are inconsistent)
 o140 endif
@@ -148,34 +148,34 @@ o150 else
     #<n_max> = #<near>
 o150 endif
 o151 if [#<n_axis> EQ 0]
-    #<_millgui_as_x_min> = #<n_min>
-    #<_millgui_as_x_max> = #<n_max>
-    #<_millgui_as_y_min> = #<t_minus_edge>
-    #<_millgui_as_y_max> = #<t_plus_edge>
+    #<_ferrum_as_x_min> = #<n_min>
+    #<_ferrum_as_x_max> = #<n_max>
+    #<_ferrum_as_y_min> = #<t_minus_edge>
+    #<_ferrum_as_y_max> = #<t_plus_edge>
 o151 else
-    #<_millgui_as_x_min> = #<t_minus_edge>
-    #<_millgui_as_x_max> = #<t_plus_edge>
-    #<_millgui_as_y_min> = #<n_min>
-    #<_millgui_as_y_max> = #<n_max>
+    #<_ferrum_as_x_min> = #<t_minus_edge>
+    #<_ferrum_as_x_max> = #<t_plus_edge>
+    #<_ferrum_as_y_min> = #<n_min>
+    #<_ferrum_as_y_max> = #<n_max>
 o151 endif
-#<_millgui_as_width_x> = [#<_millgui_as_x_max> - #<_millgui_as_x_min>]
-#<_millgui_as_width_y> = [#<_millgui_as_y_max> - #<_millgui_as_y_min>]
-#<_millgui_as_center_x> = [[#<_millgui_as_x_min> + #<_millgui_as_x_max>] / 2]
-#<_millgui_as_center_y> = [[#<_millgui_as_y_min> + #<_millgui_as_y_max>] / 2]
-#<_millgui_as_valid> = 1
+#<_ferrum_as_width_x> = [#<_ferrum_as_x_max> - #<_ferrum_as_x_min>]
+#<_ferrum_as_width_y> = [#<_ferrum_as_y_max> - #<_ferrum_as_y_min>]
+#<_ferrum_as_center_x> = [[#<_ferrum_as_x_min> + #<_ferrum_as_x_max>] / 2]
+#<_ferrum_as_center_y> = [[#<_ferrum_as_y_min> + #<_ferrum_as_y_max>] / 2]
+#<_ferrum_as_valid> = 1
 ; Short local copies keep the report line under LinuxCNC's line limit.
-#<t> = #<_millgui_as_token>
-#<x1> = #<_millgui_as_x_min>
-#<x2> = #<_millgui_as_x_max>
-#<y1> = #<_millgui_as_y_min>
-#<y2> = #<_millgui_as_y_max>
-#<wx> = #<_millgui_as_width_x>
-#<wy> = #<_millgui_as_width_y>
-#<cx> = #<_millgui_as_center_x>
-#<cy> = #<_millgui_as_center_y>
+#<t> = #<_ferrum_as_token>
+#<x1> = #<_ferrum_as_x_min>
+#<x2> = #<_ferrum_as_x_max>
+#<y1> = #<_ferrum_as_y_min>
+#<y2> = #<_ferrum_as_y_max>
+#<wx> = #<_ferrum_as_width_x>
+#<wy> = #<_ferrum_as_width_y>
+#<cx> = #<_ferrum_as_center_x>
+#<cy> = #<_ferrum_as_center_y>
 (DEBUG, EVAL[vcp.getWidget{"auto_stock_panel"}.receive_result{#<t>,#<x1>,#<x2>,#<y1>,#<y2>,#<wx>,#<wy>,#<cx>,#<cy>}])
-(DEBUG, Stock X #<_millgui_as_x_min> to #<_millgui_as_x_max>, width #<_millgui_as_width_x>, centre #<_millgui_as_center_x>)
-(DEBUG, Stock Y #<_millgui_as_y_min> to #<_millgui_as_y_max>, width #<_millgui_as_width_y>, centre #<_millgui_as_center_y>)
+(DEBUG, Stock X #<_ferrum_as_x_min> to #<_ferrum_as_x_max>, width #<_ferrum_as_width_x>, centre #<_ferrum_as_center_x>)
+(DEBUG, Stock Y #<_ferrum_as_y_min> to #<_ferrum_as_y_max>, width #<_ferrum_as_width_y>, centre #<_ferrum_as_center_y>)
 G90
 o<probe_auto_stock_center> endsub
 M2

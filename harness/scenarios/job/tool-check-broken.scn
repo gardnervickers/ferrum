@@ -1,9 +1,9 @@
 title JOB: a TOOL CHECK stops the job when the tool is shorter than its table length
 needs probe-geometry drawbar
 allow-error may be broken    # on purpose
-errors-to-millgui    # millgui reads the check result from the error queue
+errors-to-ferrum    # ferrum reads the check result from the error queue
 include ../common/ready.scn
-# millgui writes the setter values (#3037) once LinuxCNC has been still 3 s.
+# ferrum writes the setter values (#3037) once LinuxCNC has been still 3 s.
 sleep 4
 # h_ops.ngc cuts air with T4 (the sim fixes its physical length at 98.794).
 # Its table length says 2.2 mm more: "broken".

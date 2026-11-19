@@ -93,13 +93,13 @@ fn setup(cfg: &Config) -> Option<rs274::Setup> {
     if !rs274::available() || cfg.path.is_none() {
         return None;
     }
-    let dir = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(".cache/millgui");
+    let dir = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(".cache/ferrum");
     std::fs::create_dir_all(&dir).ok()?;
     let ini = dir.join("preview.ini");
     let text: String = cfg
         .expanded_lines()
         .into_iter()
-        .map(|l| if l.trim_start().starts_with("REMAP") { format!("# millgui preview: {l}") } else { l })
+        .map(|l| if l.trim_start().starts_with("REMAP") { format!("# ferrum preview: {l}") } else { l })
         .map(|l| l + "\n")
         .collect();
     std::fs::write(&ini, text).ok()?;
@@ -216,7 +216,7 @@ impl Plot {
                         let t0 = std::time::Instant::now();
                         let b = Base::draw(&tp, key.1, key.2, key.3, None, key.4);
                         if perf() {
-                            eprintln!("millgui perf: backplot software base {}x{}, {} moves: {:.1} ms", key.2, key.3, tp.segs.len(), t0.elapsed().as_secs_f64() * 1e3);
+                            eprintln!("ferrum perf: backplot software base {}x{}, {} moves: {:.1} ms", key.2, key.3, tp.segs.len(), t0.elapsed().as_secs_f64() * 1e3);
                         }
                         let _ = slint::invoke_from_event_loop(move || {
                             with(|p| {
@@ -240,7 +240,7 @@ impl Plot {
         let t0 = std::time::Instant::now();
         let pm = base.compose(&self.trail, &self.trail_load, self.tool, scene.as_ref());
         if perf() {
-            eprintln!("millgui perf: backplot software compose {}x{}: {:.1} ms", w, h, t0.elapsed().as_secs_f64() * 1e3);
+            eprintln!("ferrum perf: backplot software compose {}x{}: {:.1} ms", w, h, t0.elapsed().as_secs_f64() * 1e3);
         }
         let buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(pm.data(), pm.width(), pm.height());
         let live = ui.global::<Live>();
@@ -900,7 +900,7 @@ pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> 
             (slint::RenderingState::RenderingSetup, slint::GraphicsAPI::NativeOpenGL { get_proc_address }) => {
                 match unsafe { preview::gpu::Gpu::new(get_proc_address) } {
                     Ok(g) => {
-                        eprintln!("millgui: backplot on the GPU: {}", g.describe());
+                        eprintln!("ferrum: backplot on the GPU: {}", g.describe());
                         GPU.with(|c| *c.borrow_mut() = Some(g));
                         with(|p| {
                             let mut st = p.borrow_mut();
@@ -910,7 +910,7 @@ pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> 
                             st.dirty = true;
                         });
                     }
-                    Err(e) => eprintln!("millgui: GPU backplot unavailable ({e}); drawing it in software"),
+                    Err(e) => eprintln!("ferrum: GPU backplot unavailable ({e}); drawing it in software"),
                 }
             }
             (slint::RenderingState::BeforeRendering, _) => with(|p| gpu_frame(&ui, p)),
@@ -950,7 +950,7 @@ fn gpu_frame(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) {
     match drawn {
         Some(Ok((tex, px))) => {
             if perf() {
-                eprintln!("millgui perf: backplot GPU frame {w}x{h}, {} moves: {:.1} ms", st.tp.segs.len(), t0.elapsed().as_secs_f64() * 1e3);
+                eprintln!("ferrum perf: backplot GPU frame {w}x{h}, {} moves: {:.1} ms", st.tp.segs.len(), t0.elapsed().as_secs_f64() * 1e3);
             }
             if let Some(px) = px {
                 st.want_pixels = false;
@@ -970,7 +970,7 @@ fn gpu_frame(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) {
             }
         }
         Some(Err(e)) => {
-            eprintln!("millgui: GPU backplot failed ({e}); drawing it in software");
+            eprintln!("ferrum: GPU backplot failed ({e}); drawing it in software");
             st.gpu = false;
             st.dirty = true;
         }
@@ -1001,9 +1001,9 @@ pub fn version() -> u64 {
     v
 }
 
-/// `MILLGUI_PERF=1` logs backplot frame times.
+/// `FERRUM_PERF=1` logs backplot frame times.
 fn perf() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("MILLGUI_PERF").is_some())
+    *ON.get_or_init(|| std::env::var_os("FERRUM_PERF").is_some())
 }

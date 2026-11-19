@@ -29,8 +29,8 @@ seed_slow = 80
 seed_xy_clear = 4
 
 # ---- PROBE routine geometry (scenarios/probe-routines) ----------------------
-# The sim's workpieces, from millgui/sim/sim_card.py (keep the two in step;
-# `python3 millgui/sim/sim_card.py --describe` prints them). Machine
+# The sim's workpieces, from ferrum/sim/sim_card.py (keep the two in step;
+# `python3 ferrum/sim/sim_card.py --describe` prints them). Machine
 # coordinates, mm. Expected results are the true geometry: the sim's probe
 # ball is T99's D/2 less probe_pretravel, which #3032 in probe_basic.var
 # takes out again.

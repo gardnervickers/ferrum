@@ -5,6 +5,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Ferrum's INI section before the rename; read when `[FERRUM]` lacks a key.
+pub const LEGACY_SECTION: &str = "MILLGUI";
+
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     pub path: Option<PathBuf>,
@@ -66,7 +69,17 @@ impl Config {
         self.get_all(section, key).into_iter().next()
     }
 
+    /// `[FERRUM]` keys are also read from `[MILLGUI]`, Ferrum's old name,
+    /// so INIs written before the rename keep working.
     pub fn get_all(&self, section: &str, key: &str) -> Vec<&str> {
+        let found = self.get_all_exact(section, key);
+        if found.is_empty() && section == "FERRUM" {
+            return self.get_all_exact(LEGACY_SECTION, key);
+        }
+        found
+    }
+
+    fn get_all_exact(&self, section: &str, key: &str) -> Vec<&str> {
         let Some(tag) = self.section_tag(section) else { return Vec::new() };
         self.entries.iter().filter(|(s, k, _)| *s == tag && k == key).map(|(_, _, v)| v.as_str()).collect()
     }
@@ -128,13 +141,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ferrum_keys_fall_back_to_millgui() {
+        let mut c = Config::default();
+        c.insert("MILLGUI", "MODULES", "run files");
+        c.insert("MILLGUI", "REMOTE_PORT", "8088");
+        c.insert("FERRUM", "REMOTE_PORT", "9000");
+        assert_eq!(c.get("FERRUM", "MODULES"), Some("run files"));
+        assert_eq!(c.get("FERRUM", "REMOTE_PORT"), Some("9000"));
+        assert_eq!(c.get("FERRUM", "RENDERER"), None);
+    }
+
+    #[test]
     fn first_section_wins_and_include_expands() {
-        let d = std::env::temp_dir().join(format!("millgui-cfg-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("ferrum-cfg-{}", std::process::id()));
         fs::create_dir_all(&d).unwrap();
         fs::write(d.join("base.ini"), "[DISPLAY]\nDISPLAY = probe\nCYCLE_TIME = 100\n[TRAJ]\nCOORDINATES = X Y Z A\n").unwrap();
-        fs::write(d.join("top.ini"), "[DISPLAY]\nDISPLAY = ./millgui/run\n\n#INCLUDE base.ini\n").unwrap();
+        fs::write(d.join("top.ini"), "[DISPLAY]\nDISPLAY = ./ferrum/run\n\n#INCLUDE base.ini\n").unwrap();
         let c = Config::load(&d.join("top.ini")).unwrap();
-        assert_eq!(c.get("DISPLAY", "DISPLAY"), Some("./millgui/run"));
+        assert_eq!(c.get("DISPLAY", "DISPLAY"), Some("./ferrum/run"));
         assert_eq!(c.get("DISPLAY", "CYCLE_TIME"), None);
         assert_eq!(c.coordinates(), "XYZA");
         fs::remove_dir_all(d).ok();

@@ -32,7 +32,7 @@ pub fn available() -> bool {
 }
 
 fn scratch() -> PathBuf {
-    let d = std::env::temp_dir().join(format!("millgui-rs274-{}-{}", std::process::id(), unique()));
+    let d = std::env::temp_dir().join(format!("ferrum-rs274-{}-{}", std::process::id(), unique()));
     let _ = std::fs::create_dir_all(&d);
     d
 }

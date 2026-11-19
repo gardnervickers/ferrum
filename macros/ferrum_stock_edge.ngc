@@ -1,11 +1,11 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; Precise face touch for automatic stock probing:
-; o<millgui_stock_edge> call [axis] [dir]; axis 0 = X, 1 = Y, dir +1/-1 the
+; o<ferrum_stock_edge> call [axis] [dir]; axis 0 = X, 1 = Y, dir +1/-1 the
 ; direction the probe moves. Checks the context, makes one touch with
-; o<millgui_touch> (reach #3018), which leaves the probe #3019 off the face,
+; o<ferrum_touch> (reach #3018), which leaves the probe #3019 off the face,
 ; and returns the compensated face, stylus centre + dir x (#5410/2 - #3032),
 ; in #<_value>. No offset write, nothing reported.
-o<millgui_stock_edge> sub
+o<ferrum_stock_edge> sub
 #<axis> = #1
 #<dir> = #2
 o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
@@ -14,9 +14,9 @@ o100 endif
 o101 if [ABS[#<dir>] NE 1]
     (ABORT, Invalid automatic stock edge direction)
 o101 endif
-o<millgui_stock_context> call [0]
-o<millgui_touch> call [#<axis>] [#<dir>] [#3018]
+o<ferrum_stock_context> call [0]
+o<ferrum_touch> call [#<axis>] [#<dir>] [#3018]
 G90
-#<edge> = [#<_millgui_hit> + [#<dir> * [[#5410 / 2] - #3032]]]
-o<millgui_stock_edge> endsub [#<edge>]
+#<edge> = [#<_ferrum_hit> + [#<dir> * [[#5410 / 2] - #3032]]]
+o<ferrum_stock_edge> endsub [#<edge>]
 M2

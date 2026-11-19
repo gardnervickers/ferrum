@@ -1,7 +1,7 @@
 //! Browser build of the machine screen.
 //!
 //! The same Slint UI as the touchscreen, drawn by the software renderer into
-//! a 1920x1080 canvas that CSS scales to the window. A websocket to millgui on
+//! a 1920x1080 canvas that CSS scales to the window. A websocket to ferrum on
 //! the Pi carries `Live` property changes in and `Actions` calls out; the Pi
 //! decides what to run. Navigation (screen, tabs, message drawer) is local.
 

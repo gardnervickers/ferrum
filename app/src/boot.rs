@@ -1,16 +1,16 @@
-//! The start-up splash, and `millgui --boot`, which starts LinuxCNC itself
+//! The start-up splash, and `ferrum --boot`, which starts LinuxCNC itself
 //! so the splash covers the whole start.
 //!
 //! LinuxCNC starts its display last, after realtime, HAL and task are up.
-//! Started that way (the usual `linuxcnc millgui.ini`), millgui's splash
-//! only covers its own connection. `millgui --boot millgui.ini` turns it
-//! round: millgui opens its window at once, runs `linuxcnc -v` underneath
+//! Started that way (the usual `linuxcnc ferrum.ini`), ferrum's splash
+//! only covers its own connection. `ferrum --boot ferrum.ini` turns it
+//! round: ferrum opens its window at once, runs `linuxcnc -v` underneath
 //! and shows the steps LinuxCNC reports. When LinuxCNC reaches its DISPLAY
-//! step it starts `millgui/run` as usual; that copy sees `MILLGUI_BOOT`,
+//! step it starts `ferrum/run` as usual; that copy sees `FERRUM_BOOT`,
 //! tells the launcher it is there and then just waits, holding LinuxCNC's
 //! session open, until the launcher exits ([`attach_if_launched`]).
 //!
-//! The splash never holds anything up: millgui connects and wires itself
+//! The splash never holds anything up: ferrum connects and wires itself
 //! while it shows, and touches go through as soon as the first status is in.
 
 use crate::config::Config;
@@ -35,7 +35,7 @@ pub fn init_brand(ui: &MainWindow) {
 }
 
 /// Show the splash. `started` is how many steps LinuxCNC has already done
-/// (3 when it started millgui as its display: only the SCREEN step is left).
+/// (3 when it started ferrum as its display: only the SCREEN step is left).
 pub fn show(ui: &MainWindow, started: usize, footer: String) {
     let boot = ui.global::<Boot>();
     boot.set_steps(ModelRc::new(VecModel::from(STEPS.iter().map(|l| BootStep { label: (*l).into(), state: "todo".into() }).collect::<Vec<_>>())));
@@ -44,13 +44,13 @@ pub fn show(ui: &MainWindow, started: usize, footer: String) {
     step(ui, started);
     let (doing, detail) = match started {
         0 => ("STARTING LINUXCNC", String::new()),
-        _ => ("CONNECTING", "LinuxCNC is up; millgui is connecting to it".into()),
+        _ => ("CONNECTING", "LinuxCNC is up; ferrum is connecting to it".into()),
     };
     say(ui, doing, &detail);
     boot.set_progress(AT[started.min(3)] + 0.06 * (started >= 3) as i32 as f32);
 }
 
-/// The splash's bottom line: "LinuxCNC 2.9.10 · millgui.ini".
+/// The splash's bottom line: "LinuxCNC 2.9.10 · ferrum.ini".
 pub fn footer(version: Option<&str>, ini: Option<&Path>) -> String {
     let ini = ini.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
     match (version, ini) {
@@ -103,7 +103,7 @@ pub fn ready(ui: &MainWindow) {
     boot.set_phase("ready".into());
 }
 
-/// LinuxCNC stopped by itself while millgui ran (under --boot).
+/// LinuxCNC stopped by itself while ferrum ran (under --boot).
 pub fn stopped(ui: &MainWindow) {
     let boot = ui.global::<Boot>();
     show(ui, 3, boot.get_footer().to_string());
@@ -119,7 +119,7 @@ pub fn stopped(ui: &MainWindow) {
 /// `--show boot-…` (headless screenshots): the splash at a fixed moment.
 pub fn demo(ui: &MainWindow, what: &str) {
     let boot = ui.global::<Boot>();
-    let footer = "LinuxCNC 2.9.10  ·  millgui.ini".to_string();
+    let footer = "LinuxCNC 2.9.10  ·  ferrum.ini".to_string();
     match what {
         "boot" | "boot-start" => {
             show(ui, 0, footer);
@@ -145,7 +145,7 @@ pub fn demo(ui: &MainWindow, what: &str) {
             fail_step(ui);
             say(ui, "LINUXCNC DID NOT START", "");
             boot.set_error("hm2_eth: ERROR: receive packet: Resource temporarily unavailable\nhm2_eth: Hostmot2 board not found at 10.10.10.10\n./mymill.hal:7: waitpid failed /usr/bin/rtapi_app hm2_eth\n./mymill.hal:7: /usr/bin/rtapi_app exited without becoming ready".into());
-            boot.set_log("/home/cnc/.cache/millgui/linuxcnc-start.log".into());
+            boot.set_log("/home/cnc/.cache/ferrum/linuxcnc-start.log".into());
             boot.set_can_retry(true);
             boot.set_phase("failed".into());
         }
@@ -275,11 +275,11 @@ pub async fn connect<M: Send + 'static>(ui: &MainWindow, f: impl FnOnce() -> Res
             Some(m)
         }
         Wait::Done(Err(e)) => {
-            eprintln!("millgui: {e}");
+            eprintln!("ferrum: {e}");
             fail_step(ui);
             let boot = ui.global::<Boot>();
             say(ui, "NO ANSWER FROM LINUXCNC", "");
-            boot.set_error(format!("millgui could not connect to LinuxCNC: {e}").into());
+            boot.set_error(format!("ferrum could not connect to LinuxCNC: {e}").into());
             boot.set_phase("failed".into());
             until_quit().await;
             None
@@ -288,15 +288,15 @@ pub async fn connect<M: Send + 'static>(ui: &MainWindow, f: impl FnOnce() -> Res
     }
 }
 
-/// The display copy LinuxCNC starts under `millgui --boot`: tell the
+/// The display copy LinuxCNC starts under `ferrum --boot`: tell the
 /// launcher, then hold LinuxCNC's session open until the launcher closes
 /// the socket (it exits, or LinuxCNC is stopping), and exit.
 #[cfg(unix)]
 pub fn attach_if_launched() {
     use std::io::{Read, Write};
-    let Some(path) = std::env::var_os("MILLGUI_BOOT") else { return };
+    let Some(path) = std::env::var_os("FERRUM_BOOT") else { return };
     let Ok(mut s) = std::os::unix::net::UnixStream::connect(&path) else {
-        eprintln!("millgui: MILLGUI_BOOT is set but no launcher answers; starting as the display");
+        eprintln!("ferrum: FERRUM_BOOT is set but no launcher answers; starting as the display");
         return;
     };
     let _ = s.write_all(b"attach\n");
@@ -323,7 +323,7 @@ mod launch {
 
     const LOCK: &str = "/tmp/linuxcnc.lock";
 
-    /// LinuxCNC started by millgui; dropped (or [`Launcher::shutdown`]) stops it.
+    /// LinuxCNC started by ferrum; dropped (or [`Launcher::shutdown`]) stops it.
     pub struct Launcher {
         child: Child,
         // LinuxCNC's script asks on a terminal (it only prints its steps,
@@ -365,7 +365,7 @@ mod launch {
     }
 
     fn spawn(ini: &Path, restart: bool, hal_files: usize) -> Result<Run, String> {
-        let sock = std::env::temp_dir().join(format!("millgui-boot-{}.sock", std::process::id()));
+        let sock = std::env::temp_dir().join(format!("ferrum-boot-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&sock);
         let listener = UnixListener::bind(&sock).map_err(|e| format!("{}: {e}", sock.display()))?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
@@ -373,13 +373,13 @@ mod launch {
         let mut cmd = Command::new("linuxcnc");
         cmd.arg("-v")
             .arg(ini)
-            .env("MILLGUI_BOOT", &sock)
+            .env("FERRUM_BOOT", &sock)
             .stdin(Stdio::from(tty))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         {
             use std::os::unix::process::CommandExt;
-            // Its own group: a Ctrl-C here reaches millgui, which stops
+            // Its own group: a Ctrl-C here reaches ferrum, which stops
             // LinuxCNC in order, not both at once.
             cmd.process_group(0);
         }
@@ -395,7 +395,7 @@ mod launch {
             let tx = tx.clone();
             std::thread::spawn(move || {
                 for l in BufReader::new(r).lines().map_while(Result::ok) {
-                    // After the splash the lines go to millgui's own output.
+                    // After the splash the lines go to ferrum's own output.
                     if tx.send((err, l.clone())).is_err() {
                         if err {
                             eprintln!("{l}");
@@ -596,7 +596,7 @@ mod launch {
     }
 
     /// Start LinuxCNC with the splash up. Returns once its display step has
-    /// started (millgui then connects as usual), or None to exit.
+    /// started (ferrum then connects as usual), or None to exit.
     pub async fn launch(ui: &MainWindow, ini: &Path, cfg: &Config) -> Option<Launcher> {
         let boot = ui.global::<Boot>();
         let ini = std::fs::canonicalize(ini).unwrap_or_else(|_| ini.to_path_buf());
@@ -611,8 +611,8 @@ mod launch {
         const OTHERS: [&str; 11] = ["axis", "gmoccapy", "touchy", "gscreen", "tklinuxcnc", "qtvcp", "probe_basic", "qtdragon", "qtplasmac", "dummy", "linuxcncrsh"];
         if OTHERS.contains(&prog.as_str()) {
             fail_step(ui);
-            say(ui, "THIS INI DOES NOT USE MILLGUI", "");
-            boot.set_error(format!("{} has DISPLAY = {display}. Boot mode starts LinuxCNC with millgui as its screen; use millgui.ini, whose DISPLAY is ./millgui/run.", ini.display()).into());
+            say(ui, "THIS INI DOES NOT USE FERRUM", "");
+            boot.set_error(format!("{} has DISPLAY = {display}. Boot mode starts LinuxCNC with ferrum as its screen; use ferrum.ini, whose DISPLAY is ./ferrum/run.", ini.display()).into());
             boot.set_phase("failed".into());
             until_quit().await;
             return None;
@@ -675,9 +675,9 @@ mod launch {
                     let _ = s.set_nonblocking(false);
                     r.launcher.attached = Some(s);
                     step(ui, 3);
-                    say(ui, "CONNECTING", "LinuxCNC is up; millgui is connecting to it");
+                    say(ui, "CONNECTING", "LinuxCNC is up; ferrum is connecting to it");
                     boot.set_progress(AT[3] + 0.06);
-                    // From here LinuxCNC's output goes to millgui's own.
+                    // From here LinuxCNC's output goes to ferrum's own.
                     drop(r.lines);
                     return Some(r.launcher);
                 }
@@ -699,7 +699,7 @@ mod launch {
     }
 
     impl Launcher {
-        /// LinuxCNC stopped on its own while millgui runs.
+        /// LinuxCNC stopped on its own while ferrum runs.
         pub fn exited(&mut self) -> bool {
             matches!(self.child.try_wait(), Ok(Some(_)))
         }
@@ -724,7 +724,7 @@ mod launch {
                     return Some(());
                 }
                 if t0.elapsed() > Duration::from_secs(20) {
-                    eprintln!("millgui: LinuxCNC did not stop within 20 s; killing it");
+                    eprintln!("ferrum: LinuxCNC did not stop within 20 s; killing it");
                     // SAFETY: as above, the whole group we started.
                     unsafe {
                         libc::kill(-(self.child.id() as i32), libc::SIGKILL);
@@ -752,7 +752,7 @@ pub use launch::launch;
 mod tests {
     #[test]
     fn footer_reads_well() {
-        assert_eq!(super::footer(Some("2.9.10"), Some(std::path::Path::new("/x/millgui.ini"))), "LinuxCNC 2.9.10  ·  millgui.ini");
+        assert_eq!(super::footer(Some("2.9.10"), Some(std::path::Path::new("/x/ferrum.ini"))), "LinuxCNC 2.9.10  ·  ferrum.ini");
         assert_eq!(super::footer(None, None), "");
     }
 }

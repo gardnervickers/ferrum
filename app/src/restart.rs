@@ -4,7 +4,7 @@
 //! It only throws away what the skipped lines do at the program's top level:
 //! a remapped M6 before the start line runs its subroutine for real (the
 //! tool change dialog, M5, M61...), and the spindle ends up off when the
-//! program starts moving. Instead millgui writes a restart copy of the
+//! program starts moving. Instead ferrum writes a restart copy of the
 //! program and runs that from its first line:
 //!
 //! - the lines before the start line are replaced by a short preamble that
@@ -440,7 +440,7 @@ impl Plan {
             mi.units.upper()
         };
         let top = jobcore::mill_ops::machine_top_in(Some(mi.units.upper()), units);
-        let mut v = vec![modal.join(" "), format!("{top} (millgui restart: Z to the top)")];
+        let mut v = vec![modal.join(" "), format!("{top} (ferrum restart: Z to the top)")];
         let mut setup = Vec::new();
         if let Some(f) = self.feed {
             setup.push(format!("F{}", fmt(f)));
@@ -494,7 +494,7 @@ impl Plan {
 /// Where the restart copy of `program` goes.
 pub fn copy_path(program: &str) -> PathBuf {
     let name = Path::new(program).file_name().map(|n| n.to_os_string()).unwrap_or_else(|| "program.ngc".into());
-    std::env::temp_dir().join("millgui-restart").join(name)
+    std::env::temp_dir().join("ferrum-restart").join(name)
 }
 
 /// A restart under way: runs the copy, then loads the original again once
@@ -579,7 +579,7 @@ mod tests {
             p.preamble(),
             vec![
                 "G21 G17 G94 G91.1 G54 G90 G40 G80 G43 H3",
-                "G53 G0 Z0 (millgui restart: Z to the top)",
+                "G53 G0 Z0 (ferrum restart: Z to the top)",
                 "F300 M3 S8000 M7 G4 P2",
                 "G0 X10 Y10",
                 "G0 Z15",
@@ -591,7 +591,7 @@ mod tests {
         let p = plan(FUSION, 18);
         assert!(p.changes_tool);
         assert_eq!((p.tool, p.spindle, p.mist), (Some(3), 0, false));
-        assert_eq!(p.preamble(), vec!["G21 G17 G94 G91.1 G54 G90 G40 G80", "G53 G0 Z0 (millgui restart: Z to the top)", "F300", "G0"]);
+        assert_eq!(p.preamble(), vec!["G21 G17 G94 G91.1 G54 G90 G40 G80", "G53 G0 Z0 (ferrum restart: Z to the top)", "F300", "G0"]);
         let p = plan(FUSION, 20);
         assert_eq!((p.tool, p.rpm, p.spindle), (Some(5), 2000.0, 1));
         assert_eq!(p.op.as_deref(), Some("DRILL1"));
@@ -603,7 +603,7 @@ mod tests {
         let f = p.file_lines(FUSION);
         assert_eq!(f.len(), FUSION.len());
         assert_eq!(f[0], "%");
-        assert_eq!(f[2], "G53 G0 Z0 (millgui restart: Z to the top)");
+        assert_eq!(f[2], "G53 G0 Z0 (ferrum restart: Z to the top)");
         assert_eq!(f[12], "");
         assert_eq!(&f[13..], &FUSION[13..]);
         // Before the preamble fits: refused.

@@ -1,11 +1,11 @@
 //! SETUP: the configuration checker's rows in six guided steps, the
-//! millgui.toml settings each step asks for, and live tests of the probe
+//! ferrum.toml settings each step asks for, and live tests of the probe
 //! and tool setter inputs.
 //!
-//! A setting is written to millgui.toml at once (comments kept). millgui
+//! A setting is written to ferrum.toml at once (comments kept). ferrum
 //! reads its settings when it starts, as LinuxCNC reads the INI, so a
-//! saved change shows as waiting until LinuxCNC (and with it millgui) next
-//! starts. With no millgui.toml, SETUP opens first; FINISH writes the file.
+//! saved change shows as waiting until LinuxCNC (and with it ferrum) next
+//! starts. With no ferrum.toml, SETUP opens first; FINISH writes the file.
 
 use crate::checks::{Check, Fix, Group, Level};
 use crate::config::Config;
@@ -46,9 +46,9 @@ impl Step {
 
     fn intro(self) -> &'static str {
         match self {
-            Step::Machine => "What millgui read from the INI. Check the units and travel, and say where retracts and PARK go.",
-            Step::Spindle => "Every speed millgui sends is checked against the top speed. CCW shows only when the spindle reverses.",
-            Step::ToolChange => "Who answers M6. millgui works it out from HAL; set it here only when that is wrong.",
+            Step::Machine => "What ferrum read from the INI. Check the units and travel, and say where retracts and PARK go.",
+            Step::Spindle => "Every speed ferrum sends is checked against the top speed. CCW shows only when the spindle reverses.",
+            Step::ToolChange => "Who answers M6. ferrum works it out from HAL; set it here only when that is wrong.",
             Step::Probe => "PROBE is on only with a probe. Touch the probe to test its input before the first probe move.",
             Step::ToolSetter => "Touch-off goes to the G30 position and probes down. Jog over the setter on MANUAL, then set the position here.",
             Step::Extras => "HAL wiring, jobs and conversational, and the browser screen.",
@@ -87,7 +87,7 @@ struct Setting {
 
 const PARK: &[(&str, &str)] = &[("machine-zero", "MACHINE X0 Y0"), ("g28", "G28 POSITION")];
 const STYLE: &[(&str, &str)] =
-    &[("", "DETECT FROM HAL"), ("external", "THE MACHINE (HAL)"), ("dialog", "MILLGUI'S DIALOG"), ("drawbar", "DIALOG + DRAWBAR")];
+    &[("", "DETECT FROM HAL"), ("external", "THE MACHINE (HAL)"), ("dialog", "FERRUM'S DIALOG"), ("drawbar", "DIALOG + DRAWBAR")];
 
 /// The settings SETUP asks for, with this machine's ranges.
 fn settings(cfg: &Config) -> Vec<Setting> {
@@ -132,7 +132,7 @@ fn yes(b: bool) -> String {
 fn style_label(s: ToolChangeStyle) -> &'static str {
     match s {
         ToolChangeStyle::External => "THE MACHINE (HAL)",
-        ToolChangeStyle::Dialog => "MILLGUI'S DIALOG",
+        ToolChangeStyle::Dialog => "FERRUM'S DIALOG",
         ToolChangeStyle::Drawbar => "DIALOG + DRAWBAR",
     }
 }
@@ -180,7 +180,7 @@ impl Setup {
         self.mc().toolsetter.enabled.unwrap_or(self.has("util"))
     }
 
-    /// The setting's value as millgui runs now.
+    /// The setting's value as ferrum runs now.
     fn running(&self, key: &str) -> String {
         let (mc, mi, cfg) = (self.mc(), self.mi(), &self.cfg);
         let ui = self.ui.upgrade();
@@ -278,7 +278,7 @@ impl Setup {
         self.save(key, if v.is_empty() { None } else { Some(toml_edit::value(*v)) }, shown)
     }
 
-    /// FINISH: make sure millgui.toml exists, so SETUP stops opening first.
+    /// FINISH: make sure ferrum.toml exists, so SETUP stops opening first.
     fn finish(&mut self) -> Result<(), String> {
         if !self.path.exists() {
             machine_cfg::write_file(&self.path, &machine_cfg::new_file_text(self.seed.as_deref()))?;
@@ -374,7 +374,7 @@ impl Setup {
                     detail: if wired {
                         "The light turns green while the setter's input is on."
                     } else {
-                        "millgui does not see the setter's input. Name it in [hal]toolsetter_tripped (a HAL pin or signal) to see it here and on UTIL."
+                        "ferrum does not see the setter's input. Name it in [hal]toolsetter_tripped (a HAL pin or signal) to see it here and on UTIL."
                     }
                     .into(),
                     value: match (wired, setter) {
@@ -622,7 +622,7 @@ impl crate::manual::KeypadTarget for Keys {
 }
 
 /// The checker's rows from startup, the modules built and the tool setter's
-/// pins. Opens SETUP first when `first` (no millgui.toml).
+/// pins. Opens SETUP first when `first` (no ferrum.toml).
 #[allow(clippy::too_many_arguments)]
 pub fn wire(
     ui: &MainWindow,
@@ -767,7 +767,7 @@ mod tests {
         for s in settings(&cfg) {
             assert_eq!(key_static(s.key), s.key);
             let (table, key) = s.key.split_once('.').unwrap();
-            // Each key is one millgui.toml reads.
+            // Each key is one ferrum.toml reads.
             let v = match s.kind {
                 Kind::Bool => toml_edit::value(true),
                 Kind::Number { .. } => toml_edit::value(1i64),

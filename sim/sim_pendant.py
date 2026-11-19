@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stand-in for the WHB04B pendant driver (xhc-whb04b-6) in the simulator.
 
-Exports the whb.* pins millgui/hal/pendant.hal and the sim's pendant nets
+Exports the whb.* pins ferrum/hal/pendant.hal and the sim's pendant nets
 use, and acts like the driver's START/PAUSE handling: if task is in AUTO it
 raises button.start-pause; otherwise it asks halui for AUTO first
 (halui.mode.auto, 10 ms) and waits up to 300 ms for it, as the real driver

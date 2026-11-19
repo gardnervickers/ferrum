@@ -1,8 +1,8 @@
 //! `wait`/`expect` expressions: `SOURCE.path OP VALUE`.
 //!
 //! Sources: `stat.` (LinuxCNC's own status, `linuxcnc.stat()` fields),
-//! `prop.` (millgui's mirrored Live properties), `hal.` (a HAL pin or signal),
-//! `errors` (LinuxCNC error-channel texts so far), `ui-errors` (millgui's
+//! `prop.` (ferrum's mirrored Live properties), `hal.` (a HAL pin or signal),
+//! `errors` (LinuxCNC error-channel texts so far), `ui-errors` (ferrum's
 //! error messages so far). Paths take `[i]` indexes, `.field`, and `.len`;
 //! a path may end in `{TEXT}`: the number right after the last TEXT in a
 //! text value (in a list, the last item containing TEXT), as in

@@ -1,7 +1,7 @@
-//! The JOB page and the conversational generators for millgui, without
+//! The JOB page and the conversational generators for ferrum, without
 //! Python.
 //!
-//! [`Helper`] answers the JSON requests millgui used to send to
+//! [`Helper`] answers the JSON requests ferrum used to send to
 //! `job_helper.py`, with the same replies. The modules below it are ports of
 //! the Python it imported:
 //!

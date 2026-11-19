@@ -1,13 +1,13 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
-; One-tap tool length (TOOLS › MEASURE): o<millgui_measure_tool> call [tool].
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; One-tap tool length (TOOLS › MEASURE): o<ferrum_measure_tool> call [tool].
 ; Loads the tool if another one is in the spindle (a normal M6, so the
 ; machine's tool change runs as usual), turns its length offset on (G43)
 ; and measures it on the setter with o<tool_touch_off>, which writes the
 ; length to the tool table. G43 then applies the new length. Any abort
 ; (the tool change, the setter) stops it before the next step.
-o<millgui_measure_tool> sub
+o<ferrum_measure_tool> sub
 o10 if [#<_task> EQ 0]
-    o<millgui_measure_tool> return
+    o<ferrum_measure_tool> return
 o10 endif
 #<tool> = #1
 o100 if [[#<tool> LE 0] OR [FIX[#<tool>] NE #<tool>]]
@@ -24,5 +24,5 @@ o120 endif
 G43
 o<tool_touch_off> call
 G43
-o<millgui_measure_tool> endsub
+o<ferrum_measure_tool> endsub
 M2

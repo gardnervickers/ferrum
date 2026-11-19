@@ -35,7 +35,7 @@ set pr-dialog ""
 mdi G53 G0 X215 Y-90
 mdi G0 Z-205
 idle 10
-sleep 1                                   # millgui goes back to manual mode after the MDI
+sleep 1                                   # ferrum goes back to manual mode after the MDI
 expect prop.pr-ready == ""
 do probe-run
 wait prop.pr-running == true within 5

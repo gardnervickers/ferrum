@@ -1,4 +1,4 @@
-; Part of millgui. MIT licence, see millgui/LICENSE.
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
 ; FIND/MEASURE ridge across X: finds the top, centre and width of a ridge
 ; (a rib running along Y) across X. The probe starts above the ridge's
 ; middle, within #3020 of its top. It touches the top, steps out to one side
@@ -13,20 +13,20 @@ o<probe_ridge_x> sub
 o10 if [#<_task> EQ 0]
     o<probe_ridge_x> return
 o10 endif
-o<millgui_probe_ready> call
+o<ferrum_probe_ready> call
 M73
 M50 P0
 G90 G94
 
-o<millgui_touch> call [2] [-1] [#3020]
-#1009 = #<_millgui_hit>
+o<ferrum_touch> call [2] [-1] [#3020]
+#1009 = #<_ferrum_hit>
 #<z_clear> = [#1009 + #3021]
 #<z_probe> = [#1009 - #5410 - #3022]
-o<millgui_guarded_move> call [0] [0] [#<z_clear> - #5422]
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
 
-o<millgui_span_outside> call [0] [#3028] [#<z_clear>] [#<z_probe>]
-#1001 = #<_millgui_width>
-#1002 = #<_millgui_center>
+o<ferrum_span_outside> call [0] [#3028] [#<z_clear>] [#<z_probe>]
+#1001 = #<_ferrum_width>
+#1002 = #<_ferrum_center>
 
 (DEBUG, EVAL[vcp.getWidget{"z_minus_probed_position"}.setValue{#1009}])
 (DEBUG, EVAL[vcp.getWidget{"x_probed_width"}.setValue{#1001}])

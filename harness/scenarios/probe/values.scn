@@ -1,5 +1,5 @@
-title Probe values: millgui's are in LinuxCNC once homed; a SETUP edit applies at once
-# A stock machine starts from millgui's starting values (the parameter file
+title Probe values: ferrum's are in LinuxCNC once homed; a SETUP edit applies at once
+# A stock machine starts from ferrum's starting values (the parameter file
 # has none); mymill keeps probe_basic.var's. #3014 is the probe's tool.
 include ../common/ready.scn
 sleep 4                                   # the write runs 3 s after things go still

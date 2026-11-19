@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn a_file_written_again_is_stale_unless_running() {
-        let f = std::env::temp_dir().join(format!("millgui-stamp-{}.ngc", std::process::id()));
+        let f = std::env::temp_dir().join(format!("ferrum-stamp-{}.ngc", std::process::id()));
         std::fs::write(&f, "G0 X0\n").unwrap();
         let name = f.to_string_lossy().into_owned();
         let shown = stamp(&name);

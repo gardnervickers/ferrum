@@ -532,7 +532,7 @@ pub fn folder(cfg: &Config, sim: bool) -> PathBuf {
 }
 
 pub fn cache_dir() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(".cache/millgui")
+    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(".cache/ferrum")
 }
 
 pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool, has_setter: bool) -> (Rc<RefCell<Job>>, slint::Timer) {

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""millgui's bridge to the job compiler and the conversational generators.
+"""ferrum's bridge to the job compiler and the conversational generators.
 
-millgui runs this as a child process with the config folder as its working
+ferrum runs this as a child process with the config folder as its working
 directory and talks to it in JSON lines: one request object per line on
 stdin, one reply per line on stdout. Nothing here touches LinuxCNC or HAL:
-millgui sends the status fields the session needs, loads the programs this
+ferrum sends the status fields the session needs, loads the programs this
 returns, and copies the ``pins`` of every reply to its ``mymill-job`` HAL
 component.
 
@@ -29,7 +29,7 @@ from mymill_job.compiler import Machine  # noqa: E402
 from mymill_job.model import MAX_OPS  # noqa: E402
 from mymill_vcp import job_session  # noqa: E402
 
-# millgui sends interp_state as 1 (idle) or 2 (anything else).
+# ferrum sends interp_state as 1 (idle) or 2 (anything else).
 job_session.INTERP_IDLE = 1
 
 KIND_BADGES = {'conversational': 'CONV', 'cam': 'CAM', 'step': 'STEP'}
@@ -39,7 +39,7 @@ CLASSES = {'face': 'MillFaceOps', 'drill': 'MillDrillOps', 'helical_bore': 'Mill
 
 def _load_vendored(name):
     path = os.path.join(os.getcwd(), 'vendor', 'probe_basic', 'src', 'widgets', 'conversational', name + '.py')
-    spec = importlib.util.spec_from_file_location('millgui_' + name, path)
+    spec = importlib.util.spec_from_file_location('ferrum_' + name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

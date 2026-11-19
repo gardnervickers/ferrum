@@ -1,4 +1,4 @@
-# millgui visual design
+# Ferrum visual design
 
 The Run screen and the frame around it (status bar, DRO column, bottom bar)
 are the reference. Other screens inherit the shared widgets and should be
