@@ -165,3 +165,11 @@ the names listed in `[hal]` are connected on top.
 | interlock | `motion_held` | `motion.feed-inhibit` | why motion is held |
 | interlock | `probe_fault`, `drives_not_ready` | none | the reasons |
 | load | `load` | none | cutting load, 0 to 1, colours the backplot trail |
+| watchdog | `screen_watchdog_trip` | none: gate `iocontrol.0.emc-enable-in` | an unconnected bit input driven TRUE when the screen has not drawn for 1 s (e.g. `estop-latch.0.fault-in`); it must latch |
+
+The watchdog module is always on (see ARCHITECTURE.md, "A frozen screen
+stops the machine"). Without `ferrum/hal/watchdog.hal` or
+`screen_watchdog_trip`, Ferrum loads a `oneshot`, an `estop_latch` reset by
+`iocontrol.0.user-request-enable`, and an `and2` in front of
+`iocontrol.0.emc-enable-in`, so a frozen, hung or crashed screen E-stops the
+machine until the operator resets E-stop.

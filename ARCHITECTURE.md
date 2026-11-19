@@ -63,6 +63,30 @@ clear message when its prerequisites are missing.
   also restores them at startup, which covers a GUI crash mid-run.
   (Assumes only Ferrum changes `#30xx` outside of probe runs.)
 
+### A frozen screen stops the machine
+
+The touchscreen is the operator's view of the machine. If it stops drawing
+while LinuxCNC, HAL and the pendant run on, taps land on controls nobody can
+see. So (app/src/failsafe.rs, the always-on `watchdog` module):
+
+- **HAL screen watchdog.** `ferrum.watchdog.heartbeat` flips once per frame
+  actually drawn: femtovg's AfterRendering notifier, or winit's
+  RedrawRequested with the software renderer. A timer only *asks* for a
+  frame every 250 ms, so a live event loop with a dead window does not beat.
+  A realtime `oneshot` (1 s) drives a latched E-stop when the beats stop:
+  `estop-latch.0.fault-in` on the mill (`ferrum/hal/watchdog.hal`, no change
+  to mymill.hal), or a built-in latch and gate on `iocontrol.0.emc-enable-in`
+  elsewhere. It covers a frozen window, a hung or killed Ferrum and a crash.
+  The machine cannot be turned on before the screen draws. After a trip the
+  status list says `SCREEN FROZE n S: E-STOP` until E-stop is reset.
+- **Stale input is dropped.** A tap, key or wheel event that arrives more
+  than 600 ms after the last drawn frame is ignored (not in `--sim`).
+- **Tested on the real start path.** The harness starts Ferrum with
+  `--boot` (the splash launcher, as `ferrum/boot` on the Pi), checks after
+  every run that the watchdog is happy and no two frames were more than
+  700 ms apart, and `scenarios/failsafe/` freezes Ferrum mid-move (SIGSTOP),
+  taps a frozen screen and tries to power on without a screen.
+
 ## Remote (web) access
 
 Requested 2026-11-13: use the GUI from a MacBook's browser. Plan: the same

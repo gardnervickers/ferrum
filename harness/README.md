@@ -110,6 +110,9 @@ One step per line; `#` after a space starts a comment. Files under
 | `shot NAME` | screenshot into the report |
 | `golden NAME [MAX%]` | screenshot compared with `goldens/<config>/<scenario>--NAME.png` (default 0.5% of pixels may change; record with `run --update-goldens`) |
 | `log TEXT` | print a note |
+| `signal STOP\|CONT\|KILL` | signal Ferrum's GUI process (STOP freezes it: no frames, no input) |
+| `click X Y` | a real X pointer click at screen pixels (xdotool), through the same path as a tap |
+| `screen-may-stall` | the scenario stalls Ferrum on purpose: skip the end-of-run screen watchdog checks |
 
 Expressions are `SOURCE.path OP VALUE`:
 
@@ -128,7 +131,16 @@ Expressions are `SOURCE.path OP VALUE`:
   default tolerance 0.002), `contains` / `!contains`.
 
 At the end of every scenario, any LinuxCNC error-channel error or Ferrum
-error message not covered by `allow-error` fails it.
+error message not covered by `allow-error` fails it, and so does a screen
+that stopped drawing: HAL's screen watchdog (`ferrum.watchdog.ok`) must be
+happy and no two frames may have been more than 700 ms apart since Ferrum
+answered (it E-stops at 1 s; see `app/src/failsafe.rs`).
+
+Ferrum starts the way the Pi starts it, through `ferrum --boot` (the
+splash launcher, which runs LinuxCNC itself). `HARNESS_BOOT=0` starts
+`linuxcnc ferrum.ini` with Ferrum as its display instead.
+`HARNESS_RENDERER=gpu` draws with femtovg (Mesa's llvmpipe under Xvfb)
+instead of the software renderer; screenshots then differ from the goldens.
 
 ## PROBE routines against known geometry (`scenarios/probe-routines`)
 

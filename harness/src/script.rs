@@ -6,6 +6,7 @@
 //! xfail   inch: B3, inch not handled  # expected to fail on a config or tag
 //! allow-error  Probe tripped          # LinuxCNC/ferrum error text that is fine (any case)
 //! errors-to-ferrum                   # only ferrum reads LinuxCNC's error queue (errors checked via ferrum)
+//! screen-may-stall                    # the run stalls ferrum on purpose: skip the screen watchdog checks at the end
 //! include common/ready.scn            # another file's steps, here
 //! seed    .local/state/ferrum/probe probe.restore-pending=1   # a line in a file under HOME, before start
 //!
@@ -22,6 +23,8 @@
 //! shot    after-jog                   # screenshot into the report
 //! golden  after-jog 0.5               # screenshot compared with goldens/<config>/
 //! log     any text for the report
+//! signal  STOP                        # signal ferrum's GUI process (STOP, CONT, KILL)
+//! click   960 540                     # a real X pointer click at screen pixels (xdotool)
 //! ```
 //!
 //! `${name}` is replaced from the config's `vars` file before parsing.
@@ -67,6 +70,10 @@ pub enum Step {
         max_pct: f64,
     },
     Log(String),
+    /// Send a signal to ferrum's GUI process: STOP, CONT, KILL.
+    Signal(String),
+    /// A real X pointer click at screen pixels.
+    Click(i32, i32),
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +96,9 @@ pub struct Scenario {
     pub xfail: Vec<(String, String)>,
     pub allow_errors: Vec<String>,
     pub errors_to_ferrum: bool,
+    /// The scenario stalls ferrum on purpose (`screen-may-stall`): the
+    /// end-of-run screen watchdog checks are skipped.
+    pub screen_may_stall: bool,
     /// Files written under the run's fresh HOME before LinuxCNC starts: (path, line).
     pub seeds: Vec<(String, String)>,
     pub steps: Vec<Line>,
@@ -166,6 +176,10 @@ impl Scenario {
                 }
                 "errors-to-ferrum" => {
                     self.errors_to_ferrum = true;
+                    continue;
+                }
+                "screen-may-stall" => {
+                    self.screen_may_stall = true;
                     continue;
                 }
                 "allow-error" => {
@@ -256,6 +270,14 @@ impl Scenario {
                     }
                 }
                 "log" => Step::Log(rest.to_string()),
+                "signal" => match rest {
+                    "STOP" | "CONT" | "KILL" => Step::Signal(rest.to_string()),
+                    _ => return Err(err("signal is STOP, CONT or KILL")),
+                },
+                "click" => {
+                    let (x, y) = split_word(rest);
+                    Step::Click(x.parse().map_err(|_| err("bad x"))?, y.parse().map_err(|_| err("bad y"))?)
+                }
                 _ => return Err(err("unknown step")),
             };
             self.steps.push(Line {

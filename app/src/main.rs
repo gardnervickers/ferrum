@@ -7,6 +7,7 @@ mod boot;
 mod calc;
 mod config;
 mod conv;
+mod failsafe;
 mod files;
 mod headless;
 mod history;
@@ -188,6 +189,8 @@ fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<Stri
             }
         }
     }
+    // Read by the screen watchdog's built-in wiring (modules.rs).
+    known.push("screen_watchdog_trip");
     for k in mc.hal.keys() {
         if !known.contains(&k.as_str()) {
             notes.push(format!("[hal]{k}: no enabled module uses this name"));
@@ -198,6 +201,10 @@ fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<Stri
         if let Err(e) = halcmd_file(&cfg.dir(), ini, &f) {
             notes.push(e);
         }
+    }
+    for m in modules.iter_mut() {
+        let has_file = cfg.dir().join(format!("ferrum/hal/{}.hal", m.id())).is_file();
+        notes.extend(m.after_hal(has_file));
     }
     Some(comp)
 }
@@ -764,9 +771,12 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.window().set_fullscreen(true);
     }
     // A desktop window may be any size: scale the 1920x1080 layout to fit.
-    if args.windowed || args.sim {
-        fit_desktop_window(&ui);
-    }
+    // The same (single) winit filter marks drawn frames for the screen
+    // watchdog and drops taps on a stale screen (failsafe.rs). The desktop
+    // simulator keeps every click: a hidden window there draws nothing.
+    let fit = (args.windowed || args.sim).then(|| fit_desktop_window());
+    failsafe::install_filter(&ui, !args.sim, fit);
+    let _keepalive = failsafe::start_keepalive(&ui);
     boot::init_brand(&ui);
     ui.global::<Boot>().on_quit(boot::request_quit);
     // Closing the window is leaving: go through the same orderly stop.
@@ -1322,10 +1332,10 @@ const MIN_LAYOUT_WIDTH: f32 = 1440.0;
 /// winit backend then resizes the window to match it, which can feed back
 /// into a runaway resize.) The OS display scale is ignored: the window's
 /// size alone decides. At startup the window takes most of its screen.
-fn fit_desktop_window(ui: &MainWindow) {
+fn fit_desktop_window() -> Box<dyn FnMut(&slint::Window, &slint::winit_030::winit::event::WindowEvent) -> slint::winit_030::EventResult> {
     use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
     let mut sized = false;
-    ui.window().on_winit_window_event(move |w, ev| {
+    Box::new(move |w, ev| {
         // The first event: size the window to most of its screen. The
         // resize that follows sets the scale.
         if !sized {
@@ -1354,7 +1364,7 @@ fn fit_desktop_window(ui: &MainWindow) {
             winit::event::WindowEvent::ScaleFactorChanged { .. } => EventResult::PreventDefault,
             _ => EventResult::Propagate,
         }
-    });
+    })
 }
 
 fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path) -> Result<(), slint::PlatformError> {

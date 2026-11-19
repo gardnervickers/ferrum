@@ -17,7 +17,7 @@ pub struct Link {
     pub auto: Option<&'static str>,
 }
 
-fn halcmd(args: &[&str]) -> Result<String, String> {
+pub(crate) fn halcmd(args: &[&str]) -> Result<String, String> {
     let out = Command::new("halcmd").args(args).output().map_err(|e| format!("halcmd: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -28,7 +28,7 @@ fn halcmd(args: &[&str]) -> Result<String, String> {
 }
 
 /// What `halcmd -s show pin` says about a pin: (direction, signal).
-fn pin_info(pin: &str) -> Option<(String, String)> {
+pub(crate) fn pin_info(pin: &str) -> Option<(String, String)> {
     let out = halcmd(&["-s", "show", "pin", pin]).ok()?;
     out.lines().find_map(|l| {
         let w: Vec<&str> = l.split_whitespace().collect();
@@ -39,7 +39,7 @@ fn pin_info(pin: &str) -> Option<(String, String)> {
     })
 }
 
-fn is_signal(name: &str) -> bool {
+pub(crate) fn is_signal(name: &str) -> bool {
     halcmd(&["-s", "show", "sig", name]).is_ok_and(|o| o.lines().any(|l| l.split_whitespace().nth(2) == Some(name)))
 }
 

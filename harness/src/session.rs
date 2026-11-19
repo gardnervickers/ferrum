@@ -28,6 +28,7 @@ pub struct Session {
     helper: Option<(Child, ChildStdin, BufReader<ChildStdout>)>,
     rip: PathBuf,
     display: String,
+    port: u16,
     pub log: PathBuf,
 }
 
@@ -48,12 +49,13 @@ impl Session {
         // restore-pending marker there, LinuxCNC its tool mmap.
         let home = cfg_dir.parent().unwrap_or(cfg_dir).join("home");
         std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
-        // HARNESS_BOOT=1: start through `ferrum --boot` (the splash
-        // launcher, which runs LinuxCNC itself) instead of `linuxcnc`.
-        let start = if std::env::var("HARNESS_BOOT").is_ok_and(|v| v == "1") {
-            format!("exec '{}' --boot ferrum.ini", env.ferrum_bin.display())
-        } else {
+        // Start the way the Pi does (ferrum/boot): `ferrum --boot`, the
+        // splash launcher, which runs LinuxCNC itself. HARNESS_BOOT=0 starts
+        // `linuxcnc` with ferrum as its display instead.
+        let start = if std::env::var("HARNESS_BOOT").is_ok_and(|v| v == "0") {
             "exec linuxcnc ferrum.ini".to_string()
+        } else {
+            format!("exec '{}' --boot ferrum.ini", env.ferrum_bin.display())
         };
         let mut cmd = rip_cmd(&env.lcnc, &start);
         cmd.current_dir(cfg_dir)
@@ -61,7 +63,7 @@ impl Session {
             .env("DISPLAY", &env.display)
             .env("FERRUM_BIN", &env.ferrum_bin)
             .env("FERRUM_HARNESS", "1")
-            .env("FERRUM_RENDERER", "software")
+            .env("FERRUM_RENDERER", std::env::var("HARNESS_RENDERER").unwrap_or_else(|_| "software".into()))
             .env("FERRUM_LOG_MESSAGES", "1")
             .env("LD_LIBRARY_PATH", env.lcnc.join("lib"))
             .stdin(Stdio::null())
@@ -81,9 +83,13 @@ impl Session {
             helper: None,
             rip: env.lcnc.clone(),
             display: env.display.clone(),
+            port: env.port,
             log,
         };
         s.connect(env.port, Duration::from_secs(90))?;
+        // Measure frame gaps from here: the splash's hand-over to the main
+        // screen is checked by the HAL watchdog itself.
+        s.action("failsafe-reset-gap", &[])?;
         let mut h = rip_cmd(
             &env.lcnc,
             &format!(
@@ -301,6 +307,48 @@ impl Session {
         }
     }
 
+    /// ferrum's GUI process: under `--boot` the one with that flag
+    /// (LinuxCNC's own display copy only waits), else the only one.
+    fn gui_pid() -> Result<String, String> {
+        for args in [["-n", "-f", "ferrum --boot"], ["-n", "-x", "ferrum"]] {
+            let o = Command::new("pgrep").args(args).output().map_err(|e| e.to_string())?;
+            let pid = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !pid.is_empty() {
+                return Ok(pid);
+            }
+        }
+        Err("no ferrum process".into())
+    }
+
+    pub fn signal_gui(&mut self, sig: &str) -> Result<(), String> {
+        let pid = Self::gui_pid()?;
+        let st = Command::new("kill").args([&format!("-{sig}"), &pid]).status().map_err(|e| e.to_string())?;
+        if !st.success() {
+            return Err(format!("kill -{sig} {pid} failed"));
+        }
+        // A stopped ferrum may drop the websocket: connect again.
+        if sig == "CONT" {
+            std::thread::sleep(Duration::from_millis(500));
+            if self.ws_out.lock().unwrap().is_none() {
+                self.connect(self.port, Duration::from_secs(10))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn click(&self, x: i32, y: i32) -> Result<(), String> {
+        let out = Command::new("xdotool")
+            .env("DISPLAY", &self.display)
+            .args(["mousemove", &x.to_string(), &y.to_string(), "click", "1"])
+            .output()
+            .map_err(|e| format!("xdotool: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+
     pub fn alive(&mut self) -> bool {
         self.child
             .as_mut()
@@ -333,6 +381,9 @@ pub fn cleanup(lcnc: &Path) {
 
 impl Drop for Session {
     fn drop(&mut self) {
+        // A scenario that failed with ferrum stopped (signal STOP) must not
+        // leave it stopped: it could not exit.
+        let _ = Command::new("pkill").args(["-CONT", "-x", "ferrum"]).status();
         let _ = self.action("exit", &[]);
         if let Some((mut h, stdin, _)) = self.helper.take() {
             drop(stdin);
@@ -348,10 +399,11 @@ impl Drop for Session {
                 std::thread::sleep(Duration::from_millis(100));
             }
             if let Ok(None) = c.try_wait() {
-                let pg = c.id() as i32;
-                let _ = Command::new("kill")
-                    .args(["-9", &format!("-{pg}")])
-                    .status();
+                // Its whole process group, then the child itself by pid (a
+                // group kill alone has been seen to leave it running here).
+                let pg = c.id().to_string();
+                let _ = Command::new("pkill").args(["-9", "-g", &pg]).status();
+                let _ = c.kill();
                 let _ = c.wait();
             }
         }

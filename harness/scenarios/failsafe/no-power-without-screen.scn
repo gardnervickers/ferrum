@@ -1,0 +1,14 @@
+title The machine cannot be turned on while the screen is not drawing
+screen-may-stall
+allow-error estop
+wait prop.connected == true within 30
+signal STOP
+sleep 1.5
+hal halui.estop.reset 1
+hal halui.estop.reset 0
+sleep 0.5
+expect stat.task_state == 1
+signal CONT
+wait hal.ferrum.watchdog.ok == TRUE within 3
+do estop-reset
+wait stat.task_state == 2 within 10

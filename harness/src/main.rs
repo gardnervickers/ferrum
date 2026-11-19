@@ -584,6 +584,12 @@ fn run_one(
                 ));
             }
         }
+        // The screen kept drawing the whole run (failsafe.rs): no gap
+        // between frames near the HAL watchdog's 1 s, and the watchdog
+        // never tripped. A scenario that stalls ferrum on purpose says so.
+        if !sc.screen_may_stall {
+            check_screen_watchdog(&mut s)?;
+        }
         // Any error LinuxCNC or ferrum reported fails the scenario unless allowed.
         std::thread::sleep(Duration::from_millis(300));
         let mut errs = s.errors()?;
@@ -695,6 +701,23 @@ fn settle(s: &mut Session, within: f64) -> Result<(), String> {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Longest gap between drawn frames a run may have after start (ms); the
+/// HAL watchdog trips at 1000.
+const MAX_FRAME_GAP_MS: u64 = 700;
+
+fn check_screen_watchdog(s: &mut Session) -> Result<(), String> {
+    wait_for(s, "hal.ferrum.watchdog.ok == TRUE", 2.0)
+        .map_err(|e| format!("screen watchdog: HAL says the screen is stale (ferrum.watchdog.ok): {e}"))?;
+    let gap = s.prop_snapshot().get("failsafe-max-gap-ms").and_then(|v| v.as_u64());
+    match gap {
+        None => Err("screen watchdog: ferrum reported no frame gap (failsafe-max-gap-ms)".into()),
+        Some(g) if g > MAX_FRAME_GAP_MS => Err(format!(
+            "screen watchdog: ferrum went {g} ms without drawing a frame (limit {MAX_FRAME_GAP_MS} ms; HAL E-stops at 1000)"
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
 fn step(
     s: &mut Session,
     st: &Step,
@@ -770,6 +793,8 @@ fn step(
             }
         }
         Step::Hal { pin, value } => s.hal_set(pin, value),
+        Step::Signal(sig) => s.signal_gui(sig),
+        Step::Click(x, y) => s.click(*x, *y),
         Step::Sleep(secs) => {
             std::thread::sleep(Duration::from_secs_f64(*secs));
             Ok(())

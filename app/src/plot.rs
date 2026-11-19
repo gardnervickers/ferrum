@@ -894,7 +894,7 @@ thread_local! {
 /// to the software backplot if the GL setup fails.
 pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> {
     let weak = ui.as_weak();
-    ui.window().set_rendering_notifier(move |state, api| {
+    let r = ui.window().set_rendering_notifier(move |state, api| {
         let Some(ui) = weak.upgrade() else { return };
         match (state, api) {
             (slint::RenderingState::RenderingSetup, slint::GraphicsAPI::NativeOpenGL { get_proc_address }) => {
@@ -914,6 +914,8 @@ pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> 
                 }
             }
             (slint::RenderingState::BeforeRendering, _) => with(|p| gpu_frame(&ui, p)),
+            // The screen watchdog's heartbeat (failsafe.rs).
+            (slint::RenderingState::AfterRendering, _) => crate::failsafe::frame_drawn(),
             (slint::RenderingState::RenderingTeardown, _) => {
                 GPU.with(|c| *c.borrow_mut() = None);
                 with(|p| {
@@ -925,7 +927,11 @@ pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> 
             }
             _ => {}
         }
-    })
+    });
+    if r.is_ok() {
+        crate::failsafe::notifier_marks_frames();
+    }
+    r
 }
 
 fn gpu_frame(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) {

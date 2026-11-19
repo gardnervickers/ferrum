@@ -1,0 +1,16 @@
+# watchdog module (always on): E-stop when the screen stops drawing.
+# ferrum flips ferrum.watchdog.heartbeat once per frame it actually draws,
+# and asks for a frame at least every 250 ms. If no flip arrives for 1 s
+# (frozen window, hung or crashed ferrum), the oneshot drops and drives
+# estop-latch.0.fault-in from mymill.hal, so the machine goes to E-stop and
+# stays there until E-stop is reset from a working screen. The machine
+# cannot be turned on before the screen draws.
+loadrt oneshot names=ferrum-screen-watchdog
+addf ferrum-screen-watchdog servo-thread
+setp ferrum-screen-watchdog.width 1.0
+setp ferrum-screen-watchdog.retriggerable 1
+setp ferrum-screen-watchdog.rising 1
+setp ferrum-screen-watchdog.falling 1
+net ferrum-screen-heartbeat ferrum.watchdog.heartbeat => ferrum-screen-watchdog.in
+net ferrum-screen-ok    <= ferrum-screen-watchdog.out     => ferrum.watchdog.ok
+net ferrum-screen-stale <= ferrum-screen-watchdog.out-not => estop-latch.0.fault-in

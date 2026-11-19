@@ -1,0 +1,29 @@
+title A frozen screen E-stops a moving machine within 1.5 s and stays E-stopped
+# ferrum is stopped (SIGSTOP) mid-move: it draws nothing and answers
+# nothing, as on the Pi when the splash froze. HAL's screen watchdog must
+# E-stop on its own, and the E-stop must hold after the screen comes back.
+screen-may-stall
+allow-error estop
+# LinuxCNC's note on the power-on after the trip.
+allow-error Motion enabled after reaching a coordinate soft limit
+include ../common/ready.scn
+do mdi-send "G1 X${safe_x} F${feed}"
+wait stat.current_vel > 0 within 5
+signal STOP
+wait stat.task_state == 1 within 1.5
+sleep 1
+expect stat.current_vel == 0
+signal CONT
+wait hal.ferrum.watchdog.ok == TRUE within 3
+# Stopped short of the target.
+expect prop.dro-pos[0].work < ${safe_x}
+# Live again, still E-stopped, and the screen says why.
+sleep 1
+expect stat.task_state == 1
+wait prop.pills contains SCREEN FROZE within 3
+shot froze-pill
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10
+wait prop.pills !contains SCREEN FROZE within 3

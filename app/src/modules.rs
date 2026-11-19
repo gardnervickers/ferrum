@@ -101,6 +101,12 @@ pub trait Module {
     fn tick(&self, _status: Option<&Status>) -> bool {
         false
     }
+
+    /// After the HAL files ran. `has_file`: `ferrum/hal/<id>.hal` exists
+    /// and was run. Returns problems for the message line.
+    fn after_hal(&mut self, _has_file: bool) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Tool setter pins (ferrum/hal/probe.hal).
@@ -535,8 +541,141 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
         "interlock" => Some(Box::new(Interlock::default())),
         "load" => Some(Box::new(Load::default())),
         "pendant" => Some(Box::new(Pendant::default())),
+        "watchdog" => Some(Box::new(Watchdog::default())),
         _ => None,
     }
+}
+
+/// The screen watchdog (failsafe.rs): ferrum flips `watchdog.heartbeat`
+/// per drawn frame; a realtime oneshot trips E-stop when it stops. Always
+/// on. `ferrum/hal/watchdog.hal` wires it for the mymill profile; without
+/// that file ferrum loads the oneshot itself and trips `[hal]
+/// screen_watchdog_trip` (an unconnected bit input such as
+/// `estop-latch.0.fault-in`, driven TRUE when the screen is stale) or, by
+/// default, gates `iocontrol.0.emc-enable-in`, LinuxCNC's E-stop input.
+#[derive(Default)]
+struct Watchdog {
+    ok: Option<In<bool>>,
+    wired: Cell<bool>,
+}
+
+/// The HAL instances the built-in wiring loads.
+const WD_ONESHOT: &str = "ferrum-screen-watchdog";
+const WD_GATE: &str = "ferrum-screen-gate";
+const WD_LATCH: &str = "ferrum-screen-latch";
+const WD_ENABLE: &str = "iocontrol.0.emc-enable-in";
+const WD_REQUEST: &str = "iocontrol.0.user-request-enable";
+
+impl Module for Watchdog {
+    fn id(&self) -> &'static str {
+        "watchdog"
+    }
+    fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
+        let beat: Out<bool> = comp.pin("watchdog.heartbeat")?;
+        crate::failsafe::set_pin(beat);
+        self.ok = Some(comp.pin("watchdog.ok")?);
+        Ok(())
+    }
+    fn after_hal(&mut self, has_file: bool) -> Vec<String> {
+        if self.ok.is_none() {
+            return Vec::new();
+        }
+        let r = if has_file { check_watchdog_file() } else { wire_watchdog() };
+        match r {
+            Ok(how) => {
+                eprintln!("ferrum: screen watchdog: {how}");
+                self.wired.set(true);
+                Vec::new()
+            }
+            Err(e) => vec![format!("Screen watchdog not wired: {e}")],
+        }
+    }
+    fn pills(&self, s: Option<&Status>, out: &mut Vec<Pill>) {
+        let Some(ok) = &self.ok else { return };
+        if ok.get() {
+            crate::failsafe::arm();
+        }
+        // After a freeze the screen is live again but the machine stays in
+        // E-stop: say why until E-stop is reset.
+        if let Some(gap) = crate::failsafe::froze() {
+            if s.is_some_and(|s| s.estop()) {
+                out.push(
+                    Pill::new(format!("SCREEN FROZE {:.1} S: E-STOP", gap.as_secs_f64()), "bad")
+                        .hint("The screen stopped drawing for over a second, so HAL E-stopped the machine. Reset E-stop to go on."),
+                );
+                return;
+            }
+            crate::failsafe::clear_froze();
+        }
+        out.push(if !self.wired.get() {
+            Pill::new("NO SCREEN WATCHDOG", "bad").hint("HAL does not stop the machine if this screen freezes. See the message line.")
+        } else if !ok.get() {
+            Pill::new("SCREEN WATCHDOG", "bad").hint("The screen stopped drawing for over a second, so HAL E-stopped the machine. Reset E-stop to go on.")
+        } else {
+            Pill::new("SCREEN WATCHDOG OK", "good")
+        });
+    }
+}
+
+/// The module's HAL file ran: its heartbeat must reach something.
+fn check_watchdog_file() -> Result<String, String> {
+    use crate::halmap::pin_info;
+    let beat = pin_info("ferrum.watchdog.heartbeat").map(|(_, s)| s).unwrap_or_default();
+    if beat.is_empty() {
+        return Err("ferrum/hal/watchdog.hal left ferrum.watchdog.heartbeat unconnected".into());
+    }
+    Ok(format!("ferrum/hal/watchdog.hal (heartbeat on {beat})"))
+}
+
+/// No HAL file: load and connect the oneshot, then the trip.
+fn wire_watchdog() -> Result<String, String> {
+    use crate::halmap::{halcmd, pin_info};
+    let o = WD_ONESHOT;
+    let width = format!("{}", crate::failsafe::TIMEOUT);
+    for cmd in [
+        vec!["loadrt", "oneshot", &format!("names={o}")],
+        vec!["addf", o, "servo-thread"],
+        vec!["setp", &format!("{o}.width"), &width],
+        vec!["setp", &format!("{o}.retriggerable"), "1"],
+        vec!["setp", &format!("{o}.rising"), "1"],
+        vec!["setp", &format!("{o}.falling"), "1"],
+        vec!["net", "ferrum-screen-heartbeat", "ferrum.watchdog.heartbeat", &format!("{o}.in")],
+        vec!["net", "ferrum-screen-ok", &format!("{o}.out"), "ferrum.watchdog.ok"],
+    ] {
+        halcmd(&cmd).map_err(|e| format!("halcmd {}: {e}", cmd.join(" ")))?;
+    }
+    if let Some(t) = crate::machine_cfg::get().hal.get("screen_watchdog_trip") {
+        halcmd(&["net", "ferrum-screen-stale", &format!("{o}.out-not"), t]).map_err(|e| format!("[hal]screen_watchdog_trip: {e}"))?;
+        return Ok(format!("trips {t}"));
+    }
+    // Gate LinuxCNC's E-stop input: enable = (what drove it) AND screen ok,
+    // latched: a stale screen holds the gate shut until the operator's next
+    // E-stop reset (iocontrol's user-request-enable), as an E-stop button
+    // would. (An unlatched gate lets LinuxCNC leave E-stop by itself when
+    // the screen comes back.)
+    let (_, sig) = pin_info(WD_ENABLE).ok_or_else(|| format!("HAL has no {WD_ENABLE}"))?;
+    let (g, l) = (WD_GATE, WD_LATCH);
+    halcmd(&["loadrt", "estop_latch", &format!("names={l}")])?;
+    halcmd(&["addf", l, "servo-thread"])?;
+    halcmd(&["setp", &format!("{l}.ok-in"), "1"])?;
+    halcmd(&["net", "ferrum-screen-stale", &format!("{o}.out-not"), &format!("{l}.fault-in")])?;
+    let (_, req) = pin_info(WD_REQUEST).ok_or_else(|| format!("HAL has no {WD_REQUEST}"))?;
+    if req.is_empty() {
+        halcmd(&["net", "ferrum-screen-reset", WD_REQUEST, &format!("{l}.reset")])?;
+    } else {
+        halcmd(&["net", &req, &format!("{l}.reset")])?;
+    }
+    halcmd(&["loadrt", "and2", &format!("names={g}")])?;
+    halcmd(&["addf", g, "servo-thread"])?;
+    if sig.is_empty() {
+        halcmd(&["setp", &format!("{g}.in0"), "1"])?;
+    } else {
+        halcmd(&["unlinkp", WD_ENABLE])?;
+        halcmd(&["net", &sig, &format!("{g}.in0")])?;
+    }
+    halcmd(&["net", "ferrum-screen-latched-ok", &format!("{l}.ok-out"), &format!("{g}.in1")])?;
+    halcmd(&["net", "ferrum-screen-enable", &format!("{g}.out"), WD_ENABLE])?;
+    Ok(format!("gates {WD_ENABLE} (was {})", if sig.is_empty() { "unconnected" } else { &sig }))
 }
 
 /// Build the enabled modules in the order listed. Unknown ids are reported,
@@ -555,9 +694,10 @@ pub fn build(cfg: &Config, hal: &dyn crate::checks::Hal) -> (Vec<Box<dyn Module>
     {
         list.push("toolchange".into());
     }
-    // SETUP is always there, last.
-    list.retain(|m| m != "setup");
+    // SETUP is always there, last. The screen watchdog is always there.
+    list.retain(|m| m != "setup" && m != "watchdog");
     list.push("setup".into());
+    list.push("watchdog".into());
     let mut modules: Vec<Box<dyn Module>> = Vec::new();
     let mut problems = Vec::new();
     for id in list.iter().map(String::as_str) {

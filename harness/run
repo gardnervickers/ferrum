@@ -36,7 +36,7 @@ mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
 run=("$TARGET/debug/ferrum-harness" --lcnc "$LCNC/src" --ferrum "$TARGET/debug/ferrum" --out "$OUT" "$@")
-envs=(HARNESS_DIR="$HERE" HARNESS_BOOT="${HARNESS_BOOT:-}" LD_LIBRARY_PATH="$LCNC/src/lib" PATH="$PATH")
+envs=(HARNESS_DIR="$HERE" HARNESS_BOOT="${HARNESS_BOOT:-}" HARNESS_RENDERER="${HARNESS_RENDERER:-software}" LD_LIBRARY_PATH="$LCNC/src/lib" PATH="$PATH")
 
 if [ "$(id -u)" = 0 ]; then
   id cncsim >/dev/null 2>&1 || useradd -m -s /bin/bash cncsim

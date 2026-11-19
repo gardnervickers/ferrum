@@ -1,0 +1,16 @@
+title A tap on a screen that has stopped drawing is dropped
+# The tap reaches ferrum only after it was stopped for 1.2 s: what was
+# under the finger may not be what the screen showed, so it must not act.
+screen-may-stall
+wait prop.connected == true within 30
+screen manual
+signal STOP
+click 775 1015   # FILES in the nav bar
+sleep 1.2
+signal CONT
+sleep 1
+expect prop.screen == "manual"
+expect prop.failsafe-dropped > 0
+# A tap on a live screen still works.
+click 775 1015
+wait prop.screen == "files" within 3

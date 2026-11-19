@@ -117,6 +117,18 @@ impl Remote {
                 diff.insert(name.to_string(), v);
             }
         }
+        // The harness checks the screen watchdog's view of drawing
+        // (failsafe.rs): the longest gap between drawn frames, dropped taps.
+        if harness() {
+            let (_, gap, dropped) = crate::failsafe::stats();
+            for (name, v) in [("failsafe-max-gap-ms", gap), ("failsafe-dropped", dropped)] {
+                let v = Value::from(v);
+                if self.last.get(name) != Some(&v) {
+                    self.last.insert(name.to_string(), v.clone());
+                    diff.insert(name.to_string(), v);
+                }
+            }
+        }
         // The backplot changes at most ten times a second; send it at 4 Hz.
         self.ticks = self.ticks.wrapping_add(1);
         let mut png = None;
@@ -306,6 +318,10 @@ fn handle(weak: &slint::Weak<MainWindow>, client: &Arc<Client>, text: &str) {
 fn admit(ui: &MainWindow, name: &str, args: &[Value]) {
     let live = ui.global::<Live>();
     if LOCAL_ACTIONS.contains(&name) && !harness() {
+        return;
+    }
+    if name == "failsafe-reset-gap" && harness() {
+        crate::failsafe::reset_max_gap();
         return;
     }
     if name == "jog-start" && live.get_jog_step() == "CONT" && !harness() {
