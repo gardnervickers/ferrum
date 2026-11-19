@@ -533,7 +533,10 @@ mod tests {
 
     #[test]
     fn mymill_profile_reads_clean() {
-        let c = parse(include_str!("../../../ferrum.toml"));
+        // mymill's ferrum.toml, beside Ferrum's folder; not there when
+        // Ferrum is checked out on its own.
+        let Ok(text) = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../ferrum.toml")) else { return };
+        let c = parse(&text);
         assert_eq!(c.toolchange.style, Some(ToolChangeStyle::Drawbar));
         assert_eq!(c.probe.tool, Some(99));
         assert!(c.model.known());
