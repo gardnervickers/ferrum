@@ -33,7 +33,12 @@ export struct SetupStep { label: string, count: int }
 // "bool" (a ferrum.toml setting, `key`), "live" (an input test),
 // "action" (a button, `key`). level: "ok" | "info" | "warn" | "bad" | "".
 // `code`: INI or HAL lines to add; `note`: a saved change waiting for a restart.
-export struct SetupRow { kind: string, key: string, level: string, title: string, detail: string, value: string, code: string, note: string }
+// "head" (a caption over the rows below), "text" (a value on the keyboard),
+// "order" (a screen: on/off and up/down; `state` holds "u"/"d" for the moves
+// it has), "hal" (a HAL name: `value` its target, `state` the target's value
+// now). `hold`: the button needs the 800 ms press; `free`: it works with the
+// machine off; `on`: the button is lit; `off`: the control is disabled.
+export struct SetupRow { kind: string, key: string, level: string, title: string, detail: string, value: string, code: string, note: string, state: string, hold: bool, free: bool, on: bool, off: bool }
 export struct JobOp { pos: string, badge: string, kind: string, name: string, detail: string, enabled: bool, state: string, can-toggle: bool, selected: bool, progress: float, progress-text: string, stop-after: bool }
 export struct ConvField { key: string, label: string, value: string, unit: string, choice: bool }
 // One face of the backplot's view cube, in a 100 × 100 box.
@@ -430,6 +435,8 @@ export global Live {
     in property <bool> setup-first;
     // Saved changes that apply when LinuxCNC (and ferrum) next start.
     in property <string> setup-pending;
+    // ferrum started LinuxCNC (--boot, or the simulator): RESTART LINUXCNC is offered.
+    in property <bool> setup-can-restart;
 }
 
 export global Actions {
@@ -590,4 +597,6 @@ export global Actions {
     callback setup-go(step: int);
     callback setup-tap(key: string);
     callback setup-finish();
+    // Stop LinuxCNC, add the queued INI lines, start again (setup.rs, main.rs).
+    callback setup-restart();
 }

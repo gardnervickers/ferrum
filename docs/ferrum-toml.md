@@ -15,12 +15,25 @@ Without a `ferrum.toml`, Ferrum still reads the older places: the INI's
 `[FERRUM]MACHINE_CONFIG`) for `[buttons]` and `[model]`. When both name a
 setting, `ferrum.toml` wins.
 
-The SETUP screen (always last in the nav bar) edits it for you: it shows
-the same checks as `ferrum --check`, in six steps, with the settings each
-step needs and a live test of the probe and tool setter inputs. A change is
-written to `ferrum.toml` at once, keeping your comments, and applies when
-LinuxCNC next starts. With no `ferrum.toml`, SETUP opens first; FINISH
-writes the file so it stops doing that.
+The SETUP screen (always last in the nav bar) edits it for you, on nine
+pages: MACHINE, SPINDLE, TOOL CHANGE, PROBE and TOOL SETTER (the same
+checks as `ferrum --check`, the settings each needs, live tests of the
+probe and tool setter inputs), then SCREENS (which screens are in the nav
+bar and in what order, and the machine modules), HAL WIRING (each `[hal]`
+name, picked from the machine's own pins and signals with their values
+shown live), DISPLAY (quick buttons, the backplot table, the renderer, the
+MDI library, the browser screen) and SOFTWARE (the version and its updates,
+through the installer's `ferrum-update`). A change is written to
+`ferrum.toml` at once, keeping your comments; the quick buttons change at
+once, the rest when LinuxCNC next starts. With no `ferrum.toml`, SETUP
+opens first; FINISH writes the file so it stops doing that.
+
+The saved changes wait on a bar under the pages. When Ferrum started
+LinuxCNC (`ferrum --boot`), RESTART LINUXCNC (hold; only with the machine
+off and no program running) stops LinuxCNC, adds the INI lines queued with
+ADD TO INI on a check's row (keeping the old INI as `<ini>.bak`), and starts
+everything again, through the installer's launcher when there is one, so a
+downloaded update goes into use at the same time.
 
 Check what Ferrum makes of a machine, with or without LinuxCNC running:
 
@@ -31,8 +44,9 @@ ferrum --check ~/linuxcnc/configs/mymachine/mymachine.ini
 It prints what was read, what is missing and what is switched off because
 of it, and exits non-zero only when Ferrum cannot run the machine at all.
 With `--write-ini` (LinuxCNC stopped) it also adds the INI lines it asks
-for, such as `HAL_PIN_VARS = 1`, keeping the old file as `<ini>.bak`. The
-screen never edits the INI; SETUP shows the lines.
+for, such as `HAL_PIN_VARS = 1`, keeping the old file as `<ini>.bak`. On
+the screen, SETUP shows the lines and writes them only as part of RESTART
+LINUXCNC.
 The same check runs when Ferrum starts: PROBE, JOB and CONV show the reason
 in place of the screen when they are off.
 

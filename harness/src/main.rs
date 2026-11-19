@@ -520,6 +520,14 @@ fn run_one(
         prepare(c, &cfg, env.port)?;
         let log = dir.join("linuxcnc.log");
         r.log = Some(log.clone());
+        for (path, old, new) in &sc.cfg_edits {
+            let p = cfg.join(path);
+            let text = std::fs::read_to_string(&p).map_err(|e| format!("cfg-edit {}: {e}", p.display()))?;
+            if !text.contains(old.as_str()) {
+                return Err(format!("cfg-edit: {path} has no {old:?}"));
+            }
+            std::fs::write(&p, text.replacen(old.as_str(), new, 1)).map_err(|e| e.to_string())?;
+        }
         for (path, line) in &sc.seeds {
             let p = dir.join("home").join(path);
             std::fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -795,6 +803,7 @@ fn step(
         Step::Hal { pin, value } => s.hal_set(pin, value),
         Step::Signal(sig) => s.signal_gui(sig),
         Step::Click(x, y) => s.click(*x, *y),
+        Step::Reconnect(secs) => s.reconnect(Duration::from_secs_f64(*secs)),
         Step::Sleep(secs) => {
             std::thread::sleep(Duration::from_secs_f64(*secs));
             Ok(())

@@ -1,0 +1,66 @@
+title SETUP menu: HAL wiring from the live pin list, screens, then RESTART LINUXCNC applies them
+needs stock
+wait prop.connected == true within 30
+screen setup
+# HAL WIRING lists the machine's pins with their values.
+do setup-go 6
+expect prop.setup-title == "HAL WIRING"
+wait prop.setup-rows contains "motion.probe-input (default)" within 5
+wait prop.setup-rows contains "FALSE" within 5
+sleep 0.5
+shot hal
+# Pick the tool setter's input from the list: the sim-probe signal.
+do setup-tap hal.toolsetter_tripped
+wait prop.pick-open == true within 5
+expect prop.pick-items contains "sim-probe"
+shot hal-picker
+tap pick-items - sim-probe pick
+wait prop.setup-pending contains "1 saved change" within 5
+expect prop.setup-rows contains "Connects when LinuxCNC next starts"
+# A name that HAL does not have is refused on the keyboard.
+do setup-tap hal.probe_fault
+wait prop.pick-open == true within 5
+do pick 1
+wait prop.text-open == true within 5
+do text-key CLR
+do text-key "x"
+do text-done true
+expect prop.text-open == true
+expect prop.text-error contains "HAL has no pin or signal named x"
+do text-done false
+# SCREENS: CONV off, FILES up one.
+do setup-go 5
+expect prop.setup-title == "SCREENS"
+do setup-tap screen:conv
+do setup-tap up:screen:files
+wait prop.setup-pending contains "2 saved changes" within 5
+sleep 0.5
+shot screens
+# DISPLAY: a quick button changes at once, not at the restart.
+do setup-go 7
+do setup-tap buttons.mist
+wait prop.quick-mist == false within 5
+expect prop.setup-pending contains "2 saved changes"
+# RESTART LINUXCNC: refused while the machine is on.
+include ../common/ready.scn
+screen setup
+do setup-restart
+sleep 2
+expect prop.connected == true
+expect prop.setup-pending contains "2 saved changes"
+do power
+wait prop.power == false within 10
+do setup-restart
+# Ferrum stops LinuxCNC behind the splash and starts again.
+reconnect 120
+wait prop.connected == true within 60
+expect prop.setup-pending == ""
+screen setup
+expect prop.nav !contains "CONV"
+expect prop.quick-mist == false
+# The setter input is wired now.
+do setup-go 4
+wait prop.setup-rows contains "OPEN" within 10
+hal sim-probe 1
+wait prop.setup-rows contains "TRIPPED" within 5
+hal sim-probe 0

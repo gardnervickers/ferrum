@@ -83,6 +83,80 @@ pub fn link(pin: &str, ours_in: bool, theirs: &str) -> Result<String, String> {
     .map_err(|e| format!("{ours} to {theirs}: {e}"))
 }
 
+/// One pin or signal, as `halcmd -s show pin` / `show sig` list them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HalItem {
+    pub name: String,
+    /// "bit", "float", "s32", "u32".
+    pub typ: String,
+    /// "IN", "OUT", "IO" for a pin; "" for a signal.
+    pub dir: String,
+    pub value: String,
+    /// The pin's signal, "" when unconnected (pins only).
+    pub sig: String,
+    /// A signal has a writer (signals only).
+    pub written: bool,
+}
+
+impl HalItem {
+    pub fn is_signal(&self) -> bool {
+        self.dir.is_empty()
+    }
+}
+
+/// Every pin and signal, from `halcmd -s show pin` and `show sig` output.
+pub fn parse_all(pins: &str, sigs: &str) -> Vec<HalItem> {
+    let mut v = Vec::new();
+    for l in pins.lines() {
+        // owner type dir value name [arrow sig]
+        let w: Vec<&str> = l.split_whitespace().collect();
+        if w.len() < 5 || !matches!(w[2], "IN" | "OUT" | "IO") {
+            continue;
+        }
+        let sig = if w.len() >= 7 && w[5].contains("==") || w.len() >= 7 && w[5] == "<=>" { w[6].to_string() } else { String::new() };
+        v.push(HalItem { name: w[4].into(), typ: w[1].into(), dir: w[2].into(), value: w[3].into(), sig, written: false });
+    }
+    for l in sigs.lines() {
+        // type value name [==> pin | <== pin | <=> pin ...]
+        let w: Vec<&str> = l.split_whitespace().collect();
+        if w.len() < 3 || !matches!(w[0], "bit" | "float" | "s32" | "u32" | "s64" | "u64" | "port") {
+            continue;
+        }
+        let written = w.iter().any(|x| *x == "<==" || *x == "<=>");
+        v.push(HalItem { name: w[2].into(), typ: w[0].into(), dir: String::new(), value: w[1].into(), sig: String::new(), written });
+    }
+    v
+}
+
+/// The whole HAL, or None when LinuxCNC is not running.
+pub fn snapshot() -> Option<Vec<HalItem>> {
+    let pins = halcmd(&["-s", "show", "pin"]).ok()?;
+    let sigs = halcmd(&["-s", "show", "sig"]).ok()?;
+    let all = parse_all(&pins, &sigs);
+    (!all.is_empty()).then_some(all)
+}
+
+/// What a logical name may connect to: for a pin ferrum reads, signals of
+/// its type and pins that write; for one ferrum drives, signals with no
+/// writer and unconnected input pins. Signals first, then pins, by name.
+pub fn candidates<'a>(all: &'a [HalItem], typ: &str, ferrum_reads: bool) -> Vec<&'a HalItem> {
+    let mut v: Vec<&HalItem> = all
+        .iter()
+        .filter(|i| i.typ == typ && !i.name.starts_with("ferrum."))
+        .filter(|i| {
+            if i.is_signal() {
+                ferrum_reads || !i.written
+            } else if ferrum_reads {
+                i.dir == "OUT" || i.dir == "IO" || !i.sig.is_empty()
+            } else {
+                i.dir == "IN" && i.sig.is_empty()
+            }
+        })
+        .collect();
+    v.sort_by(|a, b| (!a.is_signal(), &a.name).cmp(&(!b.is_signal(), &b.name)));
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +172,20 @@ mod tests {
             Plan::New("ferrum-toolchange-tool-changed".into())
         );
         assert_eq!(plan("ferrum.toolchange.tool-change", true, pin("OUT", ""), "iocontrol.0.tool-change"), Plan::New("ferrum-toolchange-tool-change".into()));
+    }
+
+    #[test]
+    fn reads_halcmds_lists() {
+        let pins = "and2 bit   IN FALSE and2.0.in0 <== foo2\nand2 bit   IN FALSE and2.0.in1\nand2 bit   OUT TRUE and2.0.out ==> foo\nsiggen float IN 1 siggen.0.amplitude\nferrum bit IN FALSE ferrum.probe.tripped\n";
+        let sigs = "bit    TRUE  foo <== and2.0.out\nbit    FALSE  spare\n\n";
+        let all = parse_all(pins, sigs);
+        assert_eq!(all.len(), 7);
+        assert_eq!(all[0].sig, "foo2");
+        assert_eq!(all[2].value, "TRUE");
+        assert!(all[5].written && !all[6].written);
+        let reads: Vec<&str> = candidates(&all, "bit", true).iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(reads, ["foo", "spare", "and2.0.in0", "and2.0.out"]);
+        let drives: Vec<&str> = candidates(&all, "bit", false).iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(drives, ["spare", "and2.0.in1"]);
     }
 }

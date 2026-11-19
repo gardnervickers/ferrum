@@ -96,6 +96,7 @@ One step per line; `#` after a space starts a comment. Files under
 | `allow-error TEXT` | an error message containing TEXT (any case) is fine |
 | `errors-to-ferrum` | the harness stops reading LinuxCNC's error queue (one reader only), so Ferrum sees every error, as on the machine; errors are then checked via Ferrum |
 | `include FILE` | another file's steps |
+| `cfg-edit FILE OLD => NEW` | replace OLD in a file of the prepared config before LinuxCNC starts (`cfg-edit ferrum.ini HAL_PIN_VARS = 1 => HAL_PIN_VARS = 0`) |
 | `seed PATH LINE` | append LINE to a file under the run's fresh HOME before LinuxCNC starts (Ferrum state, settings) |
 | `do ACTION ARGS...` | an `Actions` callback from `app/ui/state.slint` (`do jog-start 0 1`); args are JSON or bare words |
 | `set PROP VALUE` | a two-way property the remote may set (`mdi-text`, `gcode-selected`) |
@@ -107,6 +108,7 @@ One step per line; `#` after a space starts a comment. Files under
 | `expect EXPR` | must be true now |
 | `hal PIN-or-SIGNAL VALUE` | `halcmd setp`/`sets` |
 | `sleep SECS` | |
+| `reconnect [SECS]` | Ferrum restarted LinuxCNC and itself (SETUP's RESTART LINUXCNC): wait for its websocket to close, connect again (default 120 s) |
 | `shot NAME` | screenshot into the report |
 | `golden NAME [MAX%]` | screenshot compared with `goldens/<config>/<scenario>--NAME.png` (default 0.5% of pixels may change; record with `run --update-goldens`) |
 | `log TEXT` | print a note |

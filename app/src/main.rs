@@ -29,6 +29,7 @@ mod renderer;
 mod settings;
 mod setup;
 mod textentry;
+mod updater;
 mod toolchange;
 mod offsets;
 mod probe;
@@ -722,6 +723,9 @@ fn main() -> Result<(), slint::PlatformError> {
         return Ok(());
     }
     settings::migrate_legacy();
+    if let Ok(d) = std::env::current_dir() {
+        let _ = START_DIR.set(d);
+    }
     // Under `ferrum --boot` LinuxCNC starts this copy only to hold its
     // session open; the launcher is the display.
     boot::attach_if_launched();
@@ -1139,8 +1143,20 @@ async fn run(
         asked.toolchange.style = None;
         let detected = checks::toolchange_style(&asked, &ids, hal.as_ref()).0;
         let first = !args.sim && args.screen.is_none() && machine_cfg::get().path.is_none();
-        let s = setup::wire(&ui, &cfg, check_rows, ids.clone(), detected, setter, Some(probe), first);
+        let can_restart = args.sim || (args.boot && cfg!(unix));
+        let s = setup::wire(&ui, &cfg, check_rows, ids.clone(), detected, setter, Some(probe), first, can_restart, !args.sim, false);
         SETUP.with(|t| *t.borrow_mut() = Some(s));
+        let weak = ui.as_weak();
+        ui.global::<Actions>().on_setup_restart(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let live = ui.global::<Live>();
+            // Never while the machine is on or a program runs.
+            if live.get_power() || live.get_running() {
+                return;
+            }
+            boot::RESTART.store(true, std::sync::atomic::Ordering::SeqCst);
+            boot::request_quit();
+        });
     }
     let _tc_timer = tc_io.map(|io| toolchange::wire(&ui, &handle, &cfg, io));
     picker::wire(&ui);
@@ -1299,8 +1315,44 @@ async fn run(
     if let Some(l) = left {
         l.shutdown(&ui).await;
     }
+    // RESTART LINUXCNC on SETUP: LinuxCNC has stopped; add the queued INI
+    // lines, then start again through the launcher (which puts a staged
+    // update into use first).
+    #[cfg(unix)]
+    if boot::RESTART.load(std::sync::atomic::Ordering::SeqCst) {
+        let queued = SETUP.with(|t| t.borrow().as_ref().map(|s| s.borrow().queued_ini()).unwrap_or_default());
+        if let (Some(path), false) = (&cfg.path, queued.is_empty() || args.sim) {
+            match checks::write_ini(path, &queued) {
+                Ok(done) => done.iter().for_each(|l| eprintln!("ferrum: added to {}: {l}", path.display())),
+                Err(e) => eprintln!("ferrum: {e}"),
+            }
+        }
+        let _ = ui.hide();
+        relaunch();
+    }
     let _ = ui.hide();
     let _ = slint::quit_event_loop();
+}
+
+/// The folder ferrum started in: `--boot` moves to the INI's, and a
+/// restart must read its own arguments from where they were given.
+static START_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Start ferrum again with the same arguments: through the launcher when
+/// one started it (`$FERRUM_LAUNCHER`, which applies a staged update), else
+/// this binary. Does not return.
+#[cfg(unix)]
+fn relaunch() -> ! {
+    use std::os::unix::process::CommandExt;
+    if let Some(d) = START_DIR.get() {
+        let _ = std::env::set_current_dir(d);
+    }
+    let prog = std::env::var_os("FERRUM_LAUNCHER").map(PathBuf::from).filter(|p| p.is_file()).or_else(|| std::env::current_exe().ok());
+    let Some(prog) = prog else { std::process::exit(1) };
+    eprintln!("ferrum: restarting with {}", prog.display());
+    let e = std::process::Command::new(&prog).args(std::env::args_os().skip(1)).exec();
+    eprintln!("ferrum: could not restart {}: {e}", prog.display());
+    std::process::exit(1)
 }
 
 /// `--write-ini`: the check's INI lines into the INI, only while LinuxCNC
@@ -1476,7 +1528,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
         let mut asked = machine_cfg::get().clone();
         asked.toolchange.style = None;
         let detected = checks::toolchange_style(&asked, &ids, &hal).0;
-        setup::wire(&ui, cfg, rows, ids, detected, None, Some(probe.clone()), args.show.iter().any(|w| w == "setup-first"))
+        setup::wire(&ui, cfg, rows, ids, detected, None, Some(probe.clone()), args.show.iter().any(|w| w == "setup-first"), true, false, true)
     };
     let actions = ui.global::<Actions>();
     for what in &args.show {
@@ -1500,6 +1552,8 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
             w if w.starts_with("toast:") => live.set_toast(w[6..].into()),
             w if w.starts_with("toast-info:") => { live.set_toast(w[11..].into()); live.set_toast_info(true); }
             w if w.starts_with("setup-step:") => actions.invoke_setup_go(w[11..].parse().unwrap_or(0)),
+            w if w.starts_with("setup-pending:") => live.set_setup_pending(w[14..].into()),
+            "power" => live.set_power(true),
             "paused" => { live.set_running(true); live.set_paused(true); live.set_can_start(true); }
             "job-ops" => {
                 actions.invoke_conv_add();

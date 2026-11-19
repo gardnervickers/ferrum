@@ -9,6 +9,7 @@
 //! screen-may-stall                    # the run stalls ferrum on purpose: skip the screen watchdog checks at the end
 //! include common/ready.scn            # another file's steps, here
 //! seed    .local/state/ferrum/probe probe.restore-pending=1   # a line in a file under HOME, before start
+//! cfg-edit ferrum.ini HAL_PIN_VARS = 1 => HAL_PIN_VARS = 0       # change the prepared config before start
 //!
 //! do      jog-start 0 1               # an Actions callback; args are JSON or bare words
 //! set     mdi-text "G0 X1"            # a two-way Live property the remote may set
@@ -64,6 +65,8 @@ pub enum Step {
         value: String,
     },
     Sleep(f64),
+    /// Ferrum restarted itself: connect again (seconds to wait).
+    Reconnect(f64),
     Shot(String),
     Golden {
         name: String,
@@ -101,6 +104,8 @@ pub struct Scenario {
     pub screen_may_stall: bool,
     /// Files written under the run's fresh HOME before LinuxCNC starts: (path, line).
     pub seeds: Vec<(String, String)>,
+    /// (file in the config, text, its replacement), before start.
+    pub cfg_edits: Vec<(String, String, String)>,
     pub steps: Vec<Line>,
 }
 
@@ -186,6 +191,12 @@ impl Scenario {
                     self.allow_errors.push(rest.to_string());
                     continue;
                 }
+                "cfg-edit" => {
+                    let (path, text) = split_word(rest);
+                    let (old, new) = text.split_once(" => ").ok_or_else(|| err("cfg-edit FILE OLD => NEW"))?;
+                    self.cfg_edits.push((path.to_string(), old.trim().to_string(), new.trim().to_string()));
+                    continue;
+                }
                 "seed" => {
                     let (path, text) = split_word(rest);
                     self.seeds.push((path.to_string(), text.to_string()));
@@ -256,6 +267,7 @@ impl Scenario {
                     }
                 }
                 "sleep" => Step::Sleep(rest.parse().map_err(|_| err("bad seconds"))?),
+                "reconnect" => Step::Reconnect(if rest.is_empty() { 120.0 } else { rest.parse().map_err(|_| err("bad seconds"))? }),
                 "shot" => Step::Shot(rest.to_string()),
                 "golden" => {
                     let (n, pct) = split_word(rest);

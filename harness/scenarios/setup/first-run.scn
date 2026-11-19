@@ -4,7 +4,7 @@ allow-error Out of range
 wait prop.connected == true within 30
 expect prop.screen == "setup"
 expect prop.setup-first == true
-expect prop.setup-steps.len == 6
+expect prop.setup-steps.len == 9
 expect prop.setup-title == "MACHINE"
 sleep 0.5
 shot machine
@@ -65,7 +65,7 @@ wait prop.setup-rows contains "1.0" within 5
 sleep 0.5
 shot setter
 # FINISH writes ferrum.toml and goes to RUN.
-do setup-go 5
+do setup-go 8
 do setup-finish
 wait prop.screen == "run" within 5
 expect prop.setup-first == false

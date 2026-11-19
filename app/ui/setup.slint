@@ -1,9 +1,10 @@
-// SETUP (setup.rs): the configuration checker's rows in guided steps, the
-// ferrum.toml settings each step asks for, and live input tests. Nothing
-// here moves the machine except the tool setter buttons, which UTIL has too.
+// SETUP (setup.rs): the configuration checker's rows on nine pages, the
+// ferrum.toml settings each page asks for, live input tests, the HAL
+// wiring and Ferrum's updates. Nothing here moves the machine except the
+// tool setter buttons, which UTIL has too.
 import { Theme, Layout } from "theme.slint";
 import { Live, Actions, SetupRow, SetupStep, StatusRow } from "state.slint";
-import { Btn, Card, Label, Caption, Kv, H3, Note, Pill, Seg, NumField } from "widgets.slint";
+import { Btn, Card, Label, Caption, Kv, H3, Note, Pill, Seg, NumField, Arrows, Chevron } from "widgets.slint";
 
 // A fact tile, with the value in its status tone.
 component Fact inherits Kv {
@@ -21,7 +22,7 @@ component StepTab inherits Rectangle {
     in property <int> index;
     in property <bool> on;
     callback clicked();
-    height: Theme.h-choice;
+    height: Theme.h-sm;
     border-radius: Theme.radius-ctl;
     background: on ? Theme.sel-soft : touch.pressed ? Theme.raised : Theme.panel2;
     border-width: 2px;
@@ -29,13 +30,15 @@ component StepTab inherits Rectangle {
     animate background, border-color { duration: Theme.quick; }
     HorizontalLayout {
         padding-left: 16px;
-        padding-right: 14px;
+        padding-right: 12px;
         spacing: 12px;
-        Text { vertical-alignment: center; width: 26px; text: index + 1; font-family: Theme.body; font-weight: 600; font-size: Theme.t-value; color: on ? Theme.sel-ink : Theme.dim; }
-        Text { vertical-alignment: center; horizontal-stretch: 1; text: step.label; font-family: Theme.display; font-size: Theme.t-btn; letter-spacing: 1.2px; color: on ? Theme.sel-ink : Theme.ink; overflow: elide; }
-        if step.count > 0: VerticalLayout {
+        Text { vertical-alignment: center; width: 22px; text: index + 1; font-family: Theme.body; font-weight: 600; font-size: Theme.t-ctl; color: on ? Theme.sel-ink : Theme.dim; }
+        Text { vertical-alignment: center; horizontal-stretch: 1; text: step.label; font-family: Theme.display; font-size: Theme.t-ctl; letter-spacing: 1.1px; color: on ? Theme.sel-ink : Theme.ink; overflow: elide; }
+        // The count's slot is always there, so labels never shift.
+        VerticalLayout {
             alignment: center;
-            Rectangle {
+            width: 30px;
+            if step.count > 0: Rectangle {
                 // The same count badge as on the nav.
                 width: max(26px, n.preferred-width + 12px);
                 height: 26px;
@@ -50,62 +53,143 @@ component StepTab inherits Rectangle {
     touch := TouchArea { clicked => { root.clicked(); } }
 }
 
+// A square button with a stroked arrow (move a screen up or down).
+component MoveBtn inherits Btn {
+    width: Theme.h-ctl;
+    height: Theme.h-ctl;
+    font-size: Theme.t-small;
+}
+
 component RowView inherits Rectangle {
     in property <SetupRow> r;
     property <color> tone: r.level == "ok" ? Theme.good : r.level == "warn" ? Theme.warn : r.level == "bad" ? Theme.bad : r.level == "info" ? Theme.info : Theme.dim;
-    property <bool> setting: r.kind == "number" || r.kind == "choice" || r.kind == "bool";
-    background: r.level == "bad" ? Theme.bad-soft : r.level == "warn" ? Theme.warn-soft : Theme.panel2;
+    property <bool> control: r.kind == "number" || r.kind == "choice" || r.kind == "bool" || r.kind == "text" || r.kind == "live" || r.kind == "action" || r.kind == "order" || r.kind == "hal";
+    background: r.kind == "head" ? transparent : r.level == "bad" ? Theme.bad-soft : r.level == "warn" ? Theme.warn-soft : Theme.panel2;
     border-radius: Theme.radius-ctl;
-    HorizontalLayout {
-        padding: Theme.pad;
-        padding-left: 18px;
-        spacing: 16px;
-        // The dot sits on the title's line.
-        VerticalLayout {
-            padding-top: 12px;
-            alignment: start;
-            Rectangle { width: 11px; height: 11px; border-radius: 5.5px; background: tone; }
+    VerticalLayout {
+        if r.kind == "head": VerticalLayout {
+            padding-top: 14px;
+            padding-bottom: 2px;
+            padding-left: 4px;
+            Caption { text: r.title; }
         }
-        VerticalLayout {
-            horizontal-stretch: 1;
-            spacing: 4px;
-            alignment: center;
-            Text { text: r.title; wrap: word-wrap; font-family: Theme.body; font-weight: 600; font-size: Theme.t-btn; color: Theme.ink; }
-            if r.detail != "": Note { text: r.detail; }
-            if r.code != "": Rectangle {
-                background: Theme.well;
-                border-radius: Theme.radius-sm;
-                height: code.preferred-height + 16px;
-                code := Text {
-                    x: 12px;
-                    y: 8px;
-                    width: parent.width - 24px;
-                    text: r.code;
-                    wrap: word-wrap;
-                    font-family: Theme.body;
-                    font-size: Theme.t-body;
-                    color: Theme.sel-ink;
+        if r.kind != "head": HorizontalLayout {
+            padding: Theme.pad;
+            padding-left: 18px;
+            spacing: 16px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 4px;
+                alignment: center;
+                // The dot sits on the title's line.
+                HorizontalLayout {
+                    spacing: 16px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle { width: 11px; height: 11px; border-radius: 5.5px; background: tone; }
+                    }
+                    Text { horizontal-stretch: 1; text: r.title; wrap: word-wrap; font-family: r.kind == "order" ? Theme.display : Theme.body; font-weight: r.kind == "order" ? 400 : 600; letter-spacing: r.kind == "order" ? 1.2px : 0px; font-size: Theme.t-btn; color: r.off ? Theme.dim : Theme.ink; }
+                }
+                if r.detail != "": HorizontalLayout { padding-left: 27px; Note { text: r.detail; } }
+                if r.code != "": Rectangle {
+                    background: Theme.well;
+                    border-radius: Theme.radius-sm;
+                    height: code.preferred-height + 16px;
+                    code := Text {
+                        x: 12px;
+                        y: 8px;
+                        width: parent.width - 24px;
+                        text: r.code;
+                        wrap: word-wrap;
+                        font-family: Theme.body;
+                        font-size: Theme.t-body;
+                        color: Theme.sel-ink;
+                    }
+                }
+                if r.note != "": HorizontalLayout { padding-left: 27px; Text { text: r.note; wrap: word-wrap; font-family: Theme.body; font-size: Theme.t-body; color: Theme.warn; } }
+            }
+            // The control, in a fixed column so the rows line up.
+            if control: VerticalLayout {
+                width: r.kind == "hal" ? 470px : 340px;
+                alignment: center;
+                if r.kind == "number": NumField { value: r.value; enabled: !r.off; edit => { Actions.edit("setup-" + r.key); } }
+                if r.kind == "choice": Btn { height: Theme.h-ctl; menu: true; enabled: !r.off; family: Theme.body; font-size: Theme.t-ctl; text: r.value; clicked => { Actions.setup-tap(r.key); } }
+                if r.kind == "text": Btn { height: Theme.h-ctl; family: Theme.body; font-size: Theme.t-ctl; text: r.value; enabled: !r.off; clicked => { Actions.setup-tap(r.key); } }
+                if r.kind == "bool": HorizontalLayout {
+                    spacing: 0px;
+                    height: Theme.h-ctl;
+                    Seg { first: true; text: "YES"; on: r.value == "YES"; enabled: !r.off; clicked => { if r.value != "YES" { Actions.setup-tap(r.key); } } }
+                    Seg { last: true; text: "NO"; on: r.value == "NO"; enabled: !r.off; clicked => { if r.value != "NO" { Actions.setup-tap(r.key); } } }
+                }
+                if r.kind == "order": HorizontalLayout {
+                    spacing: 10px;
+                    height: Theme.h-ctl;
+                    // The arrows keep their slots on every row, so the tracks line up.
+                    MoveBtn { icon: Arrows.up; enabled: r.state == "u" || r.state == "ud"; visible: r.value == "YES" && !r.off; clicked => { Actions.setup-tap("up:" + r.key); } }
+                    MoveBtn { icon: Arrows.down; enabled: r.state == "d" || r.state == "ud"; visible: r.value == "YES" && !r.off; clicked => { Actions.setup-tap("down:" + r.key); } }
+                    HorizontalLayout {
+                        spacing: 0px;
+                        horizontal-stretch: 1;
+                        Seg { first: true; text: "ON"; on: r.value == "YES"; enabled: !r.off; clicked => { if r.value != "YES" { Actions.setup-tap(r.key); } } }
+                        Seg { last: true; text: "OFF"; on: r.value == "NO"; enabled: !r.off; clicked => { if r.value != "NO" { Actions.setup-tap(r.key); } } }
+                    }
+                }
+                if r.kind == "hal": HorizontalLayout {
+                    spacing: 10px;
+                    height: Theme.h-ctl;
+                    // The value's slot stays, so rows do not jump as HAL comes and goes.
+                    HorizontalLayout {
+                        width: 120px;
+                        alignment: end;
+                        if r.state != "": VerticalLayout {
+                            alignment: center;
+                            Pill { text: r.state; kind: r.state == "TRUE" ? "good" : r.state == "NOT IN HAL" ? "bad" : ""; }
+                        }
+                    }
+                    Btn { horizontal-stretch: 1; menu: true; family: Theme.body; font-size: Theme.t-small; text: r.value; clicked => { Actions.setup-tap(r.key); } }
+                }
+                if r.kind == "live": HorizontalLayout {
+                    alignment: end;
+                    Pill { text: r.value; kind: r.level == "ok" ? "good" : r.level == "bad" ? "bad" : r.level == "warn" ? "warn" : ""; }
+                }
+                if r.kind == "action": Btn {
+                    height: Theme.h-ctl;
+                    font-size: Theme.t-ctl;
+                    text: r.value;
+                    hold: r.hold;
+                    on: r.on;
+                    enabled: !r.off && (r.free || (Live.power && !Live.manual-locked));
+                    clicked => { Actions.setup-tap(r.key); }
                 }
             }
-            if r.note != "": Text { text: r.note; wrap: word-wrap; font-family: Theme.body; font-size: Theme.t-body; color: Theme.warn; }
         }
-        // The control, in a fixed column so the rows line up.
-        if setting || r.kind == "live" || r.kind == "action": VerticalLayout {
-            width: 300px;
-            alignment: center;
-            if r.kind == "number": NumField { value: r.value; edit => { Actions.edit("setup-" + r.key); } }
-            if r.kind == "choice": Btn { height: Theme.h-ctl; menu: true; family: Theme.body; font-size: Theme.t-ctl; text: r.value; clicked => { Actions.setup-tap(r.key); } }
-            if r.kind == "bool": HorizontalLayout {
-                spacing: 0px;
-                height: Theme.h-ctl;
-                Seg { first: true; text: "YES"; on: r.value == "YES"; clicked => { if r.value != "YES" { Actions.setup-tap(r.key); } } }
-                Seg { last: true; text: "NO"; on: r.value == "NO"; clicked => { if r.value != "NO" { Actions.setup-tap(r.key); } } }
-            }
-            if r.kind == "live": HorizontalLayout {
-                alignment: end;
-                Pill { text: r.value; kind: r.level == "ok" ? "good" : r.level == "bad" ? "bad" : r.level == "warn" ? "warn" : ""; }
-            }
-            if r.kind == "action": Btn { height: Theme.h-ctl; font-size: Theme.t-ctl; text: r.value; hold: r.key == "set-g30"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.setup-tap(r.key); } }
+    }
+}
+
+// The saved changes, and the restart that applies them.
+component PendingBar inherits Rectangle {
+    background: Theme.warn-soft;
+    border-radius: Theme.radius-ctl;
+    height: col.preferred-height;
+    col := VerticalLayout {
+        padding: 14px;
+        spacing: 10px;
+        Text { text: Live.setup-pending; wrap: word-wrap; font-family: Theme.body; font-size: Theme.t-body; color: Theme.warn; }
+        if Live.setup-can-restart: Btn {
+            height: Theme.h-ctl;
+            font-size: Theme.t-ctl;
+            text: "RESTART LINUXCNC";
+            hold: true;
+            enabled: !Live.power && !Live.running;
+            clicked => { Actions.setup-restart(); }
+        }
+        // Why the button waits; the line is always there so nothing moves.
+        Text {
+            text: !Live.setup-can-restart ? "Restart LinuxCNC to apply them." : Live.running ? "A program is running." : Live.power ? "Turn the machine off first." : "Stops LinuxCNC and starts it again.";
+            wrap: word-wrap;
+            font-family: Theme.body;
+            font-size: Theme.t-small;
+            color: Theme.dim;
         }
     }
 }
@@ -120,9 +204,17 @@ export component SetupScreen inherits Rectangle {
                 padding: Theme.pad;
                 spacing: Theme.row;
                 H3 { text: "SETUP"; }
-                for st[i] in Live.setup-steps: StepTab { step: st; index: i; on: i == Live.setup-step; clicked => { Actions.setup-go(i); } }
+                VerticalLayout {
+                    spacing: 8px;
+                    for st[i] in Live.setup-steps: VerticalLayout {
+                        spacing: 8px;
+                        // The first five set the machine up; the rest are Ferrum's own.
+                        if i == 5: Caption { height: 30px; vertical-alignment: bottom; text: "FERRUM"; }
+                        StepTab { step: st; index: i; on: i == Live.setup-step; clicked => { Actions.setup-go(i); } }
+                    }
+                }
                 Rectangle { vertical-stretch: 1; }
-                if Live.setup-pending != "": Text { text: Live.setup-pending; wrap: word-wrap; font-family: Theme.body; font-size: Theme.t-body; color: Theme.warn; }
+                if Live.setup-pending != "": PendingBar { }
             }
         }
         Card {

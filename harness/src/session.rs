@@ -30,6 +30,9 @@ pub struct Session {
     display: String,
     port: u16,
     pub log: PathBuf,
+    cfg_dir: PathBuf,
+    home: PathBuf,
+    helper_py: PathBuf,
 }
 
 fn rip_cmd(lcnc: &Path, script: &str) -> Command {
@@ -85,30 +88,55 @@ impl Session {
             display: env.display.clone(),
             port: env.port,
             log,
+            cfg_dir: cfg_dir.to_path_buf(),
+            home: home.clone(),
+            helper_py: env.harness_dir.join("lcnc_helper.py"),
         };
         s.connect(env.port, Duration::from_secs(90))?;
         // Measure frame gaps from here: the splash's hand-over to the main
         // screen is checked by the HAL watchdog itself.
         s.action("failsafe-reset-gap", &[])?;
-        let mut h = rip_cmd(
-            &env.lcnc,
-            &format!(
-                "exec python3 -u '{}'",
-                env.harness_dir.join("lcnc_helper.py").display()
-            ),
-        )
-        .current_dir(cfg_dir)
-        .env("HOME", &home)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| format!("lcnc_helper: {e}"))?;
-        let stdin = h.stdin.take().unwrap();
-        let stdout = BufReader::new(h.stdout.take().unwrap());
-        s.helper = Some((h, stdin, stdout));
+        s.start_helper()?;
         Ok(s)
     }
+
+    /// The status helper (lcnc_helper.py), connected to LinuxCNC.
+    fn start_helper(&mut self) -> Result<(), String> {
+        let mut h = rip_cmd(&self.rip, &format!("exec python3 -u '{}'", self.helper_py.display()))
+            .current_dir(&self.cfg_dir)
+            .env("HOME", &self.home)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|e| format!("lcnc_helper: {e}"))?;
+        let stdin = h.stdin.take().unwrap();
+        let stdout = BufReader::new(h.stdout.take().unwrap());
+        self.helper = Some((h, stdin, stdout));
+        Ok(())
+    }
+
+    /// Ferrum restarted LinuxCNC (SETUP's RESTART LINUXCNC): wait for its
+    /// websocket to close, then connect again, with a new status helper.
+    pub fn reconnect(&mut self, within: Duration) -> Result<(), String> {
+        let t0 = Instant::now();
+        while self.ws_out.lock().unwrap().is_some() {
+            if t0.elapsed() > within {
+                return Err("ferrum's websocket did not close".into());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if let Some((mut h, _, _)) = self.helper.take() {
+            let _ = h.kill();
+            let _ = h.wait();
+        }
+        self.props.lock().unwrap().clear();
+        let left = within.saturating_sub(t0.elapsed()).max(Duration::from_secs(30));
+        self.connect(self.port, left)?;
+        self.action("failsafe-reset-gap", &[])?;
+        self.start_helper()
+    }
+
 
     fn connect(&mut self, port: u16, within: Duration) -> Result<(), String> {
         let t0 = Instant::now();

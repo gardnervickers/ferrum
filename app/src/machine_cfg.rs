@@ -134,7 +134,7 @@ impl<'de> Deserialize<'de> for Words {
     }
 }
 
-fn split_words(t: &str) -> Vec<String> {
+pub fn split_words(t: &str) -> Vec<String> {
     t.split(|c: char| c.is_whitespace() || c == ',').filter(|s| !s.is_empty()).map(String::from).collect()
 }
 

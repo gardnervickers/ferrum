@@ -165,6 +165,22 @@ const PROBE_LINKS: &[Link] = &[
     Link { name: "setter_blast_active", pin: "probe.blast-active", input: true, auto: None },
 ];
 
+const TOOLCHANGE_LINKS: &[Link] = &[
+            Link { name: "tool_change", pin: "toolchange.tool-change", input: true, auto: Some("iocontrol.0.tool-change") },
+            Link { name: "tool_number", pin: "toolchange.tool-number", input: true, auto: Some("iocontrol.0.tool-prep-number") },
+            Link { name: "tool_changed", pin: "toolchange.tool-changed", input: false, auto: Some("iocontrol.0.tool-changed") },
+            Link { name: "spindle_on", pin: "toolchange.spindle-on", input: true, auto: Some("spindle.0.on") },
+        ];
+const INTERLOCK_LINKS: &[Link] = &[
+            Link { name: "motion_held", pin: "interlock.held", input: true, auto: Some("motion.feed-inhibit") },
+            Link { name: "probe_fault", pin: "interlock.probe-fault", input: true, auto: None },
+            Link { name: "drives_not_ready", pin: "interlock.drives-not-ready", input: true, auto: None },
+        ];
+const LOAD_LINKS: &[Link] = &[Link { name: "load", pin: "load.value", input: true, auto: None }];
+
+/// Each module's HAL names (its `hal_links`), for SETUP › HAL WIRING.
+pub const LINKED: &[(&str, &[Link])] = &[("probe", PROBE_LINKS), ("toolchange", TOOLCHANGE_LINKS), ("interlock", INTERLOCK_LINKS), ("load", LOAD_LINKS)];
+
 /// Probe screen plus the probe status pill: from probe_manager on mymill
 /// (`probe_loaded`, `probe_fault`), else from the tool number.
 #[derive(Default)]
@@ -347,12 +363,7 @@ impl Module for ToolChange {
         Ok(())
     }
     fn hal_links(&self) -> &'static [Link] {
-        &[
-            Link { name: "tool_change", pin: "toolchange.tool-change", input: true, auto: Some("iocontrol.0.tool-change") },
-            Link { name: "tool_number", pin: "toolchange.tool-number", input: true, auto: Some("iocontrol.0.tool-prep-number") },
-            Link { name: "tool_changed", pin: "toolchange.tool-changed", input: false, auto: Some("iocontrol.0.tool-changed") },
-            Link { name: "spindle_on", pin: "toolchange.spindle-on", input: true, auto: Some("spindle.0.on") },
-        ]
+        TOOLCHANGE_LINKS
     }
     fn toolchange(&self) -> Option<Rc<dyn crate::toolchange::Io>> {
         self.io.clone().map(|io| io as Rc<dyn crate::toolchange::Io>)
@@ -373,11 +384,7 @@ impl Module for Interlock {
         "interlock"
     }
     fn hal_links(&self) -> &'static [Link] {
-        &[
-            Link { name: "motion_held", pin: "interlock.held", input: true, auto: Some("motion.feed-inhibit") },
-            Link { name: "probe_fault", pin: "interlock.probe-fault", input: true, auto: None },
-            Link { name: "drives_not_ready", pin: "interlock.drives-not-ready", input: true, auto: None },
-        ]
+        INTERLOCK_LINKS
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
         self.held = Some(comp.pin("interlock.held")?);
@@ -422,7 +429,7 @@ impl Module for Load {
         "load"
     }
     fn hal_links(&self) -> &'static [Link] {
-        &[Link { name: "load", pin: "load.value", input: true, auto: None }]
+        LOAD_LINKS
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
         self.real = true;

@@ -1,0 +1,26 @@
+title SETUP adds a missing INI line when it restarts LinuxCNC (old INI kept as .bak)
+needs stock
+cfg-edit ferrum.ini HAL_PIN_VARS = 1 => HAL_PIN_VARS = 0
+wait prop.connected == true within 30
+screen setup
+# JOB needs HAL_PIN_VARS: its check is on SCREENS, with ADD TO INI.
+do setup-go 5
+wait prop.setup-rows contains "Jobs need HAL_PIN_VARS = 1" within 5
+expect prop.setup-rows contains "ADD TO INI"
+do setup-tap ini:job.interp
+wait prop.setup-pending contains "1 INI fix" within 5
+expect prop.setup-rows contains "Waiting for the restart"
+sleep 0.5
+shot queued
+# Tapped again, it is not queued; once more, it is.
+do setup-tap ini:job.interp
+wait prop.setup-pending == "" within 5
+do setup-tap ini:job.interp
+wait prop.setup-pending contains "1 INI fix" within 5
+do setup-restart
+reconnect 120
+wait prop.connected == true within 60
+screen setup
+do setup-go 5
+wait prop.setup-rows contains "Interpreter reads HAL pins" within 10
+expect prop.setup-pending == ""

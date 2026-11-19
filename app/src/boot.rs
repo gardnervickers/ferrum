@@ -178,6 +178,9 @@ pub static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 pub static LAUNCHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub static SIGNALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// SETUP asked to restart LinuxCNC: after the orderly stop, start again.
+pub static RESTART: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn request_quit() {
     QUIT.store(true, std::sync::atomic::Ordering::SeqCst);
 }
