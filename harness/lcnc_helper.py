@@ -23,6 +23,9 @@ KINDS = {
 stat = linuxcnc.stat()
 err = linuxcnc.error_channel()
 seen = []
+# "errors-to-millgui": LinuxCNC's error channel is a queue with one reader;
+# the scenario lets millgui read it, as on the machine.
+draining = True
 
 
 def plain(v):
@@ -72,8 +75,12 @@ def snapshot():
 for line in sys.stdin:
     cmd = line.strip()
     try:
-        drain()
-        if cmd == "stat":
+        if draining:
+            drain()
+        if cmd == "nodrain":
+            draining = False
+            ans = {}
+        elif cmd == "stat":
             ans = snapshot()
         elif cmd == "errors":
             ans = seen

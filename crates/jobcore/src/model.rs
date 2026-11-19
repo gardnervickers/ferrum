@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 
 pub const FORMAT: &str = "mymill-job";
 pub const VERSION: i64 = 1;
-pub const KINDS: [&str; 4] = ["conversational", "cam", "step", "probe"];
+pub const KINDS: [&str; 5] = ["conversational", "cam", "step", "probe", "toolcheck"];
 pub const UNITS: [&str; 2] = ["MM", "IN"];
 pub const WCS_CODES: [&str; 9] = ["G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"];
 pub const COOLANT: [&str; 3] = ["OFF", "MIST", "FLOOD"];

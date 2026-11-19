@@ -193,6 +193,8 @@ impl Helper {
             "thread" => self.cmd_thread(r)?,
             "conv" => self.cmd_conv(r)?,
             "add_probe" => self.cmd_add_probe(r)?,
+            "add_tool_check" => self.cmd_add_tool_check(r)?,
+            "add_tool_checks" => self.cmd_add_tool_checks()?,
             "set_measure" => self.cmd_set_measure(r)?,
             _ => return Err(Error::value_error(format!("unknown command {}", py::repr(&cmd)))),
         };
@@ -315,11 +317,13 @@ impl Helper {
                 "cam" => "CAM".to_string(),
                 "step" => "STEP".to_string(),
                 "probe" => "PROBE".to_string(),
+                "toolcheck" => "TOOL".to_string(),
                 other => other.to_uppercase(),
             };
+            let detail = if op.kind == "toolcheck" { tool_check_detail(&s.job, i) } else { self.detail(op, &comments)? };
             let mut row = json!({
                 "id": op.id, "pos": i + 1, "name": op.name.to_uppercase(), "badge": badge,
-                "kind": op.kind, "enabled": op.enabled, "detail": self.detail(op, &comments)?,
+                "kind": op.kind, "enabled": op.enabled, "detail": detail,
                 "state": state, "can_toggle": s.can_toggle(&Value::String(op.id.clone())),
             });
             if op.kind == "probe" {
@@ -472,6 +476,26 @@ impl Helper {
         let pos = self.with_session("add_probe", |s, m, hooks| s.add_probe(&name, params, hooks, m))?;
         let mut out = Map::new();
         out.insert("message".into(), Value::String(format!("ADDED {} AS OP {}.", name.to_uppercase(), pos)));
+        Ok(out)
+    }
+
+    fn cmd_add_tool_check(&mut self, r: &Map<String, Value>) -> Result<Map<String, Value>> {
+        let after = r.get("after").filter(|v| !v.is_null()).cloned();
+        let pos = self.with_session("add_tool_check", |s, m, hooks| s.add_tool_check(after.as_ref(), hooks, m))?;
+        let mut out = Map::new();
+        out.insert("message".into(), Value::String(format!("ADDED A TOOL CHECK AS OP {}.", pos)));
+        Ok(out)
+    }
+
+    fn cmd_add_tool_checks(&mut self) -> Result<Map<String, Value>> {
+        let n = self.with_session("add_tool_checks", |s, m, hooks| s.add_tool_checks(hooks, m))?;
+        let mut out = Map::new();
+        let text = match n {
+            0 => "EVERY TOOL IS ALREADY CHECKED BEFORE IT IS PUT AWAY.".to_string(),
+            1 => "ADDED 1 TOOL CHECK.".to_string(),
+            n => format!("ADDED {} TOOL CHECKS.", n),
+        };
+        out.insert("message".into(), Value::String(text));
         Ok(out)
     }
 
@@ -726,6 +750,15 @@ impl Helper {
 /// What the JOB page shows for a probing op: its measure settings and,
 /// for the op it checks, that op's tool and whether the tool's diameter
 /// sets the feature (so a correction can be offered).
+/// A TOOL CHECK op's line under its name: which tool it will find.
+fn tool_check_detail(job: &crate::model::Job, index: usize) -> String {
+    let enabled: std::collections::HashMap<String, bool> = job.ops.iter().map(|o| (o.id.clone(), o.enabled)).collect();
+    match crate::compiler::checked_tool(job, index, &enabled) {
+        Some((t, j)) => format!("CHECKS T{} (FROM OP {}) ON THE SETTER  ·  STOPS THE JOB IF IT IS BROKEN", t, j + 1),
+        None => "NO CUTTING TOOL BEFORE IT TO CHECK".into(),
+    }
+}
+
 fn probe_snap(op: &crate::model::Op, job: &crate::model::Job, machine: &Option<crate::compiler::Machine>) -> Value {
     let Ok(p) = crate::probe::parse(op) else { return Value::Null };
     let Some(m) = p.measure else { return json!({"mode": p.mode, "routine": p.routine}) };

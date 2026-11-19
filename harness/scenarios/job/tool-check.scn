@@ -1,0 +1,48 @@
+title JOB: ADD STEP › TOOL CHECK AFTER EVERY TOOL; the job checks the tool on the setter and goes on
+needs probe-geometry drawbar
+errors-to-millgui    # millgui reads the check result from the error queue
+include ../common/ready.scn
+# millgui writes the setter values (#3037) once LinuxCNC has been still 3 s.
+sleep 4
+# h_ops.ngc cuts air with T4, whose sim length is its table length, so
+# the job's check after it passes.
+mdi G10 L2 P1 X0 Y0 Z-200
+screen job
+do job-new
+do job-add-program
+wait prop.pick-open == true within 5
+tap pick-items - h_ops.ngc pick
+wait prop.job-ops.len == 1 within 5
+# A manual step at the end: the job pauses there only if the check passed.
+do job-add-step
+wait prop.pick-open == true within 5
+expect prop.pick-items[3] contains CLEAR CHIPS
+do pick 3
+wait prop.job-ops.len == 2 within 5
+do job-add-step
+wait prop.pick-open == true within 5
+expect prop.pick-items[0] contains EVERY TOOL
+do pick 0
+wait prop.job-ops.len == 3 within 5
+expect prop.job-ops[1].kind == "toolcheck"
+expect prop.job-ops[1].detail contains T4
+shot job-with-check
+do job-build
+wait stat.file contains .ngc within 20
+do cycle-start
+wait stat.interp_state != 1 within 10
+wait prop.tc-open == true within 120
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+# Op 2 checks T4 on the setter (it passes), op 3 pauses.
+wait stat.paused == true within 300
+expect stat.tool_table[0].zoffset ~= 98.794101 +- 0.001
+expect stat.actual_position[2] ~= 0 +- 0.01
+shot job-paused-after-check
+sleep 1
+do cycle-start
+wait stat.paused == false within 10
+idle 120
+expect prop.job-running == false
+shot job-done

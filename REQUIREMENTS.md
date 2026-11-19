@@ -136,6 +136,10 @@ https://claude.ai/artifact/NUsDy6ER3vuD5qTEN5ivQ3) and the review handoff of
       RUN/SKIP, NEW, OPEN, ADD STEP presets, move, HOLD DELETE, START AT OP (disables earlier ops,
       needs a rebuild), STOP AFTER THIS OP, HOLD BUILD AND LOAD; run progress per op and for the job.
 - [x] `mymill-job` HAL component (stamp, skip-1..64, stop-after) mirrored from the session.
+- [x] Tool setter (2026-11-18): TOOLS › MEASURE loads the selected tool if needed and sets its length
+      (`o<millgui_measure_tool>`); TOOLS › CHECK measures the loaded tool and stops when it is off its
+      table length by more than `#3037` (`o<millgui_tool_check>`). Job op kind `toolcheck` runs the
+      same check; ADD STEP › TOOL CHECK AFTER EVERY TOOL puts one wherever a tool is put away.
 - [x] CYCLE START refuses a stale, unbuilt or edited job program (cycle_start_problem), the probe in
       the spindle, and a motion block (Probe Basic's on_cycle_start_clicked checks).
 - [x] CONV: facing, XY coord, pattern (grid), hole circle, helical bore, thread mill (presets) from

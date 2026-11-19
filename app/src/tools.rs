@@ -6,6 +6,12 @@
 //! write the file and send LoadToolTable, as Probe Basic's table editor did.
 //! Edits are refused while a program or MDI command runs.
 //!
+//! Tool setter: MEASURE loads the selected tool if needed and measures its
+//! length (`o<millgui_measure_tool>`); CHECK measures the loaded tool and
+//! stops if it is off its table length by more than the breakage tolerance
+//! (`o<millgui_tool_check>`, which a job's TOOL CHECK op also runs). Its
+//! `MILLGUI-TOOLCHECK` line is turned into the result shown here.
+//!
 //! Wear: LinuxCNC's mill tool table has no wear columns, so the table value
 //! stays the only number the machine uses. A wear adjustment adds a signed
 //! amount to a tool's length or diameter. The running total is kept beside
@@ -110,6 +116,18 @@ pub struct Tools {
     io: Option<Rc<dyn Io>>,
     ui: slint::Weak<MainWindow>,
     probe_tool: i32,
+    /// The machine has a tool setter (MEASURE and CHECK show).
+    has_setter: bool,
+    /// A MEASURE that was sent: the tool and its length before. The table
+    /// change it makes is logged as a measurement, and the result shown
+    /// once LinuxCNC is idle again.
+    measuring: Option<(i32, f64)>,
+    /// A CHECK that was sent and has not reported yet (its tool).
+    checking: Option<i32>,
+    /// The last setter result, shown under the buttons.
+    setter_note: (String, &'static str),
+    /// Setter values LinuxCNC may not hold yet, as MDI lines to send first.
+    pending_defaults: Box<dyn Fn() -> Vec<String>>,
 }
 
 impl Tools {
@@ -122,7 +140,14 @@ impl Tools {
         // L1, or the file edited by hand.
         for o in &old {
             if let Some(n) = self.tools.iter().find(|n| n.t == o.t) {
-                history::record(Target::Tool(o.t), &[o.z, o.d], &[n.z, n.d], "Tool table changed outside millgui", [0.0; 2]);
+                let cause = if self.measuring.is_some_and(|(t, _)| t == o.t) { "Measured on the tool setter" } else { "Tool table changed outside millgui" };
+                history::record(Target::Tool(o.t), &[o.z, o.d], &[n.z, n.d], cause, [0.0; 2]);
+            }
+        }
+        // A MEASURE is done when its tool's length changes.
+        if let Some((t, before)) = self.measuring {
+            if self.tools.iter().any(|x| x.t == t && (x.z - before).abs() > history::EPS) {
+                self.measure_done();
             }
         }
     }
@@ -230,6 +255,87 @@ impl Tools {
         self.save()
     }
 
+    /// Why the setter can't run now, if it can't.
+    fn setter_problem(&self) -> Option<String> {
+        if !self.has_setter {
+            return Some("This machine has no tool setter (SETUP › TOOL SETTER)".into());
+        }
+        match &self.status {
+            Some(s) if !s.power_on() => Some("Turn the machine on first".into()),
+            Some(s) if s.busy() => Some("Wait for the running program or command to finish".into()),
+            None => Some("LinuxCNC is not connected".into()),
+            _ => None,
+        }
+    }
+
+    /// MEASURE: the selected tool's length on the setter, loading it first
+    /// when another tool is in the spindle.
+    fn measure(&mut self) -> Result<(), String> {
+        let t = self.selected.ok_or("Select the tool to measure")?;
+        if t == self.probe_tool {
+            return Err("The probe is not measured on the tool setter: calibrate it on PROBE › CAL".into());
+        }
+        if let Some(why) = self.setter_problem() {
+            return Err(why);
+        }
+        let old = self.tools.iter().find(|x| x.t == t).map_or(0.0, |x| x.z);
+        self.measuring = Some((t, old));
+        let loaded = self.status.as_ref().is_some_and(|s| s.tool_in_spindle == t);
+        self.setter_note = (if loaded { format!("Measuring T{t} on the tool setter…") } else { format!("Loading T{t}, then measuring it on the tool setter…") }, "");
+        self.send_setter(format!("o<millgui_measure_tool> call [{t}]"));
+        Ok(())
+    }
+
+    /// CHECK: measure the tool in the spindle and compare with the table.
+    fn check(&mut self) -> Result<(), String> {
+        let t = self.status.as_ref().map_or(0, |s| s.tool_in_spindle);
+        if t <= 0 {
+            return Err("Load the tool to check first".into());
+        }
+        if t == self.probe_tool {
+            return Err("The probe is in the spindle: the setter checks cutting tools".into());
+        }
+        if self.tools.iter().find(|x| x.t == t).is_none_or(|x| x.z == 0.0) {
+            return Err(format!("T{t} has no length yet: MEASURE it first"));
+        }
+        if let Some(why) = self.setter_problem() {
+            return Err(why);
+        }
+        self.setter_note = (format!("Checking T{t} on the tool setter…"), "");
+        self.checking = Some(t);
+        self.send_setter("o<millgui_tool_check> call".into());
+        Ok(())
+    }
+
+    /// A MEASURE has written the new length: say what it found.
+    fn measure_done(&mut self) {
+        let Some((t, old)) = self.measuring.take() else { return };
+        let u = crate::machine_info::get().units;
+        if let Some(x) = self.tools.iter().find(|x| x.t == t) {
+            let was = if old == 0.0 { String::new() } else { format!(" (was {}, {:+.dp$})", u.fmt(old), x.z - old, dp = u.decimals()) };
+            self.setter_note = (format!("T{t} measured: length {}{was}", u.fmt(x.z)), "good");
+        }
+    }
+
+    /// LinuxCNC reported an error: a MEASURE or CHECK still waiting for its
+    /// result stopped (the error says why).
+    fn error_seen(&mut self) {
+        if let Some((t, _)) = self.measuring.take() {
+            self.setter_note = (format!("T{t} was not measured"), "bad");
+        }
+        if let Some(t) = self.checking.take() {
+            self.setter_note = (format!("T{t} was not checked"), "bad");
+        }
+    }
+
+    /// A setter macro call, after any setter values LinuxCNC lacks.
+    fn send_setter(&self, call: String) {
+        for l in (self.pending_defaults)() {
+            self.machine.send(Command::Mdi(l));
+        }
+        self.machine.send(Command::Mdi(call));
+    }
+
     fn next_scratch(&self) -> Option<i32> {
         crate::machine_cfg::get().scratch_range()?.find(|n| !self.tools.iter().any(|t| t.t == *n))
     }
@@ -256,6 +362,13 @@ impl Tools {
         let sel = self.selected.and_then(|s| self.tools.iter().position(|t| t.t == s)).map_or(-1, |i| i as i32);
         live.set_tools_selected(sel);
         live.set_tools_sel_label(self.selected.map(|t| format!("T{t}")).unwrap_or_default().into());
+        live.set_tools_has_setter(self.has_setter);
+        live.set_tools_can_measure(self.selected.is_some_and(|t| t != self.probe_tool) && self.setter_problem().is_none());
+        let checkable = self.tools.iter().any(|x| x.t == cur && cur > 0 && cur != self.probe_tool && x.z != 0.0);
+        live.set_tools_check_label(if cur > 0 && cur != self.probe_tool { format!("CHECK T{cur}") } else { "CHECK".into() }.into());
+        live.set_tools_can_check(checkable && self.setter_problem().is_none());
+        live.set_tools_setter_note(self.setter_note.0.clone().into());
+        live.set_tools_setter_tone(self.setter_note.1.into());
         self.show_check(ui);
         self.show_drawbar(ui);
     }
@@ -271,7 +384,7 @@ impl Tools {
             .map(|&n| {
                 let (status, kind, action) = match self.tools.iter().find(|t| t.t == n) {
                     None => ("MISSING", "bad", "Create the entry, then touch off"),
-                    Some(t) if t.z == 0.0 && n != self.probe_tool => ("NEEDS LENGTH", "warn", "Touch off the tool length"),
+                    Some(t) if t.z == 0.0 && n != self.probe_tool => ("NEEDS LENGTH", "warn", if self.has_setter { "Tap to select, then MEASURE" } else { "Touch off the tool length" }),
                     Some(_) => ("READY", "good", ""),
                 };
                 CheckRow { t: format!("T{n}").into(), status: status.into(), kind: kind.into(), action: action.into() }
@@ -439,13 +552,29 @@ pub fn table_path(cfg: &Config, sim: bool) -> PathBuf {
     copy
 }
 
-pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn Io>>, sim: bool) -> Rc<RefCell<Tools>> {
-    wire_path(ui, machine, cfg, io, table_path(cfg, sim))
+/// `has_setter`: show MEASURE and CHECK. `pending_defaults`: the setter
+/// values LinuxCNC may not hold yet, as MDI lines (probe.rs).
+pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn Io>>, sim: bool, has_setter: bool, pending_defaults: Box<dyn Fn() -> Vec<String>>) -> Rc<RefCell<Tools>> {
+    wire_path(ui, machine, cfg, io, table_path(cfg, sim), has_setter, pending_defaults)
 }
 
-pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn Io>>, path: PathBuf) -> Rc<RefCell<Tools>> {
+pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn Io>>, path: PathBuf, has_setter: bool, pending_defaults: Box<dyn Fn() -> Vec<String>>) -> Rc<RefCell<Tools>> {
     let probe_tool = crate::machine_cfg::get().probe_tool(cfg);
-    let tools = Rc::new(RefCell::new(Tools { path, tools: Vec::new(), selected: None, status: None, machine: machine.clone(), io, ui: ui.as_weak(), probe_tool }));
+    let tools = Rc::new(RefCell::new(Tools {
+        path,
+        tools: Vec::new(),
+        selected: None,
+        status: None,
+        machine: machine.clone(),
+        io,
+        ui: ui.as_weak(),
+        probe_tool,
+        has_setter,
+        measuring: None,
+        setter_note: (String::new(), ""),
+        checking: None,
+        pending_defaults,
+    }));
     tools.borrow_mut().load();
     crate::manual::add_keypad_target(Rc::new(Keys(tools.clone())));
     crate::textentry::add_target(Rc::new(Keys(tools.clone())));
@@ -463,6 +592,34 @@ pub fn wire_path(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<
             Some(n) => st.machine.send(Command::Mdi(format!("M6 T{n} G43"))),
             None => st.note("Select a tool first", true),
         }
+    });
+    let t = tools.clone();
+    actions.on_tools_measure(move || {
+        let mut st = t.borrow_mut();
+        if let Err(e) = st.measure() {
+            st.note(e, true);
+        }
+        st.refresh();
+    });
+    let t = tools.clone();
+    actions.on_tools_check(move || {
+        let mut st = t.borrow_mut();
+        if let Err(e) = st.check() {
+            st.note(e, true);
+        }
+        st.refresh();
+    });
+    let t = tools.clone();
+    actions.on_tools_check_select(move |i| {
+        let mut st = t.borrow_mut();
+        let Some(ui) = st.ui.upgrade() else { return };
+        let row = ui.global::<Live>().get_tools_check().row_data(i.max(0) as usize);
+        if let Some(n) = row.and_then(|r| r.t.trim_start_matches('T').parse::<i32>().ok()) {
+            if st.tools.iter().any(|x| x.t == n) {
+                st.selected = Some(n);
+            }
+        }
+        st.refresh();
     });
     let t = tools.clone();
     actions.on_tools_unload(move || {
@@ -573,7 +730,7 @@ pub fn loaded_tool() -> Option<(f64, f64)> {
 /// touch off).
 pub fn apply_status(ui: &MainWindow, tools: &Rc<RefCell<Tools>>, s: &Status) {
     let mut st = tools.borrow_mut();
-    let changed = st.status.as_ref().is_none_or(|o| o.tool_in_spindle != s.tool_in_spindle || o.busy() != s.busy() || o.file != s.file);
+    let changed = st.status.as_ref().is_none_or(|o| o.tool_in_spindle != s.tool_in_spindle || o.busy() != s.busy() || o.file != s.file || o.power_on() != s.power_on());
     st.status = Some(s.clone());
     if changed {
         st.load();
@@ -582,6 +739,84 @@ pub fn apply_status(ui: &MainWindow, tools: &Rc<RefCell<Tools>>, s: &Status) {
         LOADED.with(|l| l.set(tool.map(|t| (t.d, t.z))));
         let dia = tool.map(|t| crate::machine_info::get().units.fmt(t.d));
         ui.global::<Live>().set_tool_dia(dia.unwrap_or_else(|| "-".into()).into());
+    }
+}
+
+/// A `MILLGUI-TOOLCHECK T=<t> LENGTH=<l> TABLE=<l> TOL=<tol>` line from
+/// o<millgui_tool_check> (TOOLS › CHECK or a job's TOOL CHECK op): shown
+/// on TOOLS and in the top bar. Returns whether it was one.
+pub fn message(ui: &MainWindow, tools: &Rc<RefCell<Tools>>, m: &machine::Message) -> bool {
+    if m.kind == machine::MessageKind::Error {
+        let mut st = tools.borrow_mut();
+        let text = m.text.trim();
+        // o<millgui_tool_check> found the tool off its length (a job's
+        // TOOL CHECK too): the error is the result. It still shows as an
+        // error.
+        if text.starts_with("Tool check: T") {
+            st.checking = None;
+            st.setter_note = (text.trim_start_matches("Tool check: ").to_string(), "bad");
+            st.show(ui);
+        } else if st.measuring.is_some() || st.checking.is_some() {
+            st.error_seen();
+            st.show(ui);
+        }
+        return false;
+    }
+    let Some(r) = parse_check(&m.text) else { return false };
+    let mut st = tools.borrow_mut();
+    let (note, tone) = check_text(&r);
+    st.checking = None;
+    let live = ui.global::<Live>();
+    live.set_message(note.clone().into());
+    live.set_message_error(tone == "bad");
+    st.setter_note = (note, tone);
+    st.show(ui);
+    true
+}
+
+/// A tool check's numbers: tool, measured, table, tolerance.
+#[derive(Debug, PartialEq)]
+pub struct CheckResult {
+    pub t: i32,
+    pub length: f64,
+    pub table: f64,
+    pub tol: f64,
+}
+
+pub fn parse_check(text: &str) -> Option<CheckResult> {
+    let rest = text.trim().strip_prefix("MILLGUI-TOOLCHECK ")?;
+    let mut r = CheckResult { t: -1, length: f64::NAN, table: f64::NAN, tol: f64::NAN };
+    for w in rest.split_whitespace() {
+        let (k, v) = w.split_once('=')?;
+        let v: f64 = v.parse().ok()?;
+        match k {
+            "T" => r.t = v.round() as i32,
+            "LENGTH" => r.length = v,
+            "TABLE" => r.table = v,
+            "TOL" => r.tol = v,
+            _ => {}
+        }
+    }
+    (r.t > 0 && r.length.is_finite() && r.table.is_finite() && r.tol.is_finite()).then_some(r)
+}
+
+/// "T7 OK: 0.002 longer than the table (tolerance 0.500)" and its tone.
+pub fn check_text(r: &CheckResult) -> (String, &'static str) {
+    let u = crate::machine_info::get().units;
+    let dp = u.decimals();
+    let d = r.length - r.table;
+    let off = if d.abs() < 0.5 * 10f64.powi(-(dp as i32)) {
+        "same as the table".to_string()
+    } else {
+        format!("{:.dp$} {} than the table", d.abs(), if d < 0.0 { "shorter" } else { "longer" })
+    };
+    let tol = format!("{:.dp$}", r.tol);
+    if d < -r.tol {
+        (format!("T{} MAY BE BROKEN: {off} (tolerance {tol})", r.t), "bad")
+    } else if d > r.tol {
+        (format!("T{} IS TOO LONG: {off}, it may have slipped (tolerance {tol})", r.t), "bad")
+    } else {
+        (format!("T{} OK: {off} (tolerance {tol})", r.t), "good")
     }
 }
 
@@ -625,6 +860,20 @@ mod tests {
         assert_eq!(wear_text(0.0), "");
         assert_eq!(wear_text(-0.02), "-0.020");
         assert_eq!(wear_text(0.015), "+0.015");
+    }
+
+    #[test]
+    fn tool_check_lines() {
+        let r = parse_check("MILLGUI-TOOLCHECK T=7 LENGTH=108.500000 TABLE=111.000000 TOL=0.500000").unwrap();
+        assert_eq!(r, CheckResult { t: 7, length: 108.5, table: 111.0, tol: 0.5 });
+        assert_eq!(check_text(&r).1, "bad");
+        assert!(check_text(&r).0.contains("MAY BE BROKEN: 2.500 shorter"), "{}", check_text(&r).0);
+        let ok = parse_check("MILLGUI-TOOLCHECK T=7 LENGTH=111.002 TABLE=111.000000 TOL=0.5").unwrap();
+        assert_eq!(check_text(&ok), ("T7 OK: 0.002 longer than the table (tolerance 0.500)".into(), "good"));
+        let long = parse_check("MILLGUI-TOOLCHECK T=7 LENGTH=112 TABLE=111 TOL=0.5").unwrap();
+        assert!(check_text(&long).0.starts_with("T7 IS TOO LONG"));
+        assert!(parse_check("MILLGUI-TOOLCHECK T=7 LENGTH=x").is_none());
+        assert!(parse_check("MYMILL-MEASURE ID=1 VALUE=2").is_none());
     }
 
     #[test]

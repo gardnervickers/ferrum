@@ -86,7 +86,7 @@ traverse_feed = 1500      # #3006
 max_z = 120               # #3007 travel down from G30; no default
 retract = 2               # #3009
 reference_height = 286.9  # #3010 spindle zero height; no default (CAL › nose writes it on mymill)
-breakage_tolerance = 0.5  # #3037
+breakage_tolerance = 0.5  # #3037: TOOLS › CHECK and a job's TOOL CHECK stop beyond it (a 0 in the parameter file counts as not set)
 
 [hal]                     # logical name = a HAL signal or pin of your machine
 probe_tripped = "motion.probe-input"

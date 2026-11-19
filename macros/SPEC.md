@@ -259,7 +259,7 @@ mymill):
 | 3033 | Ring gauge diameter | cal |
 | 3034 / 3035 | Cal block X / Y width | not used by millgui's macros |
 | 3036 | Cal axis selector | cal (see Quirk Q3) |
-| 3037 | Breakage tolerance | not used by millgui's macros |
+| 3037 | Breakage tolerance | millgui_tool_check (millgui's own, not a Probe Basic macro) |
 
 LinuxCNC system parameters used: `#5061..#5063` probed X/Y/Z (current
 program coordinates, including tool length offset), `#5070` 1 if the last

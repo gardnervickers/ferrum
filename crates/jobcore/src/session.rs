@@ -37,6 +37,9 @@ impl Default for Hooks {
 }
 
 /// `secrets.token_hex(4)`.
+/// The name a TOOL CHECK op gets.
+pub const TOOL_CHECK_NAME: &str = "Tool check";
+
 pub fn random_id() -> String {
     use std::io::Read;
     let mut buf = [0u8; 4];
@@ -438,6 +441,41 @@ impl JobSession {
         self.save()?;
         self.changed(machine);
         Ok(())
+    }
+
+    /// Add a TOOL CHECK op after the op `after` (at the end when None).
+    /// Returns its position.
+    pub fn add_tool_check(&mut self, after: Option<&Value>, hooks: &mut Hooks, machine: &MachineFn) -> Result<usize> {
+        self.require_editable()?;
+        if self.job.ops.len() >= MAX_OPS {
+            return Err(Error::job(format!("A job can hold at most {} ops.", MAX_OPS)));
+        }
+        let at = match after {
+            Some(id) => self.job.index(id)? + 1,
+            None => self.job.ops.len(),
+        };
+        self.job.ops.insert(at, Op::new((hooks.new_id)(), TOOL_CHECK_NAME.into(), "toolcheck", Map::new()));
+        self.save()?;
+        self.changed(machine);
+        Ok(at + 1)
+    }
+
+    /// Add a TOOL CHECK op wherever a tool is put away without one
+    /// (compiler::tool_check_spots). Returns how many were added.
+    pub fn add_tool_checks(&mut self, hooks: &mut Hooks, machine: &MachineFn) -> Result<usize> {
+        self.require_editable()?;
+        let spots = crate::compiler::tool_check_spots(&self.job);
+        if self.job.ops.len() + spots.len() > MAX_OPS {
+            return Err(Error::job(format!("A job can hold at most {} ops; {} tool checks would not fit.", MAX_OPS, spots.len())));
+        }
+        for &i in spots.iter().rev() {
+            self.job.ops.insert(i + 1, Op::new((hooks.new_id)(), TOOL_CHECK_NAME.into(), "toolcheck", Map::new()));
+        }
+        if !spots.is_empty() {
+            self.save()?;
+            self.changed(machine);
+        }
+        Ok(spots.len())
     }
 
     pub fn add_step(&mut self, message: &Value, hooks: &mut Hooks, machine: &MachineFn) -> Result<usize> {

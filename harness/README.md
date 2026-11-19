@@ -93,7 +93,8 @@ One step per line; `#` after a space starts a comment. Files under
 | `title TEXT` | name in the report |
 | `needs TAG...` | skip on configs without every tag |
 | `xfail TAG-or-CONFIG...: why` | expected to fail there (reported, does not fail the run; a pass is flagged XPASS so the line can go) |
-| `allow-error TEXT` | an error message containing TEXT is fine |
+| `allow-error TEXT` | an error message containing TEXT (any case) is fine |
+| `errors-to-millgui` | the harness stops reading LinuxCNC's error queue (one reader only), so millgui sees every error, as on the machine; errors are then checked via millgui |
 | `include FILE` | another file's steps |
 | `seed PATH LINE` | append LINE to a file under the run's fresh HOME before LinuxCNC starts (millgui state, settings) |
 | `do ACTION ARGS...` | an `Actions` callback from `app/ui/state.slint` (`do jog-start 0 1`); args are JSON or bare words |

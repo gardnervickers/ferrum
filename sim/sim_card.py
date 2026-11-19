@@ -43,8 +43,8 @@ flat top exactly at the top, on a wall at D/2 - PRETRAVEL from it. With
 #3032 = PRETRAVEL a macro that adds D/2 - #3032 reports the true edge.
 
 Tool lengths come from the tool table, except tools listed in
-SIM_TOOL_LENGTHS ("7=111.0,..."), whose physical length differs from the
-table so that a touch-off has something to measure.
+SIM_TOOL_LENGTHS ("7=111.0,4=98.794101" by default), whose physical length is fixed, so that
+a touch-off has something to measure and a check can find a "broken" tool.
 
 The tool setter is a disc of radius SETTER["r"] at the G30 spot whose top is
 where tool_touch_off.ngc expects the nose to trip with no tool (#3010 in
@@ -164,7 +164,7 @@ SETTER = dict(x=float(os.environ.get("SIM_SETTER_X", "0")), y=float(os.environ.g
               top=-float(os.environ.get("SIM_SETTER_DEPTH", "286.873159")), r=10.0)
 TOOL_TABLE = os.environ.get("SIM_TOOL_TABLE", "tool.tbl")
 # Tools whose physical length is not the tool table's (number=length).
-PHYSICAL = {int(k): float(v) for k, v in (p.split("=") for p in os.environ.get("SIM_TOOL_LENGTHS", "7=111.0").split(",") if p)}
+PHYSICAL = {int(k): float(v) for k, v in (p.split("=") for p in os.environ.get("SIM_TOOL_LENGTHS", "7=111.0,4=98.794101").split(",") if p)}
 
 
 def nose_diameter():

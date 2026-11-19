@@ -37,4 +37,8 @@ see "Probe values" in `../docs/millgui-toml.md`.
   it found them.
 
 Files starting `millgui_` are helpers the routines share; the others are
-the routines millgui calls.
+the routines millgui calls. Two `millgui_` files are called by millgui
+itself: `millgui_measure_tool` (TOOLS › MEASURE: load a tool and measure
+its length on the setter) and `millgui_tool_check` (TOOLS › CHECK and a
+job's TOOL CHECK op: measure the loaded tool and stop when it is off its
+table length by more than `#3037`, the breakage tolerance).

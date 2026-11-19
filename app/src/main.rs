@@ -942,6 +942,10 @@ fn main() -> Result<(), slint::PlatformError> {
                         if UTIL.with(|u| u.borrow().as_ref().is_some_and(|u| util::message(u, &m))) {
                             return;
                         }
+                        // A tool check on the setter (TOOLS or a job's TOOL CHECK op).
+                        if TOOLS.with(|t| t.borrow().as_ref().is_some_and(|t| tools::message(ui, t, &m))) {
+                            return;
+                        }
                         // A job's check reading (MYMILL-MEASURE): kept on the JOB page.
                         if JOB.with(|j| j.borrow().as_ref().is_some_and(|j| j.borrow_mut().message(&m.text))) {
                             return;
@@ -1045,7 +1049,9 @@ fn main() -> Result<(), slint::PlatformError> {
     } else {
         modules.iter().find_map(|m| m.toolchange())
     };
-    let tools = tools::wire(&ui, &handle, &cfg, tc_io.clone(), args.sim);
+    let has_setter = crate::machine_cfg::get().toolsetter.enabled.unwrap_or(modules.iter().any(|m| m.id() == "util"));
+    let pending_defaults = Box::new(|| PROBE.with(|p| p.borrow().as_ref().map(|p| p.borrow_mut().take_pending_defaults()).unwrap_or_default()));
+    let tools = tools::wire(&ui, &handle, &cfg, tc_io.clone(), args.sim, has_setter, pending_defaults);
     let _tools_timer = tools::start_timer(&ui, &tools);
     TOOLS.with(|t| *t.borrow_mut() = Some(tools.clone()));
     let offsets = offsets::wire(&ui, &handle, &cfg, args.sim);
@@ -1075,7 +1081,7 @@ fn main() -> Result<(), slint::PlatformError> {
     picker::wire(&ui);
     let ids: Vec<&str> = modules.iter().map(|m| m.id()).collect();
     let _job_timer = if ids.contains(&"job") || ids.contains(&"conv") {
-        let (j, timer) = job::wire(&ui, &handle, &cfg, args.sim);
+        let (j, timer) = job::wire(&ui, &handle, &cfg, args.sim, has_setter);
         let conv_state = if args.sim { settings::Settings::memory() } else { settings::Settings::at("conv") };
         let _ = conv::wire(&ui, j.clone(), conv_state);
         wire_job_probing(&ui, &j);
@@ -1374,7 +1380,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
         pending.sim_tool_change = Some(214);
         tc_io.status(&pending);
     }
-    let tools = tools::wire(&ui, &handle, cfg, Some(tc_io.clone() as Rc<dyn toolchange::Io>), true);
+    let tools = tools::wire(&ui, &handle, cfg, Some(tc_io.clone() as Rc<dyn toolchange::Io>), true, true, Box::new(Vec::new));
     tools::apply_status(&ui, &tools, &s);
     let offsets = offsets::wire(&ui, &handle, cfg, true);
     offsets::apply_status(&ui, &offsets, &s);
@@ -1387,7 +1393,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     util::apply_status(&util, &s);
     let _tc_timer = toolchange::wire(&ui, &handle, cfg, tc_io);
     picker::wire(&ui);
-    let (j, _job_timer) = job::wire(&ui, &handle, cfg, true);
+    let (j, _job_timer) = job::wire(&ui, &handle, cfg, true, true);
     job::apply_status(&j, &s);
     let conv = conv::wire(&ui, j.clone(), settings::Settings::memory());
     let actions = ui.global::<Actions>();

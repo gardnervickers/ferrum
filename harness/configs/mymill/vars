@@ -149,5 +149,6 @@ cal_tol = 0.01
 # 109.232434), and the setter top is 286.873159 below machine Z0 (#3010).
 setter_tool = 7
 setter_tool_len = 111.0
+setter_tool_broken = 113.0          # a table length 2 mm over the tool: CHECK says broken
 setter_depth = 286.873159
 setter_zmax = 287.160032            # #3007 the nose macro writes: 1.001 x #3010

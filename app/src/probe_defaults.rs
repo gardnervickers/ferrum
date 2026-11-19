@@ -72,6 +72,10 @@ pub const DEFS: &[Def] = &[
     d(3037, "toolsetter.breakage_tolerance", "Breakage tolerance", Dist, Some(0.5), Some(0.02), |c| c.toolsetter.breakage_tolerance),
 ];
 
+/// The tool check's tolerance (`#3037`). Probe Basic left it 0 (unused), so
+/// a 0 in the parameter file means "not set" and the starting value applies.
+pub const BREAKAGE_TOLERANCE: u16 = 3037;
+
 /// The probe tool's number, for the macros (`#3014`); from `[probe]tool`.
 pub const PROBE_TOOL: u16 = 3014;
 
@@ -119,7 +123,7 @@ pub fn resolve(mc: &MachineCfg, base: &BTreeMap<u16, f64>, inch: bool) -> BTreeM
         .map(|d| {
             let r = if let Some(v) = d.toml(mc) {
                 (Some(v), Source::Toml)
-            } else if let Some(v) = base.get(&d.n) {
+            } else if let Some(v) = base.get(&d.n).filter(|v| !(d.n == BREAKAGE_TOLERANCE && **v <= 0.0)) {
                 (Some(*v), Source::ParamFile)
             } else if let Some(v) = d.seed(inch) {
                 (Some(v), Source::Seed)

@@ -1328,6 +1328,19 @@ impl Probe {
         }
     }
 
+    /// The defaults as MDI lines, when LinuxCNC may not hold them yet (the
+    /// quiet-time write has not happened): for another screen to send ahead
+    /// of a macro that reads them (TOOLS › MEASURE / CHECK). Taking them
+    /// clears the pending write.
+    pub fn take_pending_defaults(&mut self) -> Vec<String> {
+        if !self.restore_pending || self.run.is_some() {
+            return Vec::new();
+        }
+        self.restore_pending = false;
+        self.state.set("probe.restore-pending", 0);
+        Self::assign_lines(self.defaults.iter().map(|(n, v)| (*n, *v)))
+    }
+
     /// An owned default as millgui uses it now, and where it came from.
     pub fn default_of(&self, n: u16) -> (Option<f64>, crate::probe_defaults::Source) {
         let src = self.sources.get(&n).copied().unwrap_or(crate::probe_defaults::Source::Missing);

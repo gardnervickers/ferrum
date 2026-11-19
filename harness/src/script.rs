@@ -4,7 +4,8 @@
 //! title   Home and jog                # shown in the report
 //! needs   probe-basic                 # skip on configs without every tag
 //! xfail   inch: B3, inch not handled  # expected to fail on a config or tag
-//! allow-error  Probe tripped          # LinuxCNC/millgui error text that is fine
+//! allow-error  Probe tripped          # LinuxCNC/millgui error text that is fine (any case)
+//! errors-to-millgui                   # only millgui reads LinuxCNC's error queue (errors checked via millgui)
 //! include common/ready.scn            # another file's steps, here
 //! seed    .local/state/millgui/probe probe.restore-pending=1   # a line in a file under HOME, before start
 //!
@@ -87,6 +88,7 @@ pub struct Scenario {
     /// (config name or tag, reason)
     pub xfail: Vec<(String, String)>,
     pub allow_errors: Vec<String>,
+    pub errors_to_millgui: bool,
     /// Files written under the run's fresh HOME before LinuxCNC starts: (path, line).
     pub seeds: Vec<(String, String)>,
     pub steps: Vec<Line>,
@@ -160,6 +162,10 @@ impl Scenario {
                     for w in who.split_whitespace() {
                         self.xfail.push((w.to_string(), why.trim().to_string()));
                     }
+                    continue;
+                }
+                "errors-to-millgui" => {
+                    self.errors_to_millgui = true;
                     continue;
                 }
                 "allow-error" => {

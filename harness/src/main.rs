@@ -520,6 +520,9 @@ fn run_one(
             std::fs::write(&p, text).map_err(|e| e.to_string())?;
         }
         let mut s = Session::start(env, &cfg, log)?;
+        if sc.errors_to_millgui {
+            s.errors_to_millgui()?;
+        }
         if !s.props.lock().unwrap().contains_key("screen") {
             return Err(
                 "millgui did not mirror its screen: build lacks harness mode (MILLGUI_HARNESS)"
@@ -578,7 +581,7 @@ fn run_one(
         errs.extend(s.ui_errors.lock().unwrap().iter().cloned());
         let bad: Vec<_> = errs
             .iter()
-            .filter(|e| !sc.allow_errors.iter().any(|a| e.contains(a)))
+            .filter(|e| !sc.allow_errors.iter().any(|a| e.to_lowercase().contains(&a.to_lowercase())))
             .collect();
         if !bad.is_empty() {
             let shot = dir.join("final.png");

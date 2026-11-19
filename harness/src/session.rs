@@ -229,6 +229,11 @@ impl Session {
         Ok(v)
     }
 
+    /// Stop the helper reading LinuxCNC's error queue: millgui gets every error.
+    pub fn errors_to_millgui(&mut self) -> Result<(), String> {
+        self.ask("nodrain").map(|_| ())
+    }
+
     pub fn stat(&mut self) -> Result<Value, String> {
         self.ask("stat")
     }

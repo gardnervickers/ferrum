@@ -73,7 +73,8 @@ impl Pins {
 /// What the shared list picker is open for.
 enum Pick {
     Open(Vec<String>),
-    Step,
+    /// The step presets after this many tool check entries.
+    Step(usize),
     Program(Vec<PathBuf>),
     /// Which earlier op a check measures (None: no op).
     Link(Vec<Option<String>>),
@@ -105,6 +106,8 @@ pub struct Job {
     corrected: std::collections::HashSet<String>,
     machine: Handle,
     ui: slint::Weak<MainWindow>,
+    /// The machine has a tool setter: ADD STEP offers tool checks.
+    has_setter: bool,
 }
 
 impl Job {
@@ -532,7 +535,7 @@ pub fn cache_dir() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(".cache/millgui")
 }
 
-pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<RefCell<Job>>, slint::Timer) {
+pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool, has_setter: bool) -> (Rc<RefCell<Job>>, slint::Timer) {
     let num = |s, k| cfg.get_f64(s, k).map_or(Value::Null, |v| json!(v));
     let mi = crate::machine_info::get();
     let init = json!({
@@ -573,6 +576,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
         corrected: Default::default(),
         machine: machine.clone(),
         ui: ui.as_weak(),
+        has_setter,
     }));
     {
         let mut jb = j.borrow_mut();
@@ -664,7 +668,17 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
     });
     let t = j.clone();
     actions.on_job_add_step(move || {
-        t.borrow_mut().open_pick("ADD A MANUAL STEP", STEP_PRESETS.iter().map(|s| s.to_string()).collect(), Pick::Step);
+        let mut jb = t.borrow_mut();
+        // Tool checks first (with a tool setter), then the manual steps.
+        let mut items = Vec::new();
+        if jb.has_setter {
+            items.push("TOOL CHECK AFTER EVERY TOOL (BROKEN TOOL CHECK)".to_string());
+            let after = jb.selected_index().map(|i| format!("TOOL CHECK AFTER OP {}", i + 1)).unwrap_or_else(|| "TOOL CHECK AT THE END".into());
+            items.push(after);
+        }
+        let n = items.len();
+        items.extend(STEP_PRESETS.iter().map(|s| s.to_string()));
+        jb.open_pick("ADD A STEP", items, Pick::Step(n));
     });
     let t = j.clone();
     let nc = PathBuf::from(init_nc);
@@ -727,7 +741,12 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> (Rc<R
                     jb.act(json!({"cmd": "open", "path": p}));
                 }
             }
-            Some(Pick::Step) => jb.act(json!({"cmd": "add_step", "index": i})),
+            Some(Pick::Step(n)) if n > 0 && i == 0 => jb.act(json!({"cmd": "add_tool_checks"})),
+            Some(Pick::Step(n)) if i < n => {
+                let after = jb.selected.clone();
+                jb.act(json!({"cmd": "add_tool_check", "after": after}));
+            }
+            Some(Pick::Step(n)) => jb.act(json!({"cmd": "add_step", "index": i - n})),
             Some(Pick::Program(paths)) => {
                 if let Some(p) = paths.get(i) {
                     jb.act(json!({"cmd": "import_cam", "path": p}));

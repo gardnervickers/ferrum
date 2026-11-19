@@ -303,6 +303,8 @@ fn resolve(op: &Op, machine: &Machine) -> Result<(Option<Setup>, Vec<String>)> {
             crate::probe::parse(op)?;
             Ok((None, vec![]))
         }
+        // Checks the tool in the spindle on the setter: no params.
+        "toolcheck" => Ok((None, vec![])),
         "step" => {
             let ok = matches!(op.params.get("message"), Some(Value::String(m)) if !comment_text(m).is_empty());
             if !ok {
@@ -426,6 +428,9 @@ fn wrap(position: usize, total: usize, op: &Op, setup: Option<&Setup>, body: &[S
             let body = crate::probe::body(op, position, &tag, machine.probe_tool, machine.units_code()).unwrap_or_default();
             out.extend(body.iter().map(|l| format!("  {}", l)));
         }
+        None if op.kind == "toolcheck" => {
+            out.extend(tool_check_body(&tag, machine.probe_tool).iter().map(|l| format!("  {}", l)));
+        }
         None => {
             out.push("  M5".into());
             out.push("  M9".into());
@@ -472,6 +477,78 @@ fn wrap(position: usize, total: usize, op: &Op, setup: Option<&Setup>, body: &[S
     out
 }
 
+/// A TOOL CHECK op: the tool in the spindle on the setter
+/// (`o<millgui_tool_check>`, which aborts the job when it is off its table
+/// length by more than the breakage tolerance). With no cutting tool in
+/// the spindle there is nothing to check: it says so and goes on.
+pub fn tool_check_body(tag: &str, probe_tool: i64) -> Vec<String> {
+    vec![
+        "M5".into(),
+        "M9".into(),
+        format!("o<job_{}_check> if [[#<_current_tool> GT 0] AND [#<_current_tool> NE {}]]", tag, probe_tool),
+        "  o<millgui_tool_check> call".into(),
+        format!("o<job_{}_check> else", tag),
+        "  (MSG, Tool check: no cutting tool in the spindle to check)".into(),
+        format!("o<job_{}_check> endif", tag),
+    ]
+}
+
+/// The tool a cutting op uses (conversational or CAM), if it says.
+pub fn op_tool(op: &Op) -> Option<i64> {
+    let v = match op.kind.as_str() {
+        "conversational" => op.params.get("tool_number"),
+        "cam" => op.params.get("setup").and_then(|s| s.get("tool")),
+        _ => None,
+    }?;
+    py::as_number(v).filter(|n| n.fract() == 0.0 && *n > 0.0).map(|n| n as i64)
+}
+
+/// What a TOOL CHECK op at `index` will find in the spindle: the tool of
+/// the nearest earlier op that loads one, and that op's index. None when
+/// the nearest such op is a probing op (the probe is in) or there is none.
+pub fn checked_tool(job: &Job, index: usize, enabled: &HashMap<String, bool>) -> Option<(i64, usize)> {
+    for j in (0..index.min(job.ops.len())).rev() {
+        let op = &job.ops[j];
+        if !*enabled.get(&op.id).unwrap_or(&op.enabled) {
+            continue;
+        }
+        match op.kind.as_str() {
+            "probe" => return None,
+            "conversational" | "cam" => return op_tool(op).map(|t| (t, j)),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Where TOOL CHECK ops go so that every tool is checked before it is put
+/// away: after each cutting op whose tool is not loaded again by the next
+/// op that loads a tool (another tool, the probe, or the end of the job),
+/// unless a check already follows it. Indexes in `job.ops`, ascending.
+pub fn tool_check_spots(job: &Job) -> Vec<usize> {
+    let mut spots = Vec::new();
+    for (i, op) in job.ops.iter().enumerate() {
+        let Some(t) = op_tool(op) else { continue };
+        let mut same_next = false;
+        for later in &job.ops[i + 1..] {
+            match later.kind.as_str() {
+                "toolcheck" => break,
+                "probe" => break,
+                "conversational" | "cam" => {
+                    same_next = op_tool(later) == Some(t);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let checked = job.ops[i + 1..].iter().take_while(|o| !matches!(o.kind.as_str(), "conversational" | "cam" | "probe")).any(|o| o.kind == "toolcheck");
+        if !same_next && !checked {
+            spots.push(i);
+        }
+    }
+    spots
+}
+
 fn make_stamp(lines: &[String], depends: &Depends) -> String {
     let mut data = lines.join("\n").into_bytes();
     data.extend_from_slice(depends.dumps().as_bytes());
@@ -491,6 +568,9 @@ pub fn dependency_problems(job: &Job, enabled: &HashMap<String, bool>) -> Vec<St
     for (i, op) in job.ops.iter().enumerate() {
         if !on(&op.id) {
             continue;
+        }
+        if op.kind == "toolcheck" && checked_tool(job, i, enabled).is_none() {
+            warnings.push(format!("\"{}\" has no cutting op before it, so there is no tool to check.", op.name));
         }
         for need in needs(op) {
             if op.provides.contains(&need) {
@@ -892,6 +972,59 @@ mod tests {
             p.insert("measure".into(), py::loads(&m).unwrap());
         }
         Op::new(id.into(), "Bore center".into(), "probe", p)
+    }
+
+    fn check(id: &str) -> Op {
+        Op::new(id.into(), "Tool check".into(), "toolcheck", Map::new())
+    }
+
+    #[test]
+    fn tool_checks_run_the_setter_macro_and_find_their_spots() {
+        // face T14, cam T3, step, drill T7, bore T1
+        let job = sample();
+        assert_eq!(tool_check_spots(&job), [0, 1, 3, 4]);
+        let mut job = sample();
+        job.ops.insert(2, check("0000000a"));
+        // The cam op (T3) is checked already; a step between counts as "after".
+        assert_eq!(tool_check_spots(&job), [0, 4, 5]);
+        // Two ops in a row with one tool: only the last is checked.
+        let mut job = sample();
+        let mut d2 = drill("0000000b");
+        d2.name = "Drill more".into();
+        job.ops.insert(4, d2);
+        assert_eq!(tool_check_spots(&job), [0, 1, 4, 5]);
+        // A probing op puts the tool away too.
+        let job = Job { name: "j".into(), ops: vec![drill("00000001"), probe_op("00000002", "find", None), drill("00000003")] };
+        assert_eq!(tool_check_spots(&job), [0, 2]);
+
+        let mut job = sample();
+        job.ops.insert(4, check("0000000c"));
+        let c = compile_job(&job, &machine(&[])).unwrap();
+        let lines: Vec<&str> = c.text.lines().collect();
+        let at = lines.iter().position(|l| l.starts_with("(MYMILL-OP 5/6 ID=0000000C")).unwrap();
+        let block = &lines[at..];
+        let end = block.iter().position(|l| *l == "o<job_op5> endif").unwrap();
+        assert_eq!(
+            block[..=end].iter().copied().skip_while(|l| *l != "  G53 G0 Z0").collect::<Vec<&str>>(),
+            [
+                "  G53 G0 Z0",
+                "  M5",
+                "  M9",
+                "  o<job_op5_check> if [[#<_current_tool> GT 0] AND [#<_current_tool> NE 99]]",
+                "    o<millgui_tool_check> call",
+                "  o<job_op5_check> else",
+                "    (MSG, Tool check: no cutting tool in the spindle to check)",
+                "  o<job_op5_check> endif",
+                "o<job_op5> endif",
+            ]
+        );
+        assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+        let enabled: HashMap<String, bool> = job.ops.iter().map(|o| (o.id.clone(), o.enabled)).collect();
+        assert_eq!(checked_tool(&job, 4, &enabled), Some((7, 3)));
+        // First in the job: nothing to check, a warning.
+        let job = Job { name: "j".into(), ops: vec![check("00000001"), face("00000002")] };
+        let c = compile_job(&job, &machine(&[])).unwrap();
+        assert_eq!(c.warnings, ["\"Tool check\" has no cutting op before it, so there is no tool to check."]);
     }
 
     /// An inch machine: the tool table, the probe settings and the job

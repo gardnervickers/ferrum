@@ -164,6 +164,37 @@ export component ToolsScreen inherits Rectangle {
                     Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; font-size: Layout.compact ? 19px : 22px; text: Layout.compact ? "ADJ DIA" : "ADJUST DIA"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-d"); } }
                     if !Layout.compact: Note { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; vertical-alignment: center; font-size: 18px; text: "Adds to the table value. Length +: cuts shallower. Dia: G41/G42 only."; }
                 }
+                // Tool setter: measure the selected tool, check the loaded one.
+                if Live.tools-has-setter: HorizontalLayout {
+                    height: 56px;
+                    spacing: 12px;
+                    Label { width: Layout.compact ? 110px : 150px; vertical-alignment: center; text: "TOOL SETTER"; }
+                    Btn {
+                        max-width: 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1;
+                        kind: "go";
+                        font-size: Layout.compact ? 19px : 22px;
+                        text: Live.tools-sel-label == "" ? "MEASURE" : "MEASURE " + Live.tools-sel-label;
+                        enabled: Live.tools-can-measure && !locked;
+                        clicked => { Actions.tools-measure(); }
+                    }
+                    Btn {
+                        max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1;
+                        font-size: Layout.compact ? 19px : 22px;
+                        text: Live.tools-check-label;
+                        enabled: Live.tools-can-check && !locked;
+                        clicked => { Actions.tools-check(); }
+                    }
+                    Text {
+                        horizontal-stretch: 1; preferred-width: 0px; min-width: 0px;
+                        vertical-alignment: center;
+                        font-family: Theme.body;
+                        font-size: 18px;
+                        wrap: word-wrap;
+                        overflow: elide;
+                        text: Live.tools-setter-note != "" ? Live.tools-setter-note : "MEASURE loads the tool if needed and sets its length. CHECK looks for a broken tool.";
+                        color: Live.tools-setter-tone == "good" ? Theme.good : Live.tools-setter-tone == "bad" ? Theme.bad : Theme.muted;
+                    }
+                }
                 HorizontalLayout {
                     spacing: 12px;
                     Btn {
@@ -197,8 +228,12 @@ export component ToolsScreen inherits Rectangle {
                         background: Theme.well;
                         border-radius: Theme.radius-ctl;
                         ListView {
-                            for c in Live.tools-check: Rectangle {
+                            for c[ci] in Live.tools-check: Rectangle {
                                 height: 62px;
+                                background: ck.pressed ? Theme.raised : transparent;
+                                border-radius: Theme.radius-sm;
+                                // Selects the tool in the table (to MEASURE it).
+                                ck := TouchArea { clicked => { Actions.tools-check-select(ci); } }
                                 HorizontalLayout {
                                     padding-left: 12px;
                                     padding-right: 12px;

@@ -16,7 +16,7 @@ tool's table diameter less a pretravel equal to `#3032`, so calibrated
 macros report the true geometry. The tool setter sits at the
 G30 spot with its top where `tool_touch_off.ngc` expects it (#3010); the
 tool's (or with no tool, the spindle nose's) face trips it. The sim's T7
-is 111.0 long whatever the tool table says (`SIM_TOOL_LENGTHS`).
+is 111.0 long and T4 98.794, whatever the tool table says (`SIM_TOOL_LENGTHS`).
 `make-config --macros DIR` puts DIR first on `SUBROUTINE_PATH`.
 Homing runs the INI's real search and latch moves: each home switch closes
 40 mm (`SIM_HOME_TRAVEL`) from where its joint started, in the search

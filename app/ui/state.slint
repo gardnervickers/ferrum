@@ -259,6 +259,13 @@ export global Live {
     in property <string> tools-drawbar: "UNKNOWN";
     in property <bool> tools-can-extend;
     in property <bool> tools-can-retract;
+    // Tool setter on TOOLS: MEASURE (selected tool) and CHECK (loaded tool).
+    in property <bool> tools-has-setter;
+    in property <bool> tools-can-measure;
+    in property <bool> tools-can-check;
+    in property <string> tools-check-label: "CHECK";
+    in property <string> tools-setter-note;
+    in property <string> tools-setter-tone;
 
     // OFFSETS screen (offsets.rs).
     in property <[OffsetRow]> offsets;
@@ -522,6 +529,9 @@ export global Actions {
     callback tools-create-missing();
     callback tools-drawbar(extend: bool);
     callback tools-reload();
+    callback tools-measure();
+    callback tools-check();
+    callback tools-check-select(index: int);
     callback offsets-select(index: int);
     callback offsets-activate();
     callback offsets-zero(axis: int);

@@ -1,0 +1,58 @@
+; Part of millgui. MIT licence, see millgui/LICENSE.
+; Broken tool check on the tool setter (TOOLS › CHECK, and a job's TOOL
+; CHECK op): o<millgui_tool_check> call. No arguments. Measures the tool
+; in the spindle on the setter, the same way as o<tool_touch_off>, and
+; compares the result with its tool table length. It does not change the
+; table. Prints
+;   (DEBUG, MILLGUI-TOOLCHECK T=<tool> LENGTH=<measured> TABLE=<table> TOL=<#3037>)
+;  and aborts when the two differ by more than the breakage tolerance
+; #3037 (the abort text has the numbers: an abort drops the queued DEBUG): shorter means the tool broke or chipped, longer that it slipped
+; in the holder or the wrong tool is in. A program running it stops there.
+; Checks first: a tool is loaded and it is not the probe #3014, #3010 > 0,
+; #3037 > 0, and the setter settings (o<millgui_setter_ready>). Motion as
+; o<tool_touch_off>: spindle stop, G49, machine Z 0, G30 X/Y, touch,
+; back to machine Z 0. Afterwards the modal state is as it was (M73).
+; Works in machine units.
+o<millgui_tool_check> sub
+o10 if [#<_task> EQ 0]
+    o<millgui_tool_check> return
+o10 endif
+o100 if [#5400 LE 0]
+    (ABORT, No tool in the spindle to check)
+o100 endif
+o110 if [#5400 EQ #3014]
+    (ABORT, The probe is in the spindle: the setter checks cutting tools only)
+o110 endif
+o120 if [#3010 LE 0]
+    (ABORT, Measure the spindle nose reference height first)
+o120 endif
+o130 if [#3037 LE 0]
+    (ABORT, Set the tool setter breakage tolerance first: it must be positive)
+o130 endif
+o<millgui_setter_ready> call
+
+#<tool> = #5400
+M5
+M73
+M50 P0
+; The table length of the loaded tool: what G43 would apply.
+G43 H#<tool>
+#<table> = #5403
+o140 if [#<table> LE 0]
+    (ABORT, This tool has no length in the tool table yet: measure it first)
+o140 endif
+o<millgui_setter_touch> call [#5410 / 2]
+#<length> = [#<_value> + #3010]
+(DEBUG, MILLGUI-TOOLCHECK T=#<tool> LENGTH=#<length> TABLE=#<table> TOL=#3037)
+; Wait for the retract to machine Z 0 to finish (M66 waits for motion):
+; an abort would drop it with the DEBUG line and leave the tool down at the
+; setter. The abort says the numbers itself for the same reason.
+M66 E0 L0
+o200 if [#<length> LT [#<table> - #3037]]
+    (ABORT, Tool check: T%d#<tool> may be broken. It measured %.4f#<length>, the table says #<table>)
+o200 endif
+o210 if [#<length> GT [#<table> + #3037]]
+    (ABORT, Tool check: T%d#<tool> is longer than its table length, it may have slipped in the holder. It measured %.4f#<length>, the table says #<table>)
+o210 endif
+o<millgui_tool_check> endsub
+M2
