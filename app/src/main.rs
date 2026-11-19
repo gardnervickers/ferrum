@@ -777,8 +777,15 @@ fn main() -> Result<(), slint::PlatformError> {
     // it: stopping the loop and running it again with the window open left
     // the screen frozen on the splash (winit does not carry windows between
     // runs of its loop).
-    slint::spawn_local(run(ui.clone_strong(), args, cfg, modules, notes, hal, renderer))
+    slint::spawn_local(run(ui.clone_strong(), args, cfg, modules, notes, hal))
         .map_err(|e| slint::PlatformError::Other(e.to_string()))?;
+    // Before the first frame: OpenGL hands out its context (RenderingSetup)
+    // only once, when the window first draws, which is the splash.
+    if renderer == renderer::Choice::Gpu {
+        if let Err(e) = plot::use_gpu(&ui) {
+            eprintln!("millgui: GPU backplot unavailable ({e:?})");
+        }
+    }
     ui.show()?;
     slint::run_event_loop_until_quit()
 }
@@ -792,7 +799,6 @@ async fn run(
     mut modules: Vec<Box<dyn Module>>,
     mut notes: Vec<String>,
     hal: Box<dyn checks::Hal>,
-    renderer: renderer::Choice,
 ) {
     #[cfg(unix)]
     let launcher: Rc<RefCell<Option<boot::Launcher>>> = Rc::new(RefCell::new(None));
@@ -1056,11 +1062,6 @@ async fn run(
     machine_cfg.apply(&ui);
     let plot = plot::wire(&ui, &cfg, &machine_cfg.model);
     let _plot_timer = plot::start_timer(&ui, &plot);
-    if renderer == renderer::Choice::Gpu {
-        if let Err(e) = plot::use_gpu(&ui) {
-            eprintln!("millgui: GPU backplot unavailable ({e:?})");
-        }
-    }
     mdi::wire(&ui, &handle, &cfg, &mut mdi_notes);
     if !mdi_notes.is_empty() {
         live.set_message(mdi_notes.join("; ").into());

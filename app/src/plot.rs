@@ -691,7 +691,8 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         a_sign: a_sign(cfg),
         file: String::new(),
         stamp: (String::new(), None, 0),
-        gpu: false,
+        // The GPU may have been set up already, while the splash drew.
+        gpu: GPU.with(|g| g.borrow().is_some()),
         gpu_frame: false,
         want_pixels: false,
         pixels: None,
