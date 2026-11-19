@@ -920,7 +920,9 @@ async fn run(
     let modules = Rc::new(modules);
 
     let weak = ui.as_weak();
-    let handle = machine::spawn(machine, Duration::from_millis(50), move |ev| {
+    // The browser demo polls its simulator faster: no LinuxCNC to load.
+    let poll = Duration::from_millis(if cfg!(target_os = "wasi") { 20 } else { 50 });
+    let handle = machine::spawn(machine, poll, move |ev| {
         let weak = weak.clone();
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(ui) = weak.upgrade() {

@@ -43,7 +43,9 @@ fn harness() -> bool {
 }
 
 /// Binary frames are a tag byte, then a PNG: the backplot, or FILES' top
-/// view of the selected program.
+/// view of the selected program. In the browser demo the frame never leaves
+/// the page, so it skips the PNG: the tag in lower case, width and height
+/// (u32, little-endian), then the RGBA pixels.
 const TAG_PLOT: u8 = b'P';
 const TAG_FILES: u8 = b'F';
 
@@ -105,7 +107,9 @@ pub fn start(ui: &MainWindow, port: u16, root: PathBuf) -> Result<(slint::Timer,
     let remote = std::rc::Rc::new(std::cell::RefCell::new(Remote { shared, last: Map::new(), last_plot: None, png: None, last_files: None, files_png: None, ticks: 0 }));
     let timer = slint::Timer::default();
     let (r, weak) = (remote.clone(), ui.as_weak());
-    timer.start(slint::TimerMode::Repeated, Duration::from_millis(50), move || {
+    // The browser demo's screen is in the same page: mirror at its poll rate.
+    let every = Duration::from_millis(if cfg!(target_os = "wasi") { 20 } else { 50 });
+    timer.start(slint::TimerMode::Repeated, every, move || {
         if let Some(ui) = weak.upgrade() {
             r.borrow_mut().tick(&ui);
             #[cfg(target_os = "wasi")]
@@ -152,9 +156,9 @@ impl Remote {
             }
         }
         // The backplot changes at most ten times a second; send it at 4 Hz
-        // (10 Hz in the browser demo, which has no network to spare).
+        // (each change in the browser demo, which has no network between).
         self.ticks = self.ticks.wrapping_add(1);
-        let every = if cfg!(target_os = "wasi") { 2 } else { 5 };
+        let every = if cfg!(target_os = "wasi") { 1 } else { 5 };
         let mut png = None;
         if self.ticks % every == 0 || self.png.is_none() {
             let v = crate::plot::version();
@@ -210,6 +214,14 @@ impl Remote {
 fn encode(tag: u8, buf: &slint::SharedPixelBuffer<slint::Rgba8Pixel>) -> Option<Vec<u8>> {
     if buf.width() == 0 {
         return None;
+    }
+    if cfg!(target_os = "wasi") {
+        let mut out = Vec::with_capacity(9 + buf.as_bytes().len());
+        out.push(tag.to_ascii_lowercase());
+        out.extend_from_slice(&buf.width().to_le_bytes());
+        out.extend_from_slice(&buf.height().to_le_bytes());
+        out.extend_from_slice(buf.as_bytes());
+        return Some(out);
     }
     let mut out = vec![tag];
     let mut enc = png::Encoder::new(&mut out, buf.width(), buf.height());

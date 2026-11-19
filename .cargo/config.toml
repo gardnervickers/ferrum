@@ -1,0 +1,9 @@
+
+# The browser builds (web/, and the demo's engine): wasm SIMD speeds up the
+# software renderers (Slint's and the backplot's tiny-skia) a lot. Every
+# current browser has it (Safari since 16.4).
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]
+
+[target.wasm32-wasip1]
+rustflags = ["-C", "target-feature=+simd128"]

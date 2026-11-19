@@ -61,12 +61,19 @@ struct Demo {
     /// Slint makes a screen's parts (and their timers and size callbacks)
     /// only when it draws them, so this window is drawn now and then, to
     /// nothing anyone sees.
+    /// Drawing all of it costs a few milliseconds, so only for a moment
+    /// after the screen changes (and seldom otherwise).
     frame: Vec<Rgb565Pixel>,
     drawn_at: Option<Instant>,
+    screen: slint::SharedString,
+    screen_at: Instant,
 }
 
-/// How often the unseen window is drawn.
+/// How often the unseen window is drawn just after a screen change, how
+/// long that lasts, and how often otherwise.
 const DRAW_EVERY: Duration = Duration::from_millis(200);
+const DRAW_AFTER_CHANGE: Duration = Duration::from_millis(1500);
+const DRAW_IDLE: Duration = Duration::from_secs(3);
 
 thread_local! {
     static DEMO: RefCell<Option<Demo>> = const { RefCell::new(None) };
@@ -86,7 +93,7 @@ pub fn start(args: Args, cfg: Config, modules: Vec<Box<dyn Module>>, notes: Vec<
     crate::boot::init_brand(&ui);
     let _ = ui.show();
     slint::spawn_local(crate::run(ui.clone_strong(), args, cfg, modules, notes, hal)).expect("start demo");
-    DEMO.with(|d| *d.borrow_mut() = Some(Demo { ui, queue, window, frame: vec![Rgb565Pixel::default(); (W * H) as usize], drawn_at: None }));
+    DEMO.with(|d| *d.borrow_mut() = Some(Demo { ui, queue, window, frame: vec![Rgb565Pixel::default(); (W * H) as usize], drawn_at: None, screen: Default::default(), screen_at: Instant::now() }));
 }
 
 /// The touchscreen's size, which the page's screen mirrors.
@@ -117,7 +124,13 @@ pub extern "C" fn ferrum_demo_tick() {
     DEMO.with(|d| {
         let mut d = d.borrow_mut();
         let Some(d) = d.as_mut() else { return };
-        if d.drawn_at.is_some_and(|t| t.elapsed() < DRAW_EVERY) {
+        let screen = d.ui.global::<crate::Live>().get_screen();
+        if screen != d.screen {
+            d.screen = screen;
+            d.screen_at = Instant::now();
+        }
+        let every = if d.screen_at.elapsed() < DRAW_AFTER_CHANGE { DRAW_EVERY } else { DRAW_IDLE };
+        if d.drawn_at.is_some_and(|t| t.elapsed() < every) {
             return;
         }
         d.drawn_at = Some(Instant::now());

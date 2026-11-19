@@ -210,12 +210,13 @@ fn connect() {
         if let Some(text) = e.data().as_string() {
             receive(&app, &text);
         } else if let Ok(buf) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
-            // A tag byte (remote.rs), then the PNG.
+            // A tag byte (remote.rs), then the PNG, or raw pixels from the demo.
             let bytes = js_sys::Uint8Array::new(&buf).to_vec();
-            let Some((&tag, png)) = bytes.split_first() else { return };
-            let Some(img) = decode_png(png) else { return };
+            let Some((&tag, rest)) = bytes.split_first() else { return };
+            let img = if tag.is_ascii_lowercase() { raw_image(rest) } else { decode_png(rest) };
+            let Some(img) = img else { return };
             let live = app.ui.global::<Live>();
-            if tag == b'F' {
+            if tag.to_ascii_uppercase() == b'F' {
                 live.set_files_plot(img);
                 return;
             }
@@ -263,6 +264,15 @@ fn receive(app: &App, text: &str) {
         }
         mirror::set_prop(&live, k, v);
     }
+}
+
+/// Width and height (u32, little-endian), then RGBA pixels.
+fn raw_image(bytes: &[u8]) -> Option<slint::Image> {
+    let w = u32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?);
+    let h = u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?);
+    let px = bytes.get(8..8 + (w as usize) * (h as usize) * 4)?;
+    let pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(px, w, h);
+    Some(slint::Image::from_rgba8(pixels))
 }
 
 fn decode_png(bytes: &[u8]) -> Option<slint::Image> {
