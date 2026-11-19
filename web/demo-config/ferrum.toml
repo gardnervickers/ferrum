@@ -1,0 +1,36 @@
+# The browser demo's ferrum.toml (scripts/build-demo). SETUP edits it in the
+# page's memory only; a reload starts over.
+
+[machine]
+park = "machine-zero"
+
+[toolchange]
+style = "dialog"
+
+[probe]
+tool = 99
+
+[probe.defaults]
+slow_feed = 25
+fast_feed = 300
+traverse_feed = 1500
+max_xy = 15
+xy_clearance = 5
+max_z = 15
+z_clearance = 5
+extra_depth = 0
+step_off = 10
+edge_width = 20
+calibration_offset = 0
+ring_gauge = 25
+pin_gauge = 10
+cal_block_y = 25.4
+
+[toolsetter]
+fast_feed = 300
+slow_feed = 25
+traverse_feed = 1500
+max_z = 120
+retract = 2
+reference_height = 286.9
+breakage_tolerance = 0.5

@@ -162,6 +162,7 @@ fn rapid(cfg: &Config) -> f64 {
 
 impl Plot {
     /// Point the backplot image at a GPU texture (no change if it already is).
+    #[cfg(not(target_os = "wasi"))]
     fn show_gpu_texture(&mut self, ui: &MainWindow, tex: std::num::NonZeroU32, size: [u32; 2]) {
         if self.gpu_shown == Some((tex.get(), size)) {
             return;
@@ -182,6 +183,7 @@ impl Plot {
         if w < 16 || h < 16 {
             return;
         }
+        #[cfg(not(target_os = "wasi"))]
         if self.gpu && !self.inline {
             self.gpu_frame = true;
             // Draw into the other texture and show it: Slint draws the image
@@ -212,7 +214,7 @@ impl Plot {
                     self.busy = true;
                     let tp = self.tp.clone();
                     let weak = ui.as_weak();
-                    std::thread::spawn(move || {
+                    crate::util::background(move || {
                         let t0 = std::time::Instant::now();
                         let b = Base::draw(&tp, key.1, key.2, key.3, None, key.4);
                         if perf() {
@@ -534,7 +536,7 @@ pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpa
         let p = plot.borrow();
         (p.setup.as_ref().map(|s| rs274::Setup { ini: s.ini.clone(), config_dir: s.config_dir.clone(), var_file: s.var_file.clone(), tool_table: s.tool_table.clone(), rapid_mm_s: s.rapid_mm_s, inch: s.inch }), p.rapid)
     };
-    std::thread::spawn(move || {
+    crate::util::background(move || {
         let mut tp = match &setup {
             Some(s) => rs274::run(s, &path),
             None => match std::fs::read_to_string(&path) {
@@ -692,7 +694,7 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         file: String::new(),
         stamp: (String::new(), None, 0),
         // The GPU may have been set up already, while the splash drew.
-        gpu: GPU.with(|g| g.borrow().is_some()),
+        gpu: gpu_ready(),
         gpu_frame: false,
         want_pixels: false,
         pixels: None,
@@ -893,12 +895,22 @@ pub fn sync(ui: &MainWindow, file: &str, running: bool) {
     });
 }
 
+/// The GPU backplot is set up (always false in the WASI browser demo).
+fn gpu_ready() -> bool {
+    #[cfg(not(target_os = "wasi"))]
+    return GPU.with(|g| g.borrow().is_some());
+    #[cfg(target_os = "wasi")]
+    false
+}
+
+#[cfg(not(target_os = "wasi"))]
 thread_local! {
     static GPU: RefCell<Option<preview::gpu::Gpu>> = const { RefCell::new(None) };
 }
 
 /// Draw the backplot with OpenGL when Slint renders with femtovg. Falls back
 /// to the software backplot if the GL setup fails.
+#[cfg(not(target_os = "wasi"))]
 pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> {
     let weak = ui.as_weak();
     let r = ui.window().set_rendering_notifier(move |state, api| {
@@ -941,6 +953,7 @@ pub fn use_gpu(ui: &MainWindow) -> Result<(), slint::SetRenderingNotifierError> 
     r
 }
 
+#[cfg(not(target_os = "wasi"))]
 fn gpu_frame(ui: &MainWindow, plot: &Rc<RefCell<Plot>>) {
     let mut st = plot.borrow_mut();
     if !st.gpu_frame {

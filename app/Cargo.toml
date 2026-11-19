@@ -11,12 +11,11 @@ path = "src/main.rs"
 [dependencies]
 lcnc = { path = "../crates/lcnc" }
 machine = { path = "../crates/machine" }
-preview = { path = "../crates/preview", features = ["gpu"] }
+preview = { path = "../crates/preview" }
 jobcore = { path = "../crates/jobcore" }
 # Both renderers: GPU (femtovg on OpenGL) when the driver is a real GPU,
 # software otherwise (the Pi 5 currently has only llvmpipe). See renderer.rs.
-slint = { version = "1.19", default-features = false, features = ["std", "compat-1-2", "backend-winit-x11", "renderer-software", "renderer-femtovg", "unstable-winit-030"] }
-ctrlc = { version = "3", features = ["termination"] }
+slint = { version = "1.19", default-features = false, features = ["std", "compat-1-2", "renderer-software"] }
 png = "0.17"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 serde = { version = "1", features = ["derive"] }
@@ -29,6 +28,18 @@ tungstenite = "0.29"
 [build-dependencies]
 slint-build = "1.19"
 uimirror = { path = "../crates/uimirror" }
+
+# Slint counts every wasm32 target as a web page and asks the browser (which
+# WASI does not have) for the OS; the demo tells it instead (demo.rs).
+[target.'cfg(target_os = "wasi")'.dependencies]
+i-slint-core = "=1.19.0"
+
+# The touchscreen: a winit window (X11 on the Pi). The browser demo (WASI,
+# scripts/build-demo) has no window of its own: web/ draws its screen.
+[target.'cfg(not(target_os = "wasi"))'.dependencies]
+slint = { version = "1.19", default-features = false, features = ["backend-winit-x11", "renderer-femtovg", "unstable-winit-030"] }
+ctrlc = { version = "3", features = ["termination"] }
+preview = { path = "../crates/preview", features = ["gpu"] }
 
 # The Mac simulator window: winit's macOS backend.
 [target.'cfg(target_os = "macos")'.dependencies]

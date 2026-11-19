@@ -247,7 +247,7 @@ fn draw(ui: &MainWindow) {
         return;
     }
     let weak = ui.as_weak();
-    std::thread::spawn(move || {
+    crate::util::background(move || {
         let (pm, zero) = preview::software::top_view(&tp, w, h, op, margin);
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(ui) = weak.upgrade() {

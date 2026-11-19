@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ferrum demo</title>
+<meta name="description" content="Try Ferrum, a touchscreen for LinuxCNC mills, against a simulated machine in your browser.">
+<style>
+  @font-face { font-family: "Bebas Neue"; src: url("fonts/BebasNeue-Regular.ttf"); }
+  @font-face { font-family: "Barlow Condensed"; src: url("fonts/BarlowCondensed-Medium.ttf"); }
+  :root {
+    --page: #0b0d0f; --panel: #171b1f; --ink: #eef1f3; --dim: #7c8892;
+    --warn: #f3c463; --sel-ink: #c9d0ff;
+  }
+  html, body { margin: 0; height: 100%; background: var(--page); overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+  #bar {
+    flex: none; display: flex; align-items: center; gap: 14px; height: 40px;
+    padding: 0 16px; background: var(--panel); color: var(--dim);
+    font: 17px "Barlow Condensed", system-ui, sans-serif; white-space: nowrap; overflow: hidden;
+  }
+  #bar .tag {
+    font: 20px "Bebas Neue", system-ui, sans-serif; letter-spacing: 0.05em;
+    color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 1px 8px 0;
+  }
+  #bar .what { overflow: hidden; text-overflow: ellipsis; }
+  #bar .what b { color: var(--ink); font-weight: 500; }
+  #bar a { margin-left: auto; color: var(--sel-ink); text-decoration: none; }
+  #bar a:hover { text-decoration: underline; }
+  #stage { flex: 1; min-height: 0; position: relative; }
+  canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+  #loading {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--dim); font: 22px "Barlow Condensed", system-ui, sans-serif; text-align: center; padding: 0 16px;
+  }
+  @media (max-width: 640px) { #bar .long { display: none; } }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="tag">DEMO</span>
+  <span class="what"><b>Simulated machine, running in your browser.</b><span class="long"> Nothing here talks to a real mill.</span></span>
+  <a href="https://github.com/gardnervickers/ferrum">Ferrum on GitHub</a>
+</div>
+<div id="stage">
+  <canvas id="screen" width="1920" height="1080"></canvas>
+  <div id="loading">Loading Ferrum and its simulated mill (about 9 MB)…</div>
+</div>
+<script type="module">
+  import "./demo.js";
+  import init from "./ferrum_web.js";
+  init().then(() => document.getElementById("loading").remove())
+        .catch(e => { document.getElementById("loading").textContent = "Failed to start: " + e; });
+</script>
+</body>
+</html>

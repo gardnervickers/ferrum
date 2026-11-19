@@ -426,3 +426,12 @@ mod tests {
         assert_eq!(mmss(-1.0), "00:00");
     }
 }
+
+/// Run `f` off the UI thread. WASI (the browser demo) has no threads: it
+/// runs on a later turn of the event loop there instead.
+pub fn background(f: impl FnOnce() + Send + 'static) {
+    #[cfg(not(target_os = "wasi"))]
+    std::thread::spawn(f);
+    #[cfg(target_os = "wasi")]
+    slint::Timer::single_shot(Duration::ZERO, f);
+}

@@ -2,11 +2,17 @@
 //!
 //! LinuxCNC starts it as `ferrum -ini <file>`. `--sim` runs against the
 //! simulated machine instead (the default on builds without NML, e.g. the Mac).
+//! Built for WASI it is the browser demo's engine (demo.rs).
+
+// The WASI build (the browser demo) leaves out the window, HAL and LinuxCNC.
+#![cfg_attr(target_os = "wasi", allow(dead_code, unused_imports))]
 
 mod boot;
 mod calc;
 mod config;
 mod conv;
+#[cfg(target_os = "wasi")]
+mod demo;
 mod failsafe;
 mod files;
 mod headless;
@@ -764,6 +770,19 @@ fn main() -> Result<(), slint::PlatformError> {
         std::process::exit(if checks::blocked(&rows, checks::Feature::Core).is_some() { 1 } else { 0 });
     }
 
+    // The browser demo (WASI) has no window: it hands over to demo.rs.
+    #[cfg(target_os = "wasi")]
+    {
+        demo::start(args, cfg, modules, notes, hal);
+        Ok(())
+    }
+    #[cfg(not(target_os = "wasi"))]
+    window_main(args, cfg, modules, notes, hal)
+}
+
+/// The touchscreen (or desktop simulator) window and its event loop.
+#[cfg(not(target_os = "wasi"))]
+fn window_main(args: Args, cfg: Config, modules: Vec<Box<dyn Module>>, notes: Vec<String>, hal: Box<dyn checks::Hal>) -> Result<(), slint::PlatformError> {
     if let Some(out) = &args.screenshot {
         return screenshot(&args, &cfg, &modules, out);
     }
@@ -1176,7 +1195,9 @@ async fn run(
     };
 
     // Remote (web) screen: [remote]port (or [FERRUM]REMOTE_PORT) serves the browser build.
-    let _remote = match machine_cfg.remote_port(&cfg) {
+    // The browser demo always mirrors to its page (demo.rs).
+    let port = if cfg!(target_os = "wasi") { Some(Ok(0)) } else { machine_cfg.remote_port(&cfg) };
+    let _remote = match port {
         Some(Ok(port)) => {
             let root = machine_cfg.remote_root(&cfg).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("ferrum/web"));
             let root = if root.is_absolute() { root } else { cfg.dir().join(root) };
@@ -1417,6 +1438,7 @@ const MIN_LAYOUT_WIDTH: f32 = 1440.0;
 /// winit backend then resizes the window to match it, which can feed back
 /// into a runaway resize.) The OS display scale is ignored: the window's
 /// size alone decides. At startup the window takes most of its screen.
+#[cfg(not(target_os = "wasi"))]
 fn fit_desktop_window() -> Box<dyn FnMut(&slint::Window, &slint::winit_030::winit::event::WindowEvent) -> slint::winit_030::EventResult> {
     use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
     let mut sized = false;
@@ -1757,6 +1779,10 @@ fn sim_nc_dir() -> PathBuf {
 }
 
 fn sample_dir() -> PathBuf {
+    // The browser demo's page puts the samples here (web/static/demo-worker.js).
+    if cfg!(target_os = "wasi") {
+        return PathBuf::from("/demo/nc_files");
+    }
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/nc_files")
 }
 

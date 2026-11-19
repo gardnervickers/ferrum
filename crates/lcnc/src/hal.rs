@@ -33,7 +33,22 @@
 //! component and all its pins are dropped.
 
 use crate::error::{Error, Result};
+#[cfg(not(target_os = "wasi"))]
 use libloading::Library;
+
+/// WASI (the browser demo) cannot load libraries: no HAL there.
+#[cfg(target_os = "wasi")]
+struct Library;
+
+#[cfg(target_os = "wasi")]
+impl Library {
+    unsafe fn new(_: &str) -> std::result::Result<Self, String> {
+        Err("no HAL in a WASI build".into())
+    }
+    unsafe fn get<T>(&self, _: &[u8]) -> std::result::Result<&T, String> {
+        Err("no HAL in a WASI build".into())
+    }
+}
 use std::ffi::{c_char, c_int, c_long, c_void, CString};
 use std::marker::PhantomData;
 use std::ptr;

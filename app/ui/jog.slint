@@ -27,8 +27,8 @@ export component JogPanel inherits VerticalLayout {
             first: i == 0;
             last: i == Live.jog-steps.length - 1;
             // A browser can only step: a lost release must not leave an axis moving.
-            enabled: !(Live.remote && s == "CONT");
-            on: Live.jog-step == s && !(Live.remote && s == "CONT");
+            enabled: !(Live.remote && !Live.demo && s == "CONT");
+            on: Live.jog-step == s && !(Live.remote && !Live.demo && s == "CONT");
             clicked => { Actions.jog-step-set(s); }
         }
     }

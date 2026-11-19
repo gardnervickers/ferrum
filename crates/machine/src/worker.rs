@@ -47,30 +47,86 @@ impl Handle {
     }
 }
 
-pub fn spawn<F>(mut machine: Box<dyn Machine>, period: Duration, mut on_event: F) -> Handle
+pub fn spawn<F>(machine: Box<dyn Machine>, period: Duration, on_event: F) -> Handle
 where
     F: FnMut(Event) + Send + 'static,
 {
     let (tx, rx) = mpsc::channel();
+    #[allow(unused_mut)]
+    let mut w = Worker::new(machine, rx, Box::new(on_event));
+    #[cfg(not(target_os = "wasi"))]
     thread::Builder::new()
         .name("machine".into())
-        .spawn(move || run(&mut *machine, &rx, period, &mut on_event))
+        .spawn(move || {
+            while w.step() {
+                if let Some(rest) = period.checked_sub(w.started.elapsed()) {
+                    thread::sleep(rest);
+                }
+            }
+        })
         .expect("spawn machine thread");
+    // WASI (the browser demo) has no threads: [`pump`] steps the worker
+    // from the host's event loop instead.
+    #[cfg(target_os = "wasi")]
+    PUMPED.with(|p| p.borrow_mut().push((w, period)));
     Handle { tx }
 }
 
-fn run(m: &mut dyn Machine, rx: &Receiver<Request>, period: Duration, on_event: &mut dyn FnMut(Event)) {
+#[cfg(target_os = "wasi")]
+thread_local! {
+    static PUMPED: std::cell::RefCell<Vec<(Worker, Duration)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// WASI only: run each worker whose period is up. The host calls this
+/// often (every animation frame).
+#[cfg(target_os = "wasi")]
+pub fn pump() {
+    // Taken out while stepping: a step's events may spawn another worker.
+    let mut ws = PUMPED.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    ws.retain_mut(|(w, period)| w.started.elapsed() < *period || w.step());
+    PUMPED.with(|p| {
+        let mut p = p.borrow_mut();
+        ws.append(&mut p);
+        *p = ws;
+    });
+}
+
+/// The machine connection's loop state; [`Worker::step`] is one period.
+struct Worker {
+    m: Box<dyn Machine>,
+    rx: Receiver<Request>,
+    on_event: Box<dyn FnMut(Event) + Send>,
     // The last status reported, and the simulator's tool change with it.
-    let mut last: Option<lcnc::Status> = None;
-    let mut last_tool: Option<i32> = None;
-    let mut connected = true;
+    last: Option<lcnc::Status>,
+    last_tool: Option<i32>,
+    connected: bool,
     // Report a lost connection only after it stays lost for a second; the
     // first polls after connecting can come before task publishes status.
-    let mut failing_since: Option<Instant> = None;
-    let mut back: Option<MdiReturn> = None;
-    let mut modes: Option<ModeRestore> = None;
-    loop {
-        let start = Instant::now();
+    failing_since: Option<Instant>,
+    back: Option<MdiReturn>,
+    modes: Option<ModeRestore>,
+    /// When the current step started.
+    started: Instant,
+}
+
+impl Worker {
+    fn new(m: Box<dyn Machine>, rx: Receiver<Request>, on_event: Box<dyn FnMut(Event) + Send>) -> Self {
+        Self { m, rx, on_event, last: None, last_tool: None, connected: true, failing_since: None, back: None, modes: None, started: Instant::now() }
+    }
+
+    /// One period: run queued commands, poll, report. False when every
+    /// handle is gone.
+    fn step(&mut self) -> bool {
+        self.started = Instant::now();
+        let m: &mut dyn Machine = &mut *self.m;
+        let on_event: &mut dyn FnMut(Event) = &mut *self.on_event;
+        let rx = &self.rx;
+        let mut last = self.last.take();
+        let mut last_tool = self.last_tool;
+        let mut connected = self.connected;
+        let mut failing_since = self.failing_since;
+        let mut back = self.back.take();
+        let mut modes = self.modes.take();
         loop {
             match rx.try_recv() {
                 Ok(Request::SimToolChanged) => m.sim_tool_changed(),
@@ -103,7 +159,7 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Request>, period: Duration, on_event: 
                     }
                 }
                 Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => return,
+                Err(TryRecvError::Disconnected) => return false,
             }
         }
         // Decide from the borrowed status; act (send, report) after.
@@ -153,9 +209,13 @@ fn run(m: &mut dyn Machine, rx: &Receiver<Request>, period: Duration, on_event: 
         while let Some(msg) = m.next_message() {
             on_event(Event::Message(msg));
         }
-        if let Some(rest) = period.checked_sub(start.elapsed()) {
-            thread::sleep(rest);
-        }
+        self.last = last;
+        self.last_tool = last_tool;
+        self.connected = connected;
+        self.failing_since = failing_since;
+        self.back = back;
+        self.modes = modes;
+        true
     }
 }
 

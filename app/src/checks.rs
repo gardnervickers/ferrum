@@ -324,7 +324,9 @@ pub fn run(i: &Inputs) -> Vec<Check> {
                 .detail("OFFSETS shows zeros for work systems that are not active until LinuxCNC writes it."),
         );
     }
-    if preview::rs274::available() {
+    if cfg!(target_os = "wasi") {
+        v.push(Check::new("files.rs274", G::Files, L::Ok, "Browser demo: preview and travel check from ferrum's own G-code reader"));
+    } else if preview::rs274::available() {
         v.push(Check::new("files.rs274", G::Files, L::Ok, "rs274 found: preview and travel check on"));
     } else {
         v.push(

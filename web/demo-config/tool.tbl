@@ -1,0 +1,10 @@
+T1   P1   Z+92.500000  D+6.000000   ; 6 mm 3-flute carbide end mill
+T2   P2   Z+101.250000 D+10.000000  ; 10 mm 3-flute carbide end mill
+T3   P3   Z+88.000000  D+3.000000   ; 3 mm stub drill
+T5   P5   Z+84.100000  D+5.000000   ; 5 mm spot drill
+T12  P12  Z+89.064367  D+6.350000   ; 1/4 in ball end mill
+T14  P14  Z+67.632045  D+50.000000  ; 50 mm face mill
+T17  P17  Z+74.263192  D+4.000000   ; 4 mm thread mill
+T21  P21  Z+75.897435  D+6.000000   ; 90 degree engraver
+T23  P23  Z+63.426033  D+6.350000   ; 1/4 in 2-flute carbide end mill, aluminium
+T99  P99  Z+125.673000 D+3.175000   ; Probe

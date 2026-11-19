@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Build the browser demo into web/demo-dist: a static site (GitHub Pages)
+# where Ferrum runs against its simulated machine entirely in the page.
+#   - ferrum-engine.wasm: Ferrum itself, built for WASI (no LinuxCNC, HAL or
+#     network in that build), run in a Web Worker by demo-worker.js;
+#   - ferrum_web*: the browser screen (as scripts/build-web), mirroring it.
+# Needs the wasm32-wasip1 and wasm32-unknown-unknown targets and a
+# wasm-bindgen matching web/Cargo.toml's pin.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+OUT=web/demo-dist
+cargo build -p ferrum-lcnc --release --target wasm32-wasip1
+cargo build -p ferrum-web --release --target wasm32-unknown-unknown
+rm -rf "$OUT" && mkdir -p "$OUT/fonts"
+if command -v wasm-bindgen >/dev/null 2>&1; then BINDGEN=(wasm-bindgen); else BINDGEN=(nix shell nixpkgs#wasm-bindgen-cli -c wasm-bindgen); fi
+"${BINDGEN[@]}" --target web --no-typescript --out-dir "$OUT" target/wasm32-unknown-unknown/release/ferrum_web.wasm
+cp target/wasm32-wasip1/release/ferrum.wasm "$OUT/ferrum-engine.wasm"
+cp web/static/demo.html "$OUT/index.html"
+cp web/static/demo.js web/static/demo-worker.js "$OUT/"
+cp -r web/static/vendor "$OUT/"
+cp app/fonts/BebasNeue-Regular.ttf app/fonts/BarlowCondensed-Medium.ttf "$OUT/fonts/"
+# The engine's in-memory file system, under /demo: the machine config, the
+# sample programs and the probe macros.
+python3 - "$OUT/demo-files.json" <<'PY'
+import json, pathlib, sys
+files = {}
+for src, dst in [("web/demo-config", "config"), ("testdata/nc_files", "nc_files"), ("macros", "macros")]:
+    for p in sorted(pathlib.Path(src).rglob("*")):
+        if p.is_file() and (dst != "macros" or p.suffix == ".ngc"):
+            files[f"{dst}/{p.relative_to(src)}"] = p.read_text()
+pathlib.Path(sys.argv[1]).write_text(json.dumps(files))
+PY
+touch "$OUT/.nojekyll"
+ls -la "$OUT"

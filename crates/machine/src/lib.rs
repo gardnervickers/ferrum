@@ -10,6 +10,8 @@ pub use lcnc::*;
 pub use lcnc::{InterpState as Interp, TaskMode as Mode};
 pub use sim::Sim;
 pub use worker::{keep_modes, set_axis_joints, spawn, Event, Handle, KEEP_MODES};
+#[cfg(target_os = "wasi")]
+pub use worker::pump;
 
 pub const AXIS_LETTERS: [char; AXES] = Axis::LETTERS;
 

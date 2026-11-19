@@ -28,7 +28,7 @@ mod mirror {
 }
 
 /// Per-screen state, never mirrored.
-const LOCAL: &[&str] = &["remote", "screen", "run-tab", "jog-tab", "files-tab", "drawer-open", "plot-dx", "plot-dy", "plot-landed", "pr-dialog"];
+const LOCAL: &[&str] = &["remote", "demo", "screen", "run-tab", "jog-tab", "files-tab", "drawer-open", "plot-dx", "plot-dy", "plot-landed", "pr-dialog"];
 /// Browser-side edits the Pi accepts (two-way properties the actions read).
 const FROM_REMOTE: &[&str] = &["mdi-text", "gcode-selected"];
 /// Actions each screen handles for itself.
@@ -42,10 +42,16 @@ fn harness() -> bool {
     *ON.get_or_init(|| std::env::var("FERRUM_HARNESS").is_ok_and(|v| v == "1"))
 }
 
+/// Binary frames are a tag byte, then a PNG: the backplot, or FILES' top
+/// view of the selected program.
+const TAG_PLOT: u8 = b'P';
+const TAG_FILES: u8 = b'F';
+
 #[derive(Default)]
 struct Pending {
     props: Map<String, Value>,
     png: Option<Arc<Vec<u8>>>,
+    files_png: Option<Arc<Vec<u8>>>,
     closed: bool,
 }
 
@@ -65,13 +71,25 @@ pub struct Remote {
     /// The backplot version last encoded (see `plot::version`).
     last_plot: Option<u64>,
     png: Option<Arc<Vec<u8>>>,
+    /// FILES' picture last sent, and its frame.
+    last_files: Option<slint::Image>,
+    files_png: Option<Arc<Vec<u8>>>,
     ticks: u32,
 }
 
 pub fn start(ui: &MainWindow, port: u16, root: PathBuf) -> Result<(slint::Timer, std::rc::Rc<std::cell::RefCell<Remote>>), String> {
-    let listener = TcpListener::bind(("0.0.0.0", port)).map_err(|e| format!("remote: port {port}: {e}"))?;
     let shared = Arc::new(Mutex::new(Shared::default()));
+    // The browser demo: one screen, in the same page (demo.rs).
+    #[cfg(target_os = "wasi")]
     {
+        let _ = (port, root);
+        let client = Arc::new(Client { pending: Mutex::new(Pending::default()), fresh: Mutex::new(true) });
+        shared.lock().unwrap().clients.push(client.clone());
+        DEMO_CLIENT.with(|c| *c.borrow_mut() = Some(client));
+    }
+    #[cfg(not(target_os = "wasi"))]
+    {
+        let listener = TcpListener::bind(("0.0.0.0", port)).map_err(|e| format!("remote: port {port}: {e}"))?;
         let shared = shared.clone();
         let weak = ui.as_weak();
         std::thread::Builder::new()
@@ -84,12 +102,14 @@ pub fn start(ui: &MainWindow, port: u16, root: PathBuf) -> Result<(slint::Timer,
             })
             .map_err(|e| e.to_string())?;
     }
-    let remote = std::rc::Rc::new(std::cell::RefCell::new(Remote { shared, last: Map::new(), last_plot: None, png: None, ticks: 0 }));
+    let remote = std::rc::Rc::new(std::cell::RefCell::new(Remote { shared, last: Map::new(), last_plot: None, png: None, last_files: None, files_png: None, ticks: 0 }));
     let timer = slint::Timer::default();
     let (r, weak) = (remote.clone(), ui.as_weak());
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(50), move || {
         if let Some(ui) = weak.upgrade() {
             r.borrow_mut().tick(&ui);
+            #[cfg(target_os = "wasi")]
+            demo_flush();
         }
     });
     Ok((timer, remote))
@@ -103,6 +123,8 @@ impl Remote {
             self.last.clear();
             self.last_plot = None;
             self.png = None;
+            self.last_files = None;
+            self.files_png = None;
             return;
         }
         let live = ui.global::<Live>();
@@ -129,19 +151,29 @@ impl Remote {
                 }
             }
         }
-        // The backplot changes at most ten times a second; send it at 4 Hz.
+        // The backplot changes at most ten times a second; send it at 4 Hz
+        // (10 Hz in the browser demo, which has no network to spare).
         self.ticks = self.ticks.wrapping_add(1);
+        let every = if cfg!(target_os = "wasi") { 2 } else { 5 };
         let mut png = None;
-        if self.ticks % 5 == 0 || self.png.is_none() {
+        if self.ticks % every == 0 || self.png.is_none() {
             let v = crate::plot::version();
             if self.last_plot != Some(v) {
                 // A GPU texture has no CPU copy: its pixels come from a later frame.
                 if let Some(buf) = live.get_plot().to_rgba8().or_else(|| crate::plot::gpu_pixels(ui)) {
-                    self.png = encode(&buf).map(Arc::new);
+                    self.png = encode(TAG_PLOT, &buf).map(Arc::new);
                     self.last_plot = Some(v);
                     png = self.png.clone();
                 }
             }
+        }
+        // FILES' picture changes only when a program or op is picked.
+        let mut files_png = None;
+        let files = live.get_files_plot();
+        if self.last_files.as_ref() != Some(&files) {
+            self.files_png = files.to_rgba8().and_then(|b| encode(TAG_FILES, &b)).map(Arc::new);
+            self.last_files = Some(files);
+            files_png = self.files_png.clone();
         }
         for c in clients {
             let mut fresh = c.fresh.lock().unwrap();
@@ -150,10 +182,14 @@ impl Remote {
                 *fresh = false;
                 p.props = self.last.clone();
                 p.png = self.png.clone();
+                p.files_png = self.files_png.clone();
             } else {
                 p.props.extend(diff.clone());
                 if png.is_some() {
                     p.png = png.clone();
+                }
+                if files_png.is_some() {
+                    p.files_png = files_png.clone();
                 }
             }
         }
@@ -171,11 +207,11 @@ impl Remote {
     }
 }
 
-fn encode(buf: &slint::SharedPixelBuffer<slint::Rgba8Pixel>) -> Option<Vec<u8>> {
+fn encode(tag: u8, buf: &slint::SharedPixelBuffer<slint::Rgba8Pixel>) -> Option<Vec<u8>> {
     if buf.width() == 0 {
         return None;
     }
-    let mut out = Vec::new();
+    let mut out = vec![tag];
     let mut enc = png::Encoder::new(&mut out, buf.width(), buf.height());
     enc.set_color(png::ColorType::Rgba);
     enc.set_compression(png::Compression::Fast);
@@ -255,9 +291,9 @@ fn websocket(stream: TcpStream, shared: Arc<Mutex<Shared>>, weak: slint::Weak<Ma
             Err(tungstenite::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
             Err(_) => break,
         }
-        let (props, png, closed) = {
+        let (props, png, files_png, closed) = {
             let mut p = client.pending.lock().unwrap();
-            (std::mem::take(&mut p.props), p.png.take(), p.closed)
+            (std::mem::take(&mut p.props), p.png.take(), p.files_png.take(), p.closed)
         };
         if closed {
             break;
@@ -268,10 +304,8 @@ fn websocket(stream: TcpStream, shared: Arc<Mutex<Shared>>, weak: slint::Weak<Ma
                 break;
             }
         }
-        if let Some(png) = png {
-            if ws.send(Message::binary(png.as_ref().clone())).is_err() {
-                break;
-            }
+        if png.into_iter().chain(files_png).any(|png| ws.send(Message::binary(png.as_ref().clone())).is_err()) {
+            break;
         }
     }
     shared.lock().unwrap().clients.retain(|c| !Arc::ptr_eq(c, &client));
@@ -314,17 +348,59 @@ fn handle(weak: &slint::Weak<MainWindow>, client: &Arc<Client>, text: &str) {
     });
 }
 
+#[cfg(target_os = "wasi")]
+thread_local! {
+    static DEMO_CLIENT: std::cell::RefCell<Option<Arc<Client>>> = const { std::cell::RefCell::new(None) };
+}
+
+// The demo page's side of the link (web/static/demo.js).
+#[cfg(target_os = "wasi")]
+#[link(wasm_import_module = "ferrum")]
+extern "C" {
+    fn send_text(ptr: *const u8, len: usize);
+    fn send_png(ptr: *const u8, len: usize);
+}
+
+/// Hand the demo page what is pending, as the websocket loop would.
+#[cfg(target_os = "wasi")]
+fn demo_flush() {
+    let Some(client) = DEMO_CLIENT.with(|c| c.borrow().clone()) else { return };
+    let (props, png, files_png) = {
+        let mut p = client.pending.lock().unwrap();
+        (std::mem::take(&mut p.props), p.png.take(), p.files_png.take())
+    };
+    if !props.is_empty() {
+        let text = serde_json::json!({ "p": props }).to_string();
+        unsafe { send_text(text.as_ptr(), text.len()) };
+    }
+    for png in png.into_iter().chain(files_png) {
+        unsafe { send_png(png.as_ptr(), png.len()) };
+    }
+}
+
+/// A message from the demo page, as if it came over the websocket.
+#[cfg(target_os = "wasi")]
+pub fn demo_receive(text: &str) {
+    let Some(client) = DEMO_CLIENT.with(|c| c.borrow().clone()) else { return };
+    let Some(weak) = crate::demo::ui_weak() else { return };
+    handle(&weak, &client, text);
+}
+
 /// Run a browser action here, after the checks only the Pi can make.
 fn admit(ui: &MainWindow, name: &str, args: &[Value]) {
     let live = ui.global::<Live>();
-    if LOCAL_ACTIONS.contains(&name) && !harness() {
+    // The demo's simulated mill has one screen to serve: it goes where the
+    // page goes, so FILES draws its picture (demo.rs).
+    if LOCAL_ACTIONS.contains(&name) && !harness() && !(cfg!(target_os = "wasi") && name == "navigate") {
         return;
     }
     if name == "failsafe-reset-gap" && harness() {
         crate::failsafe::reset_max_gap();
         return;
     }
-    if name == "jog-start" && live.get_jog_step() == "CONT" && !harness() {
+    // The browser demo's machine is simulated in the same page: no lost
+    // "stop" can leave anything moving, so it jogs like the touchscreen.
+    if name == "jog-start" && live.get_jog_step() == "CONT" && !harness() && !cfg!(target_os = "wasi") {
         live.set_message("Remote jogs are step-only: pick a step size".into());
         live.set_message_error(true);
         return;

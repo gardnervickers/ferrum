@@ -48,6 +48,9 @@ export struct GotoRow { name: string, x: string, y: string, px: float, py: float
 export global Live {
     // True in the browser build (not mirrored).
     in property <bool> remote;
+    // The browser demo (web/static/demo.html): the machine is simulated in
+    // the same page, so it acts like the touchscreen (not mirrored).
+    in property <bool> demo;
     in property <bool> connected;
     in property <bool> estop: true;
     in property <bool> power;

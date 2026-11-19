@@ -100,7 +100,11 @@ pub fn start() -> Result<(), JsValue> {
     let live = ui.global::<Live>();
     live.set_remote(true);
     live.set_connected(false);
-    live.set_message("Connecting to the mill…".into());
+    // The demo page (static/demo.html) runs a simulated Ferrum in the page
+    // and stands in for the websocket.
+    let demo = js_sys::Reflect::get(&web_sys::window().unwrap(), &"ferrumDemo".into()).is_ok_and(|v| v.is_truthy());
+    live.set_demo(demo);
+    live.set_message(if demo { "Starting the simulated mill…" } else { "Connecting to the mill…" }.into());
 
     let actions = ui.global::<Actions>();
     mirror::forward_actions(&actions, Rc::new(|name: &str, args: Vec<Value>| send(json!({ "a": name, "args": args }))), LOCAL_ACTIONS);
@@ -118,6 +122,10 @@ pub fn start() -> Result<(), JsValue> {
             }
             if id == "files" {
                 send(json!({ "a": "files-refresh", "args": [] }));
+            }
+            // The demo's simulated mill follows (remote.rs).
+            if live.get_demo() {
+                send(json!({ "a": "navigate", "args": [id.as_str()] }));
             }
             live.set_screen(id);
         }
@@ -154,12 +162,18 @@ pub fn start() -> Result<(), JsValue> {
     Ok(())
 }
 
-/// Fit the window: at least 1920x1080 logical pixels, stretched in the
-/// direction the browser window has extra room, then scaled down by CSS.
+/// Fit the canvas's box (the window, or what the demo page leaves it): at
+/// least 1920x1080 logical pixels, stretched in the direction the box has
+/// extra room, then scaled down by CSS.
 fn resize(app: &App) {
     let win = web_sys::window().unwrap();
-    let vw = win.inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(W as f64).max(1.0);
-    let vh = win.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(H as f64).max(1.0);
+    let (cw, ch) = (app.canvas.client_width(), app.canvas.client_height());
+    let (vw, vh) = if cw > 0 && ch > 0 {
+        (cw as f64, ch as f64)
+    } else {
+        (win.inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(W as f64), win.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(H as f64))
+    };
+    let (vw, vh) = (vw.max(1.0), vh.max(1.0));
     let k = (W as f64 / vw).max(H as f64 / vh);
     let size = ((vw * k).round() as u32, (vh * k).round() as u32);
     if size == app.size.get() {
@@ -196,14 +210,20 @@ fn connect() {
         if let Some(text) = e.data().as_string() {
             receive(&app, &text);
         } else if let Ok(buf) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
-            if let Some(img) = decode_png(&js_sys::Uint8Array::new(&buf).to_vec()) {
-                let live = app.ui.global::<Live>();
-                live.set_plot(img);
-                // This image includes the pans the mill had when it drew it.
-                let seq = live.get_plot_pan_seq();
-                if app.plot_seq.replace(seq) != seq {
-                    live.set_plot_landed(live.get_plot_landed() + 1);
-                }
+            // A tag byte (remote.rs), then the PNG.
+            let bytes = js_sys::Uint8Array::new(&buf).to_vec();
+            let Some((&tag, png)) = bytes.split_first() else { return };
+            let Some(img) = decode_png(png) else { return };
+            let live = app.ui.global::<Live>();
+            if tag == b'F' {
+                live.set_files_plot(img);
+                return;
+            }
+            live.set_plot(img);
+            // This image includes the pans the mill had when it drew it.
+            let seq = live.get_plot_pan_seq();
+            if app.plot_seq.replace(seq) != seq {
+                live.set_plot_landed(live.get_plot_landed() + 1);
             }
         }
     });

@@ -119,6 +119,7 @@ pub fn reset_max_gap() {
 }
 
 /// Input that acts on what is on screen.
+#[cfg(not(target_os = "wasi"))]
 fn is_input(ev: &slint::winit_030::winit::event::WindowEvent) -> bool {
     use slint::winit_030::winit::event::WindowEvent as W;
     matches!(ev, W::MouseInput { .. } | W::Touch(_) | W::MouseWheel { .. } | W::KeyboardInput { .. } | W::PinchGesture { .. } | W::PanGesture { .. })
@@ -127,6 +128,7 @@ fn is_input(ev: &slint::winit_030::winit::event::WindowEvent) -> bool {
 /// Install the window's one winit event filter: frame marking for the
 /// software renderer, the stale-input guard (`guard_input`), then `extra`
 /// (the desktop window fit).
+#[cfg(not(target_os = "wasi"))]
 pub fn install_filter(
     ui: &MainWindow,
     guard_input: bool,

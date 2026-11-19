@@ -45,6 +45,23 @@ cd ferrum && cargo run -- --ini ../ferrum.ini --screenshot /tmp/frame.png --scre
 The second renders one frame headless to a PNG. Mac builds have no NML
 backend; they always use the simulated machine (`--sim` forces it on the Pi).
 
+## Browser demo
+
+```bash
+scripts/build-demo                                   # into web/demo-dist
+python3 -m http.server -d web/demo-dist 8765         # then open http://localhost:8765/
+```
+
+The demo on GitHub Pages (`.github/workflows/demo.yml`, every push to main)
+is Ferrum built for WASI (`wasm32-wasip1`) with its simulated machine, run
+in a Web Worker (`web/static/demo-worker.js`, files in memory through the
+vendored browser_wasi_shim). The page's screen is the ordinary browser build;
+`web/static/demo.js` stands in for its websocket. `app/src/demo.rs` drives
+Slint's timers and the machine loop from the worker, since WASI has no
+threads (`util::background` and `machine::pump` cover the rest). The machine
+config is `web/demo-config/`. The build has no LinuxCNC, HAL or network, so it
+cannot reach a machine.
+
 ## Run on the Pi
 
 ```bash

@@ -1,0 +1,52 @@
+# The browser demo (scripts/build-demo) on GitHub Pages: Ferrum and its
+# built-in simulated machine, running in the visitor's browser. The build has
+# no LinuxCNC, HAL or network; nothing here talks to a machine.
+# One-time setup: Settings > Pages > Source: GitHub Actions.
+name: Demo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: demo
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the demo
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: demo
+      - name: wasm-bindgen
+        run: |
+          v="$(sed -n 's/^wasm-bindgen = "=\(.*\)"/\1/p' web/Cargo.toml)"
+          cargo install wasm-bindgen-cli --version "$v" --locked
+      - run: scripts/build-demo
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/demo-dist
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

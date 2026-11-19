@@ -8,6 +8,8 @@ A touchscreen control for [LinuxCNC](https://linuxcnc.org) mills, written in Rus
 
 Ferrum is the screen you stand in front of: big targets, one job per screen, and nothing that needs a mouse or a keyboard. It talks to LinuxCNC directly, with no Python, and runs on a Raspberry Pi 5.
 
+**[Try the demo in your browser](https://gardnervickers.github.io/ferrum/).** It is Ferrum itself against its built-in simulated machine, running entirely in the page: run a sample program, jog, probe, build a job. It never talks to a real mill.
+
 ![The RUN screen running a program on the simulated machine](docs/images/run.gif)
 
 > **Status: early.** Ferrum runs its author's mill, and it has just been split out of the machine config it grew up in. Expect names and paths to move. (It was called millgui: settings files, INI sections and environment variables under that name are still read.)

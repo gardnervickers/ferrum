@@ -75,7 +75,7 @@ export component StatusBar inherits Rectangle {
                 kind: Live.estop ? "tripped" : "stop";
                 hold: Live.estop;
                 // From a browser the network can drop it: the hardware chain is the e-stop.
-                sub: Live.remote && !Live.estop ? "REMOTE REQUEST" : "";
+                sub: Live.remote && !Live.demo && !Live.estop ? "REMOTE REQUEST" : "";
                 enabled: Live.connected;
                 pressed => { if !Live.estop { Actions.estop-trip(); } }
                 clicked => { if Live.estop { Actions.estop-reset(); } }
