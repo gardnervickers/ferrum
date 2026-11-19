@@ -200,6 +200,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reads_a_fresh_install() {
+        // scripts/ferrum-update status --json with nothing installed yet.
+        let s: Status = serde_json::from_str(r#"{"installed_in":"/opt/ferrum","current":null,"previous":null,"installed":[],"channel":"stable","auto":false,"available":"0.2.0","staged":null,"on_trial":null,"fell_back":null,"skipped":null,"last_check":"2026-11-19T14:00:00Z","last_error":null,"running":false}"#).unwrap();
+        assert_eq!(s.current, "");
+        assert_eq!(s.available.as_deref(), Some("0.2.0"));
+    }
+
+    #[test]
     fn versions_compare_by_number() {
         assert!(newer_than("0.10.0", "0.9.3"));
         assert!(newer_than("v1.2.0", "1.1.9"));

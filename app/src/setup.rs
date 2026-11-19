@@ -1140,6 +1140,8 @@ impl Setup {
             rows.push(SetupRow { level: "ok".into(), ..act("upd-unstage", format!("Ferrum {v} is ready"), "Downloaded and checked. It goes into use when LinuxCNC next starts.".into(), "CANCEL", false) });
         } else if let Some(v) = s.newer() {
             rows.push(SetupRow { level: "info".into(), ..act("upd-stage", format!("Ferrum {v} is available"), "Download and check it now; it goes into use when LinuxCNC next starts.".into(), "DOWNLOAD", false) });
+        } else if s.last_check.is_none() {
+            rows.push(SetupRow { level: "info".into(), ..act("upd-check", "Not checked for updates yet".into(), "Checking asks the release server for the newest version; nothing is downloaded.".into(), "CHECK NOW", false) });
         } else {
             rows.push(SetupRow { level: "ok".into(), ..act("upd-check", "Up to date".into(), checked.clone(), "CHECK NOW", false) });
         }
