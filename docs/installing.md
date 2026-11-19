@@ -84,7 +84,7 @@ A screen that *freezes* rather than crashes is caught by the screen watchdog (`h
 
 ## Releasing
 
-- **Stable:** set `version` in `app/Cargo.toml`, commit, then tag `v<version>` and push the tag. `.github/workflows/release.yml` builds on Debian 12 against LinuxCNC 2.9.10 for aarch64 and x86_64, runs the installer tests, installs the package and checks that it loads, and publishes release `v<version>` with `ferrum-linux-<arch>.tar.gz`, `install.sh`, `VERSION` and `SHA256SUMS`.
+- **Stable:** on GitHub, Actions > **Cut a release** > Run workflow, pick patch, minor or major (or type a version). From a terminal: `gh workflow run cut-release.yml -R gardnervickers/ferrum -f bump=minor`. It refuses unless CI passed on main's newest commit, then bumps `app/Cargo.toml`, commits "Release vX.Y.Z", tags it and starts the release build. (Pushing a `v<version>` tag by hand, matching `app/Cargo.toml`, does the same.) `.github/workflows/release.yml` builds on Debian 12 against LinuxCNC 2.9.10 for aarch64 and x86_64, runs the installer tests, installs the package and checks that it loads, and publishes release `v<version>` with `ferrum-linux-<arch>.tar.gz`, `install.sh`, `VERSION` and `SHA256SUMS`.
 - **Edge:** every main commit whose CI passes refreshes the `edge` prerelease. Nothing to do by hand.
 - `scripts/package BINARY VERSION ARCH` packs any build, for example a local one for `ferrum-update --from`. `scripts/deploy` uses it to install on the author's Pi.
 

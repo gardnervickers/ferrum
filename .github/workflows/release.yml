@@ -1,6 +1,6 @@
 # Release builds for scripts/ferrum-update to install:
-#   - a tag vX.Y.Z (matching app/Cargo.toml's version) publishes release
-#     vX.Y.Z, which becomes "latest";
+#   - a tag vX.Y.Z (matching app/Cargo.toml's version; cut-release.yml makes
+#     one) publishes release vX.Y.Z, which becomes "latest";
 #   - every main commit that passed CI refreshes the "edge" prerelease.
 # Both build on Debian 12 (the Pi's OS, and LinuxCNC 2.9's) against
 # LinuxCNC 2.9.10 for aarch64 and x86_64. Nothing here talks to a machine.
@@ -19,8 +19,10 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event_name == 'push' && github.ref || 'edge' }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  # Tag builds (pushed or started by "Cut a release") never cancel each
+  # other; a newer edge build replaces an older one.
+  group: release-${{ github.ref_type == 'tag' && github.ref || 'edge' }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
   version:
