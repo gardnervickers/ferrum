@@ -167,8 +167,13 @@ export component Btn inherits Rectangle {
                 root.released();
             }
         }
+        // A plain tap clicks on release, but only if the button is still a
+        // plain button: when it became a hold button under the finger
+        // (E-STOP tripped on touch-down and turned into RESET), the release
+        // must not act. Without this, a press long enough for the E-stop to
+        // show tripped reset it on release.
         clicked => {
-            if !root.touch-held { root.clicked(); }
+            if !root.touch-held && !root.hold { root.clicked(); }
         }
     }
 }

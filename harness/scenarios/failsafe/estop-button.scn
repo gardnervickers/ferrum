@@ -1,0 +1,26 @@
+title E-STOP on the screen stops a moving machine at once and stays latched
+# The screen's E-STOP (the same action the button's touch-down sends) while
+# an MDI move runs: LinuxCNC is in E-stop within half a second, motion stops,
+# and it stays there (no power on) until RESET E-STOP.
+allow-error estop
+allow-error Motion enabled after reaching a coordinate soft limit
+include ../common/ready.scn
+do mdi-send "G1 X${safe_x} F${feed}"
+wait stat.current_vel > 0 within 5
+do estop-trip
+wait stat.task_state == 1 within 0.5
+sleep 0.5
+expect stat.current_vel == 0
+expect prop.estop == true
+expect prop.running == false
+expect prop.dro-pos[0].work < ${safe_x}
+# Power is refused while E-stopped.
+do power
+sleep 1.5
+expect stat.task_state == 1
+expect prop.estop == true
+shot latched
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10

@@ -1201,6 +1201,29 @@ impl Probe {
         true
     }
 
+    /// E-stop (from any source: the screen, a button in the chain, the
+    /// screen watchdog) or power off ends a run here: LinuxCNC aborted the
+    /// routine and would refuse every line still to come, the defaults
+    /// too. Those go back once the machine is on and quiet again.
+    fn end_run_if_off(&mut self, s: &Status) {
+        if s.power_on() {
+            return;
+        }
+        let Some(mut run) = self.run.take() else { return };
+        let why = if s.estop() { "E-stop" } else { "machine turned off" };
+        run.failed.get_or_insert_with(|| why.into());
+        run.restore_failed = true;
+        if run.kind.is_empty() {
+            // Only putting the defaults back: that waits for later.
+            self.mark_dirty(true);
+        } else {
+            self.finish(run);
+        }
+        // No retry delay: the quiet-time check already waits for on,
+        // homed and still.
+        self.restore_after = None;
+    }
+
     fn mark_dirty(&mut self, on: bool) {
         self.restore_pending = on;
         self.state.set("probe.restore-pending", if on { 1 } else { 0 });
@@ -2109,6 +2132,7 @@ pub fn apply_status(ui: &MainWindow, probe: &Rc<RefCell<Probe>>, s: &Status) {
     let key = |o: &Status| (o.tool_in_spindle, o.power_on(), o.busy(), o.wcs, o.all_homed(), o.active_gcodes.contains(&400), o.g92_offset.iter().any(|v| *v != 0.0));
     let was = p.status.as_ref().map(key);
     p.status = Some(s.clone());
+    p.end_run_if_off(s);
     if p.job_armed && s.busy() {
         p.job_armed = false;
         p.mark_dirty(true);
@@ -2440,6 +2464,25 @@ mod tests {
         p.option("tgt-runout");
         assert_eq!(call_now(&mut p), "o<probe_a_measure_runout> call [25.000] [1]");
         assert!(!p.writes());
+    }
+
+    #[test]
+    fn estop_ends_a_run_and_its_defaults_wait() {
+        let mut p = probe();
+        let mut s = Status::default();
+        s.task_state = machine::TaskState::On;
+        p.run = Some(Run { steps: vec!["o<probe_round_boss> call".into()], restore: vec!["#3004=1".into()], sent: None, failed: None, restoring: false, restore_failed: false, what: "Boss".into(), kind: "boss", flow_step: None, not_before: None, done_at: None });
+        p.end_run_if_off(&s);
+        assert!(p.run.is_some(), "on: the run goes on");
+        s.task_state = machine::TaskState::Estop;
+        p.end_run_if_off(&s);
+        assert!(p.run.is_none());
+        assert!(p.restore_pending);
+        assert_eq!(p.result_text, "Boss failed: E-stop");
+        // Nothing more is sent while off.
+        p.status = Some(s);
+        p.pump();
+        assert!(p.run.is_none());
     }
 
     #[test]

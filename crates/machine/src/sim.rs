@@ -59,6 +59,18 @@ impl Sim {
         self.messages.push_back(Message { kind, text: text.into() });
     }
 
+    /// Stop whatever runs: the program, a macro call (its results never
+    /// come), a tool change, jogs.
+    fn abort(&mut self) {
+        self.tool_change = None;
+        self.s.interp = InterpState::Idle;
+        self.s.paused = false;
+        self.run_until = None;
+        self.call_until = None;
+        self.jog = [0.0; AXES];
+        self.s.current_vel = 0.0;
+    }
+
     fn require_on(&mut self, what: &str) -> bool {
         if self.s.task_state != TaskState::On {
             self.msg(MessageKind::Error, format!("Can't do {what} when machine is not on"));
@@ -326,8 +338,15 @@ impl Machine for Sim {
                     self.s.task_state = *st;
                     self.s.enabled = *st == TaskState::On;
                     if !self.s.enabled {
-                        self.jog = [0.0; AXES];
-                        self.s.interp = InterpState::Idle;
+                        // As LinuxCNC: leaving ON aborts everything (task's
+                        // emcTaskAbort), the spindle stops with motion and
+                        // iocontrol turns the coolant off.
+                        self.abort();
+                        self.s.spindle_speed = 0.0;
+                        self.s.spindle_direction = SpindleDirection::Stopped;
+                        self.s.spindle_enabled = false;
+                        self.s.mist = false;
+                        self.s.flood = false;
                     }
                 } else {
                     self.msg(MessageKind::Error, "Can't turn machine on while in E-stop");
@@ -340,13 +359,7 @@ impl Machine for Sim {
                     self.s.mode = *m;
                 }
             }
-            Command::Abort => {
-                self.tool_change = None;
-                self.s.interp = InterpState::Idle;
-                self.run_until = None;
-                self.call_until = None;
-                self.jog = [0.0; AXES];
-            }
+            Command::Abort => self.abort(),
             Command::Mdi(line) => {
                 if self.require_on("MDI") {
                     self.mdi(line);
@@ -468,5 +481,36 @@ fn jog_index(t: JogTarget) -> usize {
     match t {
         JogTarget::Axis(a) => a.index(),
         JogTarget::Joint(j) => j as usize,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn on() -> Sim {
+        let mut sim = Sim::new();
+        sim.send(&Command::SetState(TaskState::EstopReset)).unwrap();
+        sim.send(&Command::SetState(TaskState::On)).unwrap();
+        sim.send(&Command::Home(JointSel::All)).unwrap();
+        sim
+    }
+
+    #[test]
+    fn estop_stops_spindle_coolant_and_a_running_macro() {
+        let mut sim = on();
+        sim.send(&Command::SpindleOn { rpm: 2000.0, rotation: Rotation::Forward }).unwrap();
+        sim.send(&Command::Flood(true)).unwrap();
+        sim.send(&Command::Mdi("o<probe_round_boss> call".into())).unwrap();
+        assert!(sim.poll().unwrap().busy());
+        sim.send(&Command::SetState(TaskState::Estop)).unwrap();
+        let s = sim.poll().unwrap().clone();
+        assert!(s.estop() && !s.busy() && !s.paused);
+        assert!(!s.spindle_enabled && s.spindle_speed == 0.0 && !s.flood && !s.mist);
+        // The aborted macro's results never arrive.
+        assert!(sim.call_until.is_none());
+        // Power stays refused until E-stop is reset.
+        sim.send(&Command::SetState(TaskState::On)).unwrap();
+        assert!(sim.poll().unwrap().estop());
     }
 }

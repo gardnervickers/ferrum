@@ -65,6 +65,9 @@ export component StatusBar inherits Rectangle {
         spacing: 10px;
         alignment: stretch;
         // E-STOP trips on the first touch; RESET and POWER need the 800 ms hold.
+        // The touch that trips E-STOP never resets it, however long it lasts:
+        // RESET needs a new touch, held (Btn ignores a release after the
+        // label flipped under the finger).
         VerticalLayout {
             alignment: center;
             Btn {
