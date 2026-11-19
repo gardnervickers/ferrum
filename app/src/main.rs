@@ -851,6 +851,15 @@ async fn run(
         }
         std::process::exit(1);
     };
+    // Under --boot the modules were chosen before LinuxCNC ran, so its HAL
+    // could not say who answers M6. It can now: choose again.
+    let hal = if args.boot && !args.sim {
+        let hal: Box<dyn checks::Hal> = Box::new(checks::Halcmd::new());
+        modules = modules::build(&cfg, hal.as_ref()).0;
+        hal
+    } else {
+        hal
+    };
     // Keep the HAL component alive until exit.
     let _hal = if args.sim { None } else { setup_hal(&cfg, &mut modules, &mut notes) };
     set_nav(&ui, &modules, args.screen.as_deref());
