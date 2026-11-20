@@ -91,6 +91,38 @@ pub fn pump() {
     });
 }
 
+/// Everything queued, and whether every handle is gone. An override
+/// (scale) command is dropped when a later one of the same kind follows it:
+/// a dragged slider sends one per percent, and only where it ended matters.
+fn drain(rx: &Receiver<Request>) -> (Vec<Request>, bool) {
+    let mut q = Vec::new();
+    let gone = loop {
+        match rx.try_recv() {
+            Ok(r) => q.push(r),
+            Err(TryRecvError::Empty) => break false,
+            Err(TryRecvError::Disconnected) => break true,
+        }
+    };
+    let kind = |r: &Request| match r {
+        Request::Cmd(Command::FeedScale(_)) => Some(0),
+        Request::Cmd(Command::RapidScale(_)) => Some(1),
+        Request::Cmd(Command::SpindleScale(_)) => Some(2),
+        _ => None,
+    };
+    let mut seen = [false; 3];
+    let keep: Vec<bool> = q
+        .iter()
+        .rev()
+        .map(|r| match kind(r) {
+            Some(k) => !std::mem::replace(&mut seen[k], true),
+            None => true,
+        })
+        .collect();
+    let mut keep = keep.into_iter().rev();
+    q.retain(|_| keep.next().unwrap_or(true));
+    (q, gone)
+}
+
 /// The machine connection's loop state; [`Worker::step`] is one period.
 struct Worker {
     m: Box<dyn Machine>,
@@ -127,10 +159,12 @@ impl Worker {
         let mut failing_since = self.failing_since;
         let mut back = self.back.take();
         let mut modes = self.modes.take();
+        let (queue, gone) = drain(rx);
+        let mut queue = queue.into_iter();
         loop {
-            match rx.try_recv() {
-                Ok(Request::SimToolChanged) => m.sim_tool_changed(),
-                Ok(Request::Cmd(cmd)) => {
+            match queue.next() {
+                Some(Request::SimToolChanged) => m.sim_tool_changed(),
+                Some(Request::Cmd(cmd)) => {
                     let is_mdi = matches!(cmd, Command::Mdi(_));
                     // Put modes back from a finished macro before anything
                     // that reads them: the next MDI line, or a program.
@@ -158,8 +192,8 @@ impl Worker {
                         back = None;
                     }
                 }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => return false,
+                None if gone => return false,
+                None => break,
             }
         }
         // Decide from the borrowed status; act (send, report) after.
@@ -658,6 +692,27 @@ mod tests {
     use super::*;
     use crate::Sim;
     use lcnc::{RcsStatus, Result, TaskState};
+
+    #[test]
+    fn drain_keeps_only_the_last_of_each_override() {
+        let (tx, rx) = mpsc::channel();
+        for c in [
+            Command::FeedScale(0.5),
+            Command::RapidScale(0.25),
+            Command::FeedScale(0.6),
+            Command::Mdi("G0 X0".into()),
+            Command::FeedScale(0.7),
+            Command::SpindleScale(1.1),
+        ] {
+            tx.send(Request::Cmd(c)).unwrap();
+        }
+        let (q, gone) = drain(&rx);
+        assert!(!gone);
+        let cmds: Vec<Command> = q.into_iter().filter_map(|r| match r { Request::Cmd(c) => Some(c), _ => None }).collect();
+        assert_eq!(cmds, vec![Command::RapidScale(0.25), Command::Mdi("G0 X0".into()), Command::FeedScale(0.7), Command::SpindleScale(1.1)]);
+        drop(tx);
+        assert!(drain(&rx).1);
+    }
 
     #[test]
     fn mdi_switches_to_mdi_mode_first() {

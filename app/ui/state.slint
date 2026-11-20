@@ -459,6 +459,8 @@ export global Actions {
     callback home-axis(axis: string);
     // which: "feed" | "rapid" | "spindle"; delta in percent
     callback override(which: string, delta: int);
+    // The slider: set it to pct percent.
+    callback override-set(which: string, pct: int);
     callback override-reset(which: string);
     callback cycle-start();
     callback feed-hold();

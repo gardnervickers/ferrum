@@ -52,7 +52,11 @@ widgets in `app/ui/widgets.slint`.
 - **Touch.** Targets stay at least 48 px tall (primary ones 56 px and up);
   the hold-to-confirm sweep and the HOLD tag are part of `Btn`. The corner
   tag only ever says HOLD, and a hold button's label never says "HOLD TO".
-  Buttons of one role in a row are equal (`EqBtn`).
+  Buttons of one role in a row are equal (`EqBtn`). A slider (the
+  overrides) moves by the distance dragged from wherever the finger lands,
+  after 8 px of slack, so a tap or a wobble never jumps it; it shows the
+  dragged value at once and sticks at 100 % on the way past. The − and +
+  beside it keep their steps (detents), and tapping the value resets it.
 - **Glyphs.** Arrows and chevrons are 2 px strokes like the nav icons
   (`Arrows`, `Chevron`, `Btn.menu`), not font triangles.
 - **Cheap to draw.** The Pi draws in software: flat fills and rounded

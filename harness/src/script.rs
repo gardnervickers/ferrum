@@ -26,6 +26,7 @@
 //! log     any text for the report
 //! signal  STOP                        # signal ferrum's GUI process (STOP, CONT, KILL)
 //! click   960 540                     # a real X pointer click at screen pixels (xdotool)
+//! drag    300 650 220 650             # a real X pointer drag, press to release (xdotool)
 //! ```
 //!
 //! `${name}` is replaced from the config's `vars` file before parsing.
@@ -77,6 +78,8 @@ pub enum Step {
     Signal(String),
     /// A real X pointer click at screen pixels.
     Click(i32, i32),
+    /// From (x0, y0) to (x1, y1), pressed the whole way.
+    Drag(i32, i32, i32, i32),
 }
 
 #[derive(Debug, Clone)]
@@ -289,6 +292,13 @@ impl Scenario {
                 "click" => {
                     let (x, y) = split_word(rest);
                     Step::Click(x.parse().map_err(|_| err("bad x"))?, y.parse().map_err(|_| err("bad y"))?)
+                }
+                "drag" => {
+                    let n: Vec<i32> = rest.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+                    match n[..] {
+                        [x0, y0, x1, y1] => Step::Drag(x0, y0, x1, y1),
+                        _ => return Err(err("drag X0 Y0 X1 Y1")),
+                    }
                 }
                 _ => return Err(err("unknown step")),
             };

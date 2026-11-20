@@ -803,6 +803,7 @@ fn step(
         Step::Hal { pin, value } => s.hal_set(pin, value),
         Step::Signal(sig) => s.signal_gui(sig),
         Step::Click(x, y) => s.click(*x, *y),
+        Step::Drag(x0, y0, x1, y1) => s.drag((*x0, *y0), (*x1, *y1)),
         Step::Reconnect(secs) => s.reconnect(Duration::from_secs_f64(*secs)),
         Step::Sleep(secs) => {
             std::thread::sleep(Duration::from_secs_f64(*secs));

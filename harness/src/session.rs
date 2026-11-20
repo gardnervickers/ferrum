@@ -377,6 +377,28 @@ impl Session {
         }
     }
 
+    /// Press at `from`, move to `to` in small steps as a finger would, let go.
+    pub fn drag(&self, from: (i32, i32), to: (i32, i32)) -> Result<(), String> {
+        let mut args = vec!["mousemove".to_string(), from.0.to_string(), from.1.to_string(), "mousedown".into(), "1".into()];
+        const STEPS: i32 = 20;
+        for i in 1..=STEPS {
+            let x = from.0 + (to.0 - from.0) * i / STEPS;
+            let y = from.1 + (to.1 - from.1) * i / STEPS;
+            args.extend(["sleep".into(), "0.02".into(), "mousemove".into(), x.to_string(), y.to_string()]);
+        }
+        args.extend(["sleep".into(), "0.05".into(), "mouseup".into(), "1".into()]);
+        let out = Command::new("xdotool")
+            .env("DISPLAY", &self.display)
+            .args(&args)
+            .output()
+            .map_err(|e| format!("xdotool: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+
     pub fn alive(&mut self) -> bool {
         self.child
             .as_mut()

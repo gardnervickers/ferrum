@@ -469,6 +469,19 @@ fn fmt_elapsed(d: Duration) -> String {
     }
 }
 
+/// − and + on an override: to the next multiple of the step (the detents)
+/// below or above, so a value left between them by the slider comes back to
+/// round numbers. `delta` is the signed step in percent.
+fn detent_step(scale: f64, delta: i32) -> i32 {
+    let pct = (scale * 100.0).round() as i32;
+    let step = delta.abs().max(1);
+    if delta > 0 {
+        (pct.div_euclid(step) + 1) * step
+    } else {
+        ((pct + step - 1).div_euclid(step) - 1) * step
+    }
+}
+
 fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>, cfg: &Config) {
     let actions = ui.global::<Actions>();
     let feed_max = cfg.get_f64("DISPLAY", "MAX_FEED_OVERRIDE").unwrap_or(2.0);
@@ -530,13 +543,34 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     let (m, st) = (machine.clone(), state.clone());
     actions.on_override(move |which, delta| {
         let Some(s) = st.borrow().status.clone() else { return };
-        let step = delta as f64 / 100.0;
+        let detent = |scale: f64| detent_step(scale, delta) as f64 / 100.0;
         let cmd = match which.as_str() {
-            "feed" => Command::FeedScale((s.feed_scale + step).clamp(0.0, feed_max)),
-            "rapid" => Command::RapidScale((s.rapid_scale + step).clamp(0.0, 1.0)),
-            "spindle" => Command::SpindleScale((s.spindle_scale + step).clamp(spindle_min, spindle_max)),
+            "feed" => Command::FeedScale(detent(s.feed_scale).clamp(0.0, feed_max)),
+            "rapid" => Command::RapidScale(detent(s.rapid_scale).clamp(0.0, 1.0)),
+            "spindle" => Command::SpindleScale(detent(s.spindle_scale).clamp(spindle_min, spindle_max)),
             _ => return,
         };
+        m.send(cmd);
+    });
+    let (m, w) = (machine.clone(), ui.as_weak());
+    actions.on_override_set(move |which, pct| {
+        let Some(ui) = w.upgrade() else { return };
+        let live = ui.global::<Live>();
+        let v = pct as f64 / 100.0;
+        let (cmd, s) = match which.as_str() {
+            "feed" => { let s = v.clamp(0.0, feed_max); (Command::FeedScale(s), s) }
+            "rapid" => { let s = v.clamp(0.0, 1.0); (Command::RapidScale(s), s) }
+            "spindle" => { let s = v.clamp(spindle_min, spindle_max); (Command::SpindleScale(s), s) }
+            _ => return,
+        };
+        // Shown at once; the next status confirms it (and a browser screen
+        // following the slider gets it from here).
+        let shown = (s * 100.0).round() as i32;
+        match which.as_str() {
+            "feed" => live.set_feed_pct(shown),
+            "rapid" => live.set_rapid_pct(shown),
+            _ => live.set_spindle_pct(shown),
+        }
         m.send(cmd);
     });
     let m = machine.clone();
@@ -2061,6 +2095,18 @@ fn with_manual(f: impl FnOnce(&Rc<RefCell<manual::Manual>>)) {
 #[cfg(test)]
 mod status_tests {
     use super::*;
+
+    #[test]
+    fn override_buttons_step_to_the_detents() {
+        assert_eq!(detent_step(1.0, 10), 110);
+        assert_eq!(detent_step(1.0, -10), 90);
+        assert_eq!(detent_step(0.48, 25), 50);
+        assert_eq!(detent_step(0.48, -25), 25);
+        assert_eq!(detent_step(0.50, -25), 25);
+        assert_eq!(detent_step(0.37, 10), 40);
+        assert_eq!(detent_step(0.37, -10), 30);
+        assert_eq!(detent_step(0.0, -10), -10); // clamped by the caller
+    }
 
     #[test]
     fn the_status_pill_names_the_worst_row() {

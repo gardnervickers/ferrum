@@ -287,52 +287,126 @@ component DroLine inherits Rectangle {
     }
 }
 
+// One override: − and + step it by `step` (the detents), the bar between
+// them is a slider. A drag moves the value from where it is by the distance
+// dragged, wherever on the bar it starts, so a tap never jumps it; it sticks
+// at 100 % on the way past. Tapping the percentage resets it to 100 %.
 component OverrideRow inherits HorizontalLayout {
     in property <string> label;
     in property <string> which;
     in property <int> pct;
+    in property <int> lo: 0;
     in property <int> limit;
     in property <int> step: 10;
+    // Dragging, or just let go and the machine's value not back yet: the
+    // row shows the dragged value, so it never snaps back for a moment.
+    property <bool> held: ta.pressed || settling;
+    property <bool> settling;
+    property <int> drag-pct: 100;
+    property <int> base: 100;
+    property <bool> dragging;
+    property <int> shown: held ? drag-pct : pct;
+    property <length> knob: 26px;
+    changed pct => { if settling && !ta.pressed && pct == drag-pct { settling = false; } }
+    settle-timer := Timer {
+        interval: 800ms;
+        running: settling && !ta.pressed;
+        triggered => { settling = false; }
+    }
     spacing: 10px;
     height: Theme.h-sm;
-    Label { width: 84px; vertical-alignment: center; text: label; font-size: Theme.t-small; }
-    Btn { width: 64px; min-height: Theme.h-sm; text: "−"; font-size: Theme.t-value; clicked => { Actions.override(which, -step); } }
-    Rectangle {
+    Label { width: 64px; vertical-alignment: center; text: label; font-size: Theme.t-small; }
+    Btn { width: 56px; min-height: Theme.h-sm; text: "−"; font-size: Theme.t-value; clicked => { Actions.override(which, -step); } }
+    bar := Rectangle {
         horizontal-stretch: 1;
+        property <float> span: Math.max(1, root.limit);
+        // The knob's centre runs from end to end of the track.
+        property <length> track-x: root.knob / 2;
+        property <length> track-w: Math.max(1px, self.width - root.knob);
+        property <length> at: self.track-x + self.track-w * Math.min(1.0, Math.max(0, root.shown) / self.span);
         Rectangle {
+            x: bar.track-x;
+            width: bar.track-w;
             height: 8px;
             border-radius: 4px;
             background: Theme.well;
             Rectangle {
                 x: 0;
-                width: parent.width * Math.min(1.0, pct / Math.max(1, root.limit));
+                width: bar.at - bar.track-x;
                 border-radius: 4px;
-                background: pct == 100 ? Theme.sel : Theme.warn;
-                animate width { duration: Theme.settle; easing: ease-out; }
+                background: root.shown == 100 ? Theme.sel : Theme.warn;
+                animate width { duration: root.held ? 0ms : Theme.settle; easing: ease-out; }
                 animate background { duration: Theme.settle; }
             }
         }
         // 100% mark
         Rectangle {
-            x: parent.width * 100 / Math.max(1, root.limit) - 1px;
+            x: bar.track-x + bar.track-w * 100 / bar.span - 1px;
             width: 2px;
             height: 20px;
             border-radius: 1px;
             background: Theme.muted;
         }
+        // The knob: under the finger it grows a soft halo.
+        Rectangle {
+            x: bar.at - self.width / 2;
+            width: root.dragging ? 44px : 0px;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: root.shown == 100 ? Theme.sel-soft : Theme.warn-soft;
+            animate width { duration: Theme.quick; }
+            animate x { duration: root.held ? 0ms : Theme.settle; easing: ease-out; }
+        }
+        Rectangle {
+            x: bar.at - root.knob / 2;
+            width: root.knob;
+            height: root.knob;
+            border-radius: root.knob / 2;
+            background: root.shown == 100 ? Theme.sel : Theme.warn;
+            border-width: 3px;
+            border-color: Theme.panel;
+            animate x { duration: root.held ? 0ms : Theme.settle; easing: ease-out; }
+            animate background { duration: Theme.settle; }
+        }
+        ta := TouchArea {
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down {
+                    root.base = root.pct;
+                    root.drag-pct = root.pct;
+                    root.dragging = false;
+                    root.settling = false;
+                } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                    root.settling = root.dragging && root.drag-pct != root.pct;
+                    root.dragging = false;
+                }
+            }
+            moved => {
+                if !self.pressed { return; }
+                let dx = self.mouse-x - self.pressed-x;
+                // A little slack first, so a press that wobbles is not a drag.
+                if !root.dragging && abs(dx) < 8px { return; }
+                root.dragging = true;
+                let raw = root.base + (dx - (dx > 0 ? 8px : -8px)) / bar.track-w * bar.span;
+                // Sticks at 100 % within 10 px of the mark.
+                let v = Math.clamp(abs(raw - 100) * bar.track-w / bar.span < 10px ? 100 : Math.round(raw), root.lo, root.limit);
+                if v != root.drag-pct {
+                    root.drag-pct = v;
+                    Actions.override-set(root.which, v);
+                }
+            }
+        }
     }
-    Btn { width: 64px; min-height: Theme.h-sm; text: "+"; font-size: Theme.t-value; clicked => { Actions.override(which, step); } }
-    // Tapping the percentage resets the row to 100%.
+    Btn { width: 56px; min-height: Theme.h-sm; text: "+"; font-size: Theme.t-value; clicked => { Actions.override(which, step); } }
     Text {
         width: 72px;
         vertical-alignment: center;
         horizontal-alignment: right;
-        text: pct + "%";
+        text: shown + "%";
         TouchArea { clicked => { Actions.override-reset(which); } }
         font-family: Theme.body;
         font-weight: 600;
         font-size: Theme.t-value;
-        color: pct == 100 ? Theme.ink : Theme.warn;
+        color: shown == 100 ? Theme.ink : Theme.warn;
         animate color { duration: Theme.settle; }
     }
 }
@@ -387,7 +461,7 @@ export component LeftColumn inherits Rectangle {
                 spacing: 6px;
                 OverrideRow { label: "FEED"; which: "feed"; pct: Live.feed-pct; limit: Live.feed-max; }
                 OverrideRow { label: "RAPID"; which: "rapid"; pct: Live.rapid-pct; limit: 100; step: 25; }
-                OverrideRow { label: "SPINDLE"; which: "spindle"; pct: Live.spindle-pct; limit: Live.spindle-max; }
+                OverrideRow { label: "SPINDLE"; which: "spindle"; pct: Live.spindle-pct; lo: Live.spindle-min; limit: Live.spindle-max; }
             }
         }
         Rectangle { vertical-stretch: 1; }

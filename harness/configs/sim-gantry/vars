@@ -32,3 +32,6 @@ probe_side_z = -45
 probe_feed = 500
 probe_fine = 0.02
 unit = mm
+# The FEED and RAPID override rows (basics/overrides): screen y of each.
+ovr_feed_y = 562
+ovr_rapid_y = 616

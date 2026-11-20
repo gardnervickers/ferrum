@@ -1,0 +1,42 @@
+title Overrides: the FEED and RAPID sliders drag, − and + step to the detents, a tap resets
+include ../common/ready.scn
+# The actions as the slider and the buttons send them.
+do override-set "feed" 48
+wait stat.feedrate ~= 0.48 within 5
+expect prop.feed-pct == 48
+do override "feed" 10                    # + goes to the next detent
+wait stat.feedrate ~= 0.5 within 5
+do override "feed" -10
+wait stat.feedrate ~= 0.4 within 5
+do override-set "rapid" 37
+wait stat.rapidrate ~= 0.37 within 5
+do override "rapid" 25
+wait stat.rapidrate ~= 0.5 within 5
+do override-reset "feed"
+do override-reset "rapid"
+wait stat.feedrate ~= 1 within 5
+wait stat.rapidrate ~= 1 within 5
+# Real drags on the screen (the rows' y are per config: the DRO has
+# one row per axis).
+drag 300 ${ovr_feed_y} 220 ${ovr_feed_y}
+wait stat.feedrate < 0.9 within 5
+expect stat.feedrate > 0
+expect prop.feed-pct < 90
+shot feed-dragged
+click 465 ${ovr_feed_y}                  # tap the value: back to 100 %
+wait stat.feedrate ~= 1 within 5
+drag 300 ${ovr_feed_y} 316 ${ovr_feed_y} # a little past the mark sticks at 100 %
+sleep 0.5
+expect stat.feedrate ~= 1
+click 250 ${ovr_rapid_y}                 # a tap on the bar is not a drag
+sleep 0.5
+expect stat.rapidrate ~= 1
+drag 320 ${ovr_rapid_y} 240 ${ovr_rapid_y}
+wait stat.rapidrate < 0.7 within 5
+expect prop.rapid-pct < 70
+shot rapid-dragged
+click 383 ${ovr_rapid_y}                 # + to the next 25 % detent
+wait stat.rapidrate > 0.7 within 5
+expect prop.rapid-pct == 75
+click 465 ${ovr_rapid_y}
+wait stat.rapidrate ~= 1 within 5
