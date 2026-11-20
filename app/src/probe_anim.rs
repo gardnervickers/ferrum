@@ -484,27 +484,17 @@ pub fn freeze(ui: &MainWindow, ms: f64) {
     tick(ui);
 }
 
-/// One frame: where the tip is now. Runs only while the PROBE screen shows
-/// the picture and no probe is running; otherwise the tip is hidden and
-/// the clock idles.
+/// One frame: where the tip is now. Plays only while the PROBE screen shows
+/// the picture and no probe is running; otherwise the tip stays where it
+/// was (a run hides it on the screen) and the clock idles.
 fn tick(ui: &MainWindow) {
     let live = ui.global::<Live>();
     PLAYER.with(|p| {
         let mut p = p.borrow_mut();
-        // Whether PROBE plays the preview (a run hides it for its own
-        // arrows). The picture picks preview or approach arrows from this,
-        // not from whether the tip happens to be drawn yet, so a change of
-        // routine never shows the arrows for a frame before the tip comes.
-        let plays = live.get_screen() == "probe" && !p.script.is_empty();
-        live.set_pr_preview(plays);
-        let active = plays && !live.get_pr_running();
+        let active = live.get_screen() == "probe" && !live.get_pr_running() && !p.script.is_empty();
         if !active {
             if p.showing {
                 p.showing = false;
-                live.set_pr_tip_on(false);
-                live.set_pr_trail("".into());
-                live.set_pr_caption("".into());
-                live.set_pr_part(part_path(p.script.part, p.script.rest_angle()).into());
                 p.timer.set_interval(IDLE);
             }
             return;
@@ -525,44 +515,60 @@ fn tick(ui: &MainWindow) {
             p.timer.set_interval(IDLE);
             end - 1.0
         });
-        let Some(f) = p.script.at(ms) else { return };
-        live.set_pr_tip_on(true);
-        live.set_pr_tip_x(f.x as f32);
-        live.set_pr_tip_y(f.y as f32);
-        live.set_pr_tip_z(f.z as f32);
-        live.set_pr_tip_contact(f.contact);
-        if live.get_pr_trail() != f.trail.as_str() {
-            live.set_pr_trail(f.trail.into());
-        }
-        let caption = if p.script.part.is_empty() { format!("PREVIEW · {}", f.label) } else { format!("PREVIEW · {} · A {:.0}°", f.label, if f.a >= 360.0 { f.a - 360.0 } else { f.a }) };
-        if live.get_pr_caption() != caption.as_str() {
-            live.set_pr_caption(caption.into());
-        }
-        if !p.script.part.is_empty() {
-            let part = part_path(p.script.part, f.a);
-            if live.get_pr_part() != part.as_str() {
-                live.set_pr_part(part.into());
-            }
-        }
+        draw(&live, &p.script, ms);
     });
+}
+
+/// Show the tip, its trail and the caption at `ms` into `script`.
+fn draw(live: &Live, script: &Script, ms: f64) {
+    let Some(f) = script.at(ms) else {
+        live.set_pr_tip_on(false);
+        live.set_pr_trail("".into());
+        live.set_pr_caption("".into());
+        return;
+    };
+    live.set_pr_tip_on(true);
+    live.set_pr_tip_x(f.x as f32);
+    live.set_pr_tip_y(f.y as f32);
+    live.set_pr_tip_z(f.z as f32);
+    live.set_pr_tip_contact(f.contact);
+    if live.get_pr_trail() != f.trail.as_str() {
+        live.set_pr_trail(f.trail.into());
+    }
+    let caption = if script.part.is_empty() { format!("PREVIEW · {}", f.label) } else { format!("PREVIEW · {} · A {:.0}°", f.label, if f.a >= 360.0 { f.a - 360.0 } else { f.a }) };
+    if live.get_pr_caption() != caption.as_str() {
+        live.set_pr_caption(caption.into());
+    }
+    if !script.part.is_empty() {
+        let part = part_path(script.part, f.a);
+        if live.get_pr_part() != part.as_str() {
+            live.set_pr_part(part.into());
+        }
+    }
 }
 
 /// Play `script` on the picture, from the start when it differs from the
 /// one playing (a new shape, target or option).
+///
+/// The tip is never hidden to restart: the picture shows the approach
+/// arrows instead of the preview when there is none (`pr-preview`), and a
+/// hidden tip for even one frame flashed the arrows of the new routine.
+/// Until PROBE plays it (now if it is showing, else on coming back), the new
+/// routine rests on its finished frame, which is also what a screen in the
+/// browser sees while the touchscreen is elsewhere.
 pub fn play(ui: &MainWindow, script: Script) {
+    let live = ui.global::<Live>();
+    live.set_pr_preview(!script.is_empty());
     let same = PLAYER.with(|p| p.borrow().script == script);
     if !same {
-        let live = ui.global::<Live>();
         live.set_pr_part(part_path(script.part, script.rest_angle()).into());
-        live.set_pr_trail("".into());
+        draw(&live, &script, PLAYS * script.loop_ms() - 1.0);
         PLAYER.with(|p| {
             let mut p = p.borrow_mut();
             p.script = script;
             p.started = Instant::now();
             // Played again from the first step (below).
             p.showing = false;
-            live.set_pr_tip_on(false);
-            live.set_pr_caption("".into());
             if !p.timer.running() {
                 let weak = ui.as_weak();
                 p.timer.start(slint::TimerMode::Repeated, FRAME, move || {

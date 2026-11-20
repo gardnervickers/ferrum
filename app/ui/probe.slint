@@ -173,8 +173,8 @@ export component ProbeScreen inherits Rectangle {
                     }
                     // Approach moves, drawn over the spots (not tappable). The
                     // preview shows the same moves, so they only show without
-                    // it. (Not from pr-tip-on: the tip is off for a moment
-                    // whenever the routine changes.)
+                    // it. (Not from pr-tip-on, which may still be on its way
+                    // from the mill to a browser screen.)
                     Path {
                         visible: root.paths-visible && root.arrows;
                         x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
