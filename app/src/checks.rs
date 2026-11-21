@@ -493,6 +493,15 @@ pub fn macros_dir() -> Option<PathBuf> {
     }
     let exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
     if let Some(exe) = exe {
+        // An install by ferrum-update (PREFIX/versions/<v>/bin/ferrum):
+        // PREFIX/macros, which follows the version in use, so an INI that
+        // names it survives updates and pruning.
+        if let Some(prefix) = installed_prefix(&exe) {
+            let d = prefix.join("macros");
+            if has(&d) {
+                return Some(d);
+            }
+        }
         for dir in exe.ancestors().skip(1).take(4) {
             for d in [dir.join("macros"), dir.join("share/ferrum/macros")] {
                 if has(&d) {
@@ -502,6 +511,12 @@ pub fn macros_dir() -> Option<PathBuf> {
         }
     }
     Some(PathBuf::from("/usr/share/ferrum/macros")).filter(|d| has(d))
+}
+
+/// PREFIX for a binary at PREFIX/versions/<v>/bin/ferrum.
+fn installed_prefix(exe: &Path) -> Option<&Path> {
+    let versions = exe.ancestors().nth(3)?;
+    (versions.file_name()? == "versions").then(|| versions.parent()).flatten()
 }
 
 /// Where PROBE's macros come from. `ours` is ferrum's macro folder.
@@ -787,5 +802,11 @@ mod tests {
         assert!(linuxcnc_row(Some("2.10.0")).blocks(Feature::Core));
         assert_eq!(linuxcnc_row(Some("2.9.10")).level, Level::Ok);
         assert_eq!(linuxcnc_row(None).level, Level::Info);
+    }
+
+    #[test]
+    fn installed_prefix_of_a_version() {
+        assert_eq!(installed_prefix(Path::new("/home/cnc/.local/share/ferrum/versions/0.2.0/bin/ferrum")), Some(Path::new("/home/cnc/.local/share/ferrum")));
+        assert_eq!(installed_prefix(Path::new("/src/ferrum/target/release/ferrum")), None);
     }
 }
