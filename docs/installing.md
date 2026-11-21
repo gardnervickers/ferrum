@@ -9,9 +9,11 @@ curl -fsSL .../install.sh | bash -s -- --prefix ~/linuxcnc/configs/mymill/ferrum
 
 ## What you need
 
-- Debian 12 (bookworm) or newer, arm64 (Raspberry Pi 5) or x86_64.
-- LinuxCNC 2.9 installed. The builds link against LinuxCNC 2.9.10's `libnml`, so a LinuxCNC that is not 2.9 is refused by the self-test, and nothing changes.
-- `curl` or `wget`, `tar`, `sha256sum`. No root.
+- A 64-bit system: **arm64** (Raspberry Pi 4 and 5 with the 64-bit Raspberry Pi OS or LinuxCNC image) or **amd64**. The installer asks `dpkg` which architecture the system is, not the kernel, so a 32-bit Raspberry Pi OS (whose kernel is 64-bit) gets a clear refusal rather than a build it cannot start.
+- **glibc 2.35 or newer**: Debian 12 (bookworm, the LinuxCNC 2.9 ISO) and 13 (trixie), Ubuntu 22.04 and newer. Debian 11 and older cannot start the build; the self-test says so and nothing changes.
+- **LinuxCNC 2.9**, any 2.9.x. Ferrum reads LinuxCNC's status in 2.9's layout (`emc.hh` and `emc_nml.hh` are identical from 2.9.0 to 2.9.10), so Debian's own 2.9.4 package works as well as linuxcnc.org's 2.9.10. Each build says which series it is for (its `LINUXCNC` file); the installer asks `linuxcnc_var` (or the `linuxcnc-uspace` package) and refuses another series, and Ferrum itself refuses to start as the display of one. A LinuxCNC 2.10 has the same `libnml.so.0` but may not have the same layout, so it would load and then show wrong values: that is what the check is for. `--force` installs anyway.
+- `curl` or `wget`, `tar`, `sha256sum`, and `gpgv` (on every Debian and Ubuntu: apt needs it). No root.
+- The screen is an X11 window. On a Wayland desktop it runs through XWayland, as LinuxCNC's own screens do. It draws on the GPU when the driver is a real one, and in software otherwise (a Raspberry Pi 5 on Debian 12's stock Mesa 22: Mesa from bookworm-backports gives it the GPU).
 
 ## Commands
 
@@ -29,9 +31,9 @@ curl -fsSL .../install.sh | bash -s -- --prefix ~/linuxcnc/configs/mymill/ferrum
 | `ferrum-update check` | is there a newer version? (changes nothing) | yes |
 | `ferrum-update status [--json]`, `list` | what is installed | yes |
 | `ferrum-update channel stable\|edge`, `--edge`, `--stable` | which builds to follow (remembered) | yes |
-| `ferrum-update auto on\|off` | automatic updates | yes |
+| `ferrum-update auto on\|off` | automatic updates (stable releases only) | yes |
 
-Other options: `--prefix DIR`, `--ini FILE` (the INI the self-test checks; remembered), `--keep N` (old versions kept, default 3), `--force` (install although `--check` got worse), `--reinstall`.
+Other options: `--prefix DIR`, `--ini FILE` (the INI the self-test checks; remembered), `--keep N` (old versions kept, default 3), `--force` (install although `--check` got worse, or for another LinuxCNC series), `--allow-unsigned` (install a release from before signing, by hand only), `--reinstall`.
 
 "While LinuxCNC runs" means any of `linuxcnc`, `linuxcncsvr`, `milltask`, `rtapi_app`, `io`, `iocontrol`, `halui` or `ferrum` is running.
 
@@ -62,7 +64,7 @@ The first install into a folder that already has a hand-copied Ferrum (from the 
 ## What makes an update safe
 
 1. **Nothing changes while LinuxCNC runs.** A switch happens only with LinuxCNC stopped, or in `run` before the screen opens (staged updates). An update never lands under a running program.
-2. **The download is verified** against the release's `SHA256SUMS`. A damaged or partial download is refused.
+2. **The download is verified.** `SHA256SUMS` must carry a good signature (`SHA256SUMS.sig`) from Ferrum's release key, which is built into the installer, and the tarball must match it. A damaged, partial or tampered download is refused, and so is an unsigned release (unless `--allow-unsigned`, which automatic updates never use). Checksums alone would only catch damage, since they come from the same place as the download. See [Release signing](#release-signing).
 3. **The new build is tested before the switch.** `ferrum --version` must start and print the expected version, which catches missing libraries, the wrong architecture and the wrong LinuxCNC. `ferrum --check` on your INI must not crash, and must not report a problem the version in use does not.
 4. **The switch is atomic.** `current` is replaced with one `rename()`, so a power cut leaves the old version or the new one, never a mix.
 5. **The first start is a trial.** If the new version crashes (segfault, abort, panic) within 60 seconds of its first start, `run` puts the previous version back, starts it, and shows *"Ferrum X crashed on its first start, so Y is back in use. Restart LinuxCNC before using the machine."* The crashed build's HAL component outlives it, so the screen that comes back has no HAL pins, and the screen watchdog keeps E-stop latched until LinuxCNC restarts. A version that crashed, or one you rolled back from, is not staged again automatically.
@@ -71,6 +73,8 @@ The first install into a folder that already has a hand-copied Ferrum (from the 
 A screen that *freezes* rather than crashes is caught by the screen watchdog (`hal/watchdog.hal`), which latches E-stop. It is not caught by the launcher.
 
 ## Automatic updates
+
+Automatic updates follow **stable** releases only: `auto on` is refused on the edge channel, and switching to edge pauses them. Edge builds change with every commit; update those by hand.
 
 `ferrum-update auto on` makes `run` start `ferrum-update stage --if-due` in the background, at the lowest priority and at most once every 20 hours, each time the screen starts. Staging downloads, verifies and self-tests the new version into `versions/` and changes nothing in use. The next time `run` starts the screen, before the screen opens, the staged version goes into use (on trial), and the screen says *"Updated Ferrum X to Y. ferrum-update rollback goes back."*
 
@@ -87,6 +91,15 @@ A screen that *freezes* rather than crashes is caught by the screen watchdog (`h
 - **Stable:** on GitHub, Actions > **Cut a release** > Run workflow, pick patch, minor or major (or type a version). From a terminal: `gh workflow run cut-release.yml -R gardnervickers/ferrum -f bump=minor`. It refuses unless CI passed on main's newest commit, then bumps `app/Cargo.toml`, commits "Release vX.Y.Z", tags it and starts the release build. (Pushing a `v<version>` tag by hand, matching `app/Cargo.toml`, does the same.) `.github/workflows/release.yml` builds on Debian 12 against LinuxCNC 2.9.10 for aarch64 and x86_64, runs the installer tests, installs the package and checks that it loads, and publishes release `v<version>` with `ferrum-linux-<arch>.tar.gz`, `install.sh`, `VERSION` and `SHA256SUMS`.
 - **Edge:** every main commit whose CI passes refreshes the `edge` prerelease. Nothing to do by hand.
 - `scripts/package BINARY VERSION ARCH` packs any build, for example a local one for `ferrum-update --from`. `scripts/deploy` uses it to install on the author's Pi.
+
+## Release signing
+
+The release workflow signs `SHA256SUMS` with an ed25519 OpenPGP key held in the repository's `FERRUM_SIGNING_KEY` Actions secret, and `ferrum-update` checks it with `gpgv` against the public keys in its `RELEASE_KEYS` block (also in `docs/release-key.asc`). The installed `ferrum-update` is what checks the next update, so a release can only be replaced by one signed with a key the machine already trusts.
+
+- **Setting it up (once):** on your own computer, with `gpg` and a signed-in `gh`, in a checkout of this repository: `scripts/release-key`. It makes the key, stores it as the secret, saves a backup at `~/ferrum-release-key.asc` (keep it offline: GitHub never gives a secret back), and writes the public key into `scripts/ferrum-update` for you to commit and push. Releases built after that push are signed; installers from before it check checksums only.
+- **Until then** releases are unsigned and the installer, having no key, checks checksums only. Once the installer trusts a key, a release built without the secret fails rather than publishing something installs would refuse.
+- **Replacing the key** (lost or leaked): add the new public key beside the old one in `RELEASE_KEYS`, publish a release signed with the old key, and only then put the new private key in the secret and remove the old public key. A machine that never installed that middle release cannot check releases signed with the new key and needs a fresh `install.sh`, so treat the backup as precious.
+- A signature proves a build came from this repository's release workflow. It does not stop someone who controls the download from serving an older signed release.
 
 ## Tests
 

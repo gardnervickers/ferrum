@@ -57,7 +57,7 @@ cargo run --release -p ferrum-lcnc -- --sim --windowed
 
 ## Install
 
-On Debian 12 (Raspberry Pi OS bookworm or the LinuxCNC 2.9 image) with LinuxCNC 2.9 installed, arm64 or x86_64:
+On a 64-bit Debian 12 or newer, or Ubuntu 22.04 or newer (the LinuxCNC 2.9 image, 64-bit Raspberry Pi OS), arm64 or amd64, with LinuxCNC 2.9 installed:
 
 ```sh
 curl -fsSL https://github.com/gardnervickers/ferrum/releases/latest/download/install.sh | bash

@@ -796,6 +796,21 @@ fn main() -> Result<(), slint::PlatformError> {
     let (modules, problems) = modules::build(&cfg, hal.as_ref());
     notes.extend(problems);
 
+    // A LinuxCNC of another series has the same libnml.so.0 but maybe not
+    // the status layout this build reads: refuse to drive it rather than
+    // show wrong positions. (--check reports it as a row.)
+    if !args.check && !args.sim && args.screenshot.is_none() && std::env::var_os("FERRUM_ANY_LINUXCNC").is_none() {
+        if let Some(v) = checks::linuxcnc_version().filter(|v| !checks::linuxcnc_supported(v)) {
+            eprintln!(
+                "ferrum: this is LinuxCNC {v}, and this ferrum works with LinuxCNC {} only (it reads {}'s status layout, \
+                 so with {v} it could show wrong positions). Install a ferrum built for {v}.",
+                checks::LINUXCNC_SERIES,
+                checks::LINUXCNC_SERIES
+            );
+            std::process::exit(1);
+        }
+    }
+
     if args.check {
         let ids: Vec<String> = modules.iter().map(|m| m.id().to_string()).collect();
         let rows = checks::run(&checks::Inputs { cfg: &cfg, mc, mi, notes: &notes, modules: &ids, hal: hal.as_ref() });

@@ -1,0 +1,90 @@
+# Installs a published release the way users do, on the Debian-family
+# systems LinuxCNC machines run, on both architectures:
+#   - Debian 13 (trixie) with Debian's own LinuxCNC 2.9 package: the real
+#     install.sh, signature, LinuxCNC version gate, self-test and
+#     `ferrum --check` on a sample config;
+#   - Debian 12 (the LinuxCNC 2.9 ISO), Ubuntu 22.04 and 24.04: the build's
+#     libraries resolve (glibc, libstdc++, fontconfig), apart from
+#     LinuxCNC's own, which those systems get from linuxcnc.org.
+# Runs after each Release (the build it published), or by hand.
+name: Install test
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "edge, latest, or a version like 0.1.2"
+        default: edge
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: ${{ matrix.image }} ${{ matrix.arch }}
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["debian:trixie", "debian:bookworm", "ubuntu:24.04", "ubuntu:22.04"]
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: ${{ matrix.image }}
+    timeout-minutes: 30
+    env:
+      # Tag builds are named after their tag; everything else is edge.
+      WANT: ${{ github.event.inputs.release || (startsWith(github.event.workflow_run.head_branch, 'v') && github.event.workflow_run.head_branch) || 'edge' }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Packages
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl gpgv procps >/dev/null
+      - name: Which release
+        run: |
+          case "$WANT" in
+            edge) echo "ARGS=--edge" ;;
+            latest) echo "ARGS=" ;;
+            *) echo "ARGS=--version ${WANT#v}" ;;
+          esac >> "$GITHUB_ENV"
+          echo "Installing $WANT on $(. /etc/os-release && echo "$PRETTY_NAME") $(dpkg --print-architecture)" >> "$GITHUB_STEP_SUMMARY"
+      - name: LinuxCNC from Debian
+        if: matrix.image == 'debian:trixie'
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends linuxcnc-uspace >/dev/null
+          linuxcnc_var LINUXCNCVERSION || dpkg-query -W linuxcnc-uspace
+          ini="$(find /usr/share/doc/linuxcnc /usr/share/linuxcnc -name axis_mm.ini 2>/dev/null | head -1)"
+          [ -n "$ini" ] || { echo "::error::no sample axis_mm.ini in the package"; exit 1; }
+          echo "INI=$ini" >> "$GITHUB_ENV"
+      - name: Install with install.sh
+        if: matrix.image == 'debian:trixie'
+        run: |
+          useradd -m cnc
+          dl="https://github.com/$REPO/releases"
+          case "$WANT" in edge) u="$dl/download/edge/install.sh" ;; latest) u="$dl/latest/download/install.sh" ;; *) u="$dl/download/v${WANT#v}/install.sh" ;; esac
+          cp "$INI" /home/cnc/axis_mm.ini && chown cnc /home/cnc/axis_mm.ini
+          su cnc -c "curl -fsSL '$u' | bash -s -- $ARGS --ini /home/cnc/axis_mm.ini" | tee /tmp/install.log
+          grep -q "LinuxCNC 2.9" /tmp/install.log
+          su cnc -c "~/.local/share/ferrum/bin/ferrum --version"
+          su cnc -c "~/.local/share/ferrum/bin/ferrum --check ~/axis_mm.ini" || true
+          su cnc -c "~/.local/share/ferrum/ferrum-update status"
+      - name: Libraries resolve
+        if: matrix.image != 'debian:trixie'
+        run: |
+          case "$(dpkg --print-architecture)" in arm64) a=aarch64 ;; amd64) a=x86_64 ;; esac
+          dl="https://github.com/$REPO/releases"
+          case "$WANT" in edge) d="$dl/download/edge" ;; latest) d="$dl/latest/download" ;; *) d="$dl/download/v${WANT#v}" ;; esac
+          cd /tmp && curl -fsSLO "$d/ferrum-linux-$a.tar.gz" && curl -fsSLO "$d/SHA256SUMS"
+          grep " ferrum-linux-$a.tar.gz\$" SHA256SUMS | sha256sum -c -
+          tar -xzf "ferrum-linux-$a.tar.gz"
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends libfontconfig1 libstdc++6 >/dev/null
+          ldd ferrum-*/bin/ferrum | tee /tmp/ldd.txt
+          # Only LinuxCNC's own libraries may be missing here.
+          if grep -E "version .* not found|not found" /tmp/ldd.txt | grep -vE "^\s*lib(nml|linuxcnc[a-z]*)\.so\.0 => not found"; then
+            echo "::error::Ferrum's build needs libraries this system does not have"
+            exit 1
+          fi

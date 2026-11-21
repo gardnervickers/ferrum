@@ -12,7 +12,7 @@
 # Writes OUT_DIR/ferrum-linux-ARCH.tar.gz (default OUT_DIR: dist) holding
 # ferrum-VERSION/ with bin/ferrum, run, boot, ferrum-update, macros/, hal/,
 # web/dist (when built: scripts/build-web), mdi.toml, machine.toml, LICENSE,
-# README.md and VERSION.
+# README.md, VERSION and LINUXCNC (the LinuxCNC series it is for).
 set -euo pipefail
 [ $# -ge 3 ] || { sed -n '2,15p' "$0"; exit 2; }
 BIN="$1" VERSION="$2" ARCH="$3" OUT="${4:-dist}"
@@ -38,6 +38,9 @@ else
   echo "package: no web/dist (scripts/build-web); the browser screen is left out" >&2
 fi
 printf '%s\n' "$VERSION" > "$D/VERSION"
+# The LinuxCNC series whose status layout the build reads (crates/lcnc is
+# built against its headers); ferrum-update refuses another.
+printf '%s\n' "${FERRUM_LINUXCNC:-2.9}" > "$D/LINUXCNC"
 TAR=tar
 command -v gtar >/dev/null 2>&1 && TAR=gtar
 # Same bytes for the same inputs where GNU tar allows it.

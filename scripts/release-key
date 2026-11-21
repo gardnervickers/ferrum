@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Make Ferrum's release signing key. Run once, by the repository owner, on
+# their own computer (needs gpg, gh signed in to GitHub, and this checkout):
+#
+#   scripts/release-key [--backup FILE]
+#
+# 1. makes a new ed25519 OpenPGP key, "Ferrum releases", with no passphrase
+#    (the release workflow signs unattended);
+# 2. stores the private key as the repository's FERRUM_SIGNING_KEY Actions
+#    secret, which .github/workflows/release.yml signs SHA256SUMS with;
+# 3. saves a backup of the private key (default ~/ferrum-release-key.asc,
+#    mode 600). Keep it somewhere safe and offline: GitHub never gives a
+#    secret back, and every installed Ferrum trusts only this key, so
+#    losing it means a new key that old installs refuse;
+# 4. writes the public key into scripts/ferrum-update's RELEASE_KEYS block
+#    and docs/release-key.asc, for you to commit and push.
+#
+# It refuses when the installer already trusts a key. Replacing the key
+# takes a release signed with the old key whose installer already trusts
+# the new one; see docs/installing.md.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+REPO="${FERRUM_REPO:-gardnervickers/ferrum}"
+BACKUP="$HOME/ferrum-release-key.asc"
+[ "${1:-}" = --backup ] && BACKUP="${2:?--backup needs a file}"
+for t in gpg gh base64; do
+  command -v "$t" >/dev/null 2>&1 || { echo "release-key: needs $t" >&2; exit 1; }
+done
+[ -e "$BACKUP" ] && { echo "release-key: $BACKUP exists; move it or pass --backup FILE" >&2; exit 1; }
+gh auth status >/dev/null 2>&1 || { echo "release-key: gh is not signed in (gh auth login)" >&2; exit 1; }
+if grep -q '^RELEASE_KEYS="[^"]' scripts/ferrum-update; then
+  echo "release-key: scripts/ferrum-update already trusts a release key; replacing it is a manual step (docs/installing.md)" >&2
+  exit 1
+fi
+
+export GNUPGHOME
+GNUPGHOME="$(mktemp -d)"
+trap 'rm -rf "$GNUPGHOME"' EXIT
+gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+  --quick-generate-key "Ferrum releases <releases@ferrum.invalid>" ed25519 sign never
+fpr="$(gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+
+(umask 077 && gpg --batch --armor --export-secret-keys "$fpr" > "$BACKUP")
+gpg --batch --armor --export-secret-keys "$fpr" | gh secret set FERRUM_SIGNING_KEY -R "$REPO"
+
+keys="$(gpg --batch --export | base64 | tr -d '\n')"
+sed -i.bak "s|^RELEASE_KEYS=\".*\"\$|RELEASE_KEYS=\"$keys\"|" scripts/ferrum-update && rm -f scripts/ferrum-update.bak
+gpg --batch --armor --export > docs/release-key.asc
+
+echo "Release key $fpr"
+echo "  private key: GitHub secret FERRUM_SIGNING_KEY on $REPO, and $BACKUP (keep it offline)"
+echo "  public key:  scripts/ferrum-update (RELEASE_KEYS) and docs/release-key.asc"
+echo "Now commit and push:"
+echo "  git add scripts/ferrum-update docs/release-key.asc && git commit -m 'Trust release key ${fpr: -16}' && git push"

@@ -11,10 +11,11 @@
 #   ferrum-update --stable        back to tagged releases (remembered)
 #   ferrum-update --version 0.2.0 install that release
 #   ferrum-update --from F.tar.gz install a downloaded or locally built package
+#   ferrum-update --allow-unsigned  install a release from before signing (by hand)
 #   ferrum-update rollback        go back to the version before
 #   ferrum-update use 0.2.0       switch to any installed version
 #   ferrum-update list | status | check
-#   ferrum-update auto on|off     automatic updates (see below)
+#   ferrum-update auto on|off     automatic updates, stable releases only (see below)
 #   ferrum-update stage           download and test the newest, use it at the next start
 #   ferrum-update unstage         forget a staged update
 #   ferrum-update apply           put a staged update into use now
@@ -34,11 +35,16 @@
 #
 # Nothing changes while LinuxCNC or Ferrum is running. A new build has to
 # load and pass `ferrum --check` on your INI before the switch, and the
-# download has to match the release's SHA256SUMS. PREFIX/run, the program
+# download has to match the release's SHA256SUMS, and SHA256SUMS has to
+# carry a good signature from Ferrum's release key (below). PREFIX/run, the program
 # your INI starts, goes back to the previous version by itself when a new
 # one crashes on its first start (see `run`).
 #
-# Automatic updates (`ferrum-update auto on`): each time `run` starts the
+# A build says which LinuxCNC it reads (its LINUXCNC file, "2.9"); one
+# for another LinuxCNC than this machine's is refused. Only 64-bit
+# systems get builds: arm64 (Raspberry Pi) and amd64.
+#
+# Automatic updates (`ferrum-update auto on`, stable releases only): each time `run` starts the
 # screen it also starts `ferrum-update stage --if-due` in the background, at
 # most once a day. That downloads, verifies and self-tests the newest
 # version into versions/ while the machine works, and changes nothing in
@@ -95,12 +101,38 @@ own_prefix() {
   return 1
 }
 
+# Which build this system runs. dpkg knows the system's own architecture;
+# uname only the kernel's, and a 32-bit Raspberry Pi OS runs a 64-bit
+# kernel (uname says aarch64) under a userland that cannot start arm64
+# programs.
 arch() {
-  case "$(uname -m)" in
-    aarch64|arm64) echo aarch64 ;;
-    x86_64|amd64) echo x86_64 ;;
-    *) die "no Ferrum builds for $(uname -m) (there are aarch64 and x86_64)" ;;
+  local a=""
+  command -v dpkg >/dev/null 2>&1 && a="$(dpkg --print-architecture 2>/dev/null || true)"
+  [ -n "$a" ] || a="$(uname -m)"
+  case "$a" in
+    arm64|aarch64) echo aarch64 ;;
+    amd64|x86_64) echo x86_64 ;;
+    armhf|armel|arm*) die "this system is 32-bit ARM ($a). Ferrum has 64-bit builds only: on a Raspberry Pi, use the 64-bit (arm64) Raspberry Pi OS or LinuxCNC image." ;;
+    i386|i486|i586|i686) die "this system is 32-bit ($a). Ferrum has 64-bit (amd64) builds only." ;;
+    *) die "no Ferrum builds for $a (there are arm64 and amd64)" ;;
   esac
+}
+
+# The LinuxCNC on this machine, like 2.9.10, or nothing when it cannot
+# tell: linuxcnc_var (packages and run-in-place builds), else the package.
+lcnc_version() {
+  local v="" p
+  if command -v linuxcnc_var >/dev/null 2>&1; then
+    v="$(linuxcnc_var LINUXCNCVERSION 2>/dev/null | head -1 || true)"
+  fi
+  if [ -z "$v" ] && command -v dpkg-query >/dev/null 2>&1; then
+    for p in linuxcnc-uspace linuxcnc; do
+      v="$(dpkg-query -W -f='${db:Status-Abbrev} ${Version}\n' "$p" 2>/dev/null | awk '$1 ~ /^ii/ { print $2 }' || true)"
+      [ -n "$v" ] && break
+    done
+    v="${v#*:}"   # the Debian epoch, 1:2.9.4-2
+  fi
+  printf '%s' "$v" | tr -d ' \n'
 }
 
 # --- state ------------------------------------------------------------------
@@ -164,6 +196,55 @@ lock() {
   fi
 }
 
+# --- release signatures -----------------------------------------------------
+
+# BEGIN RELEASE KEYS
+# The OpenPGP public keys whose signature SHA256SUMS.sig must carry, as a
+# base64 binary keyring (gpg --export | base64 -w0). scripts/release-key
+# writes this block. Empty: checksums only (builds from before signing).
+RELEASE_KEYS=""
+# END RELEASE KEYS
+
+# The keyring file to check signatures with, or nothing when there is no
+# key. FERRUM_RELEASE_KEYRING replaces the built-in keys (tests).
+release_keyring() {
+  if [ -n "${FERRUM_RELEASE_KEYRING:-}" ]; then
+    printf '%s' "$FERRUM_RELEASE_KEYRING"
+    return 0
+  fi
+  [ -n "$RELEASE_KEYS" ] || return 0
+  printf '%s' "$RELEASE_KEYS" | base64 -d > "$TMP/release-keys.gpg" 2>/dev/null ||
+    die "the release key built into this installer is damaged"
+  printf '%s' "$TMP/release-keys.gpg"
+}
+
+# Is SHA256SUMS signed by a release key? A missing signature is refused
+# unless --allow-unsigned (never for automatic updates); a bad one always.
+verify_sums() { # sums-file sig-file what
+  local keys
+  keys="$(release_keyring)"
+  if [ -z "$keys" ]; then
+    say "  no release key in this installer: checking checksums only"
+    return 0
+  fi
+  if [ ! -s "$2" ]; then
+    if [ -n "$ALLOW_UNSIGNED" ] && [ -z "$STAGE" ]; then
+      warn "$3 is not signed; installing it anyway (--allow-unsigned)"
+      return 0
+    fi
+    die "$3 is not signed, so a tampered copy could not be told apart. Nothing was changed. (For a release from before signing: --allow-unsigned.)"
+  fi
+  command -v gpgv >/dev/null 2>&1 ||
+    die "needs gpgv to check the release signature (sudo apt install gpgv). Nothing was changed."
+  mkdir -p "$TMP/gnupg" && chmod 700 "$TMP/gnupg"
+  if gpgv --homedir "$TMP/gnupg" --keyring "$keys" "$2" "$1" > "$TMP/gpgv.out" 2>&1; then
+    say "  signed by Ferrum's release key"
+  else
+    sed 's/^/  /' "$TMP/gpgv.out" >&2
+    die "the signature on $3 is not from Ferrum's release key (damaged or tampered with). Nothing was changed."
+  fi
+}
+
 # --- download ---------------------------------------------------------------
 
 fetch() { # url dest
@@ -204,6 +285,8 @@ download() {
   say "Downloading $file ($dir)"
   fetch "$(release_url "$dir" SHA256SUMS)" "$TMP/SHA256SUMS" ||
     die "could not download the checksums for '$dir' from $RELEASES"
+  fetch "$(release_url "$dir" SHA256SUMS.sig)" "$TMP/SHA256SUMS.sig" 2>/dev/null || rm -f "$TMP/SHA256SUMS.sig"
+  verify_sums "$TMP/SHA256SUMS" "$TMP/SHA256SUMS.sig" "release '$dir'"
   fetch "$(release_url "$dir" "$file")" "$TMP/$file" ||
     die "could not download $file for '$dir' from $RELEASES"
   local want
@@ -261,6 +344,7 @@ self_test() { # dir version
     *) die "the new build says '$out', expected 'ferrum $v'. Nothing was changed." ;;
   esac
   say "  starts: $out"
+  check_lcnc "$dir" "$v"
   local ini; ini="$(find_ini)"
   if [ -z "$ini" ]; then
     say "  no INI to check against (use --ini FILE)"
@@ -282,6 +366,29 @@ self_test() { # dir version
     warn "ferrum --check $ini reports a problem (as before this update); see ferrum --check"
   fi
   say "  checked against $ini"
+}
+
+# A build reads LinuxCNC's status in one LinuxCNC series' layout (its
+# LINUXCNC file; 2.9 for builds that have none). Another series loads the
+# same libnml.so.0 but could show wrong values, so it is refused.
+check_lcnc() { # dir version
+  local want have
+  want="$(tr -d ' \n' < "$1/LINUXCNC" 2>/dev/null || true)"
+  want="${want:-2.9}"
+  have="$(lcnc_version)"
+  if [ -z "$have" ]; then
+    warn "could not tell which LinuxCNC this is (no linuxcnc_var, no LinuxCNC package); Ferrum $2 needs LinuxCNC $want"
+    return 0
+  fi
+  case "$have" in
+    "$want"|"$want".*|"$want"~*) say "  LinuxCNC $have" ;;
+    *)
+      if [ -n "$FORCE" ]; then
+        warn "LinuxCNC $have is not $want; installing anyway (--force). Ferrum may show wrong values."
+      else
+        die "this machine has LinuxCNC $have, and Ferrum $2 works with LinuxCNC $want only (it reads LinuxCNC's status in $want's layout). Nothing was changed."
+      fi ;;
+  esac
 }
 
 # --- switching --------------------------------------------------------------
@@ -403,6 +510,10 @@ prune() {
 cmd_update() {
   if [ -n "$STAGE" ]; then
     [ -n "$(current_version)" ] || die "Ferrum is not installed in $PREFIX; install it first"
+    if [ -n "$IF_DUE" ] && [ "$CHANNEL" = edge ]; then
+      say "Automatic updates follow stable releases only; not staging edge builds"
+      return 0
+    fi
     if [ -n "$IF_DUE" ]; then
       local last now; last="$(state_get last_stage)"; now="$(date +%s)"
       [ -n "$last" ] && [ $((now - last)) -lt "${FERRUM_STAGE_INTERVAL:-72000}" ] && return 0
@@ -427,6 +538,11 @@ cmd_update() {
     if [ -n "$SHA" ]; then
       [ "$(sha256 "$PKG")" = "$SHA" ] || die "$FROM does not match --sha256. Nothing was changed."
     elif [ -f "$sums" ] && grep -q " \*\?$(basename "$FROM")\$" "$sums"; then
+      if [ -f "$sums.sig" ]; then
+        verify_sums "$sums" "$sums.sig" "$sums"
+      elif [ -n "$(release_keyring)" ]; then
+        warn "$sums is not signed (a local build?); checking its checksum only"
+      fi
       local want; want="$(awk -v f="$(basename "$FROM")" '$2 == f || $2 == "*"f { print $1 }' "$sums")"
       [ "$(sha256 "$PKG")" = "$want" ] || die "$FROM does not match $sums. Nothing was changed."
       say "Checksum matches $sums"
@@ -533,7 +649,9 @@ cmd_apply() {
 
 cmd_auto() {
   case "${1:-}" in
-    on) state_set auto 1; say "Automatic updates on ($CHANNEL): checked at most daily when the screen starts, put into use at the next start." ;;
+    on)
+      [ "$CHANNEL" = edge ] && die "automatic updates follow stable releases only (edge changes with every commit). Switch with ferrum-update channel stable, or update edge by hand."
+      state_set auto 1; say "Automatic updates on ($CHANNEL): checked at most daily when the screen starts, put into use at the next start." ;;
     off) state_set auto 0; rm -f "$PREFIX/.staged"; say "Automatic updates off" ;;
     *) die "auto on or auto off?" ;;
   esac
@@ -638,7 +756,12 @@ cmd_unstage() {
 
 cmd_channel() {
   case "${1:-}" in
-    stable|edge) state_set channel "$1"; say "Channel: $1 (ferrum-update stage or update fetches from it)" ;;
+    stable|edge)
+      state_set channel "$1"
+      say "Channel: $1 (ferrum-update stage or update fetches from it)"
+      if [ "$1" = edge ] && [ "$(state_get auto)" = 1 ]; then
+        say "Automatic updates pause while on edge (they follow stable releases only)"
+      fi ;;
     *) die "channel stable or channel edge?" ;;
   esac
 }
@@ -700,7 +823,7 @@ cmd_check() {
 main() {
   local cmd=update
   STAGE="" IF_DUE="" AUTO_ARG="" ON_RESTART="" JSON=""
-  PREFIX="" CHANNEL="" CHANNEL_SET="" WANT_VERSION="" FROM="" SHA="" INI="" KEEP="" FORCE="" REINSTALL=""
+  PREFIX="" CHANNEL="" CHANNEL_SET="" WANT_VERSION="" FROM="" SHA="" INI="" KEEP="" FORCE="" REINSTALL="" ALLOW_UNSIGNED=""
   while [ $# -gt 0 ]; do
     case "$1" in
       update|install|rollback|use|list|status|check|apply|auto|unstage|channel) cmd="$1" ;;
@@ -717,6 +840,7 @@ main() {
       --ini) INI="$(readlink -f "${2:?--ini needs a file}")"; shift ;;
       --keep) KEEP="${2:?}"; shift ;;
       --force) FORCE=1 ;;
+      --allow-unsigned) ALLOW_UNSIGNED=1 ;;
       --reinstall) REINSTALL=1 ;;
       -h|--help|help) usage; exit 0 ;;
       -*) die "unknown option $1 (ferrum-update --help)" ;;

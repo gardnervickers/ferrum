@@ -14,6 +14,28 @@ mkdir -p "$HOME"
 ARCH="$(case "$(uname -m)" in aarch64|arm64) echo aarch64 ;; *) echo x86_64 ;; esac)"
 PASS=0 FAIL=0 FAILED=""
 
+# Release signatures: a throwaway key signs each stand-in release's
+# SHA256SUMS, and the updater trusts only it. Without gpg the updater
+# checks checksums only and the signature tests are skipped.
+SIGN=""
+if command -v gpg >/dev/null 2>&1 && command -v gpgv >/dev/null 2>&1; then
+  export GNUPGHOME="$WORK/gnupg"
+  mkdir -m 700 "$GNUPGHOME" "$WORK/gnupg-other"
+  gpg --batch -q --pinentry-mode loopback --passphrase '' --quick-generate-key "Ferrum test" ed25519 sign never 2>/dev/null
+  gpg --batch -q --homedir "$WORK/gnupg-other" --pinentry-mode loopback --passphrase '' --quick-generate-key "Someone else" ed25519 sign never 2>/dev/null
+  gpg --batch --export > "$WORK/trusted.gpg"
+  export FERRUM_RELEASE_KEYRING="$WORK/trusted.gpg"
+  SIGN=1
+fi
+# Write and sign SHA256SUMS for the tarball in a folder.
+sums() { # dir [gpg-homedir]
+  (cd "$1" && sha256sum "ferrum-linux-$ARCH.tar.gz" > SHA256SUMS && rm -f SHA256SUMS.sig)
+  if [ -n "$SIGN" ]; then
+    gpg --batch -q --homedir "${2:-$GNUPGHOME}" --pinentry-mode loopback --passphrase '' \
+      --detach-sign -o "$1/SHA256SUMS.sig" "$1/SHA256SUMS" 2>/dev/null
+  fi
+}
+
 # A stand-in build. Its bin/ferrum answers --version and --check, and
 # otherwise does what $WORK/behaviour-<version> says: ok (exit 0), segv,
 # panic (exit 101), sleep (until killed). It records each start in $WORK/ran.
@@ -36,7 +58,8 @@ esac
 EOF
   chmod +x "$WORK/bins/ferrum-$v"
   "$ROOT/scripts/package" "$WORK/bins/ferrum-$v" "$v" "$ARCH" "$out" >/dev/null 2>&1
-  (cd "$out" && sha256sum "ferrum-linux-$ARCH.tar.gz" > SHA256SUMS && echo "$v" > VERSION)
+  sums "$out"
+  echo "$v" > "$out/VERSION"
 }
 
 # Publish a stand-in build as release folder <dir> (latest, edge, v1.0.0).
@@ -156,7 +179,7 @@ t_build_that_does_not_start() {
   tar -xzf "$WORK/releases/latest/download/ferrum-linux-$ARCH.tar.gz" -C "$d"
   printf '#!/bin/sh\necho "error while loading shared libraries: libnml.so.0" >&2\nexit 127\n' > "$d/ferrum-1.1.0/bin/ferrum"
   tar -czf "$WORK/releases/latest/download/ferrum-linux-$ARCH.tar.gz" -C "$d" ferrum-1.1.0
-  (cd "$WORK/releases/latest/download" && sha256sum "ferrum-linux-$ARCH.tar.gz" > SHA256SUMS)
+  sums "$WORK/releases/latest/download"
   if upd > "$WORK/out" 2>&1; then bad "installed a build that does not start"; return; fi
   grep -q "libnml" "$WORK/out" && grep -q "does not start" "$WORK/out" || { bad "message: $(cat "$WORK/out")"; return; }
   eq "$(cur)" 1.0.0 unchanged || return
@@ -400,7 +423,7 @@ t_gui_surface() {
   upd unstage >/dev/null 2>&1
   eq "$(json 'd["staged"]' < <(upd status --json))" None "unstaged" || { kill $pid; return; }
   upd use 1.1.0 --on-restart >/dev/null 2>&1 || { kill $pid; bad "use --on-restart"; return; }
-  upd channel edge >/dev/null 2>&1; upd auto on >/dev/null 2>&1
+  upd auto on >/dev/null 2>&1; upd channel edge >/dev/null 2>&1
   eq "$(json 'd["staged"], d["channel"], d["auto"]' < <(upd status --json))" "('1.1.0', 'edge', True)" "on-restart json" || { kill $pid; return; }
   kill $pid; wait $pid 2>/dev/null
   eq "$(cur)" 1.0.0 "nothing switched while running" || return
@@ -418,11 +441,92 @@ t_gui_surface() {
   ok
 }
 
+t_signature() {
+  [ -n "$SIGN" ] || { printf '  skip  %s (no gpg)\n' "$T"; return; }
+  fresh; publish latest 1.0.0; upd >/dev/null 2>&1
+  local d="$WORK/releases/latest/download"
+  # Not signed: refused, also for stage; --allow-unsigned installs by hand.
+  publish latest 1.1.0; rm "$d/SHA256SUMS.sig"
+  if upd > "$WORK/out" 2>&1; then bad "installed an unsigned release"; return; fi
+  grep -q "is not signed" "$WORK/out" || { bad "message: $(cat "$WORK/out")"; return; }
+  if upd stage --allow-unsigned >/dev/null 2>&1 && [ -f "$P/.staged" ]; then bad "staged an unsigned release"; return; fi
+  eq "$(cur)" 1.0.0 "unsigned refused" || return
+  upd --allow-unsigned >/dev/null 2>&1 || { bad "--allow-unsigned"; return; }
+  eq "$(cur)" 1.1.0 "--allow-unsigned" || return
+  # Signed by another key, or SHA256SUMS changed after signing: refused.
+  publish latest 1.2.0; sums "$d" "$WORK/gnupg-other"
+  if upd --allow-unsigned > "$WORK/out" 2>&1; then bad "installed a release signed by another key"; return; fi
+  grep -q "not from Ferrum's release key" "$WORK/out" || { bad "message: $(cat "$WORK/out")"; return; }
+  publish latest 1.2.0; echo "0000  extra" >> "$d/SHA256SUMS"
+  if upd > "$WORK/out" 2>&1; then bad "installed after SHA256SUMS changed"; return; fi
+  eq "$(cur)" 1.1.0 "bad signatures refused" || return
+  publish latest 1.2.0
+  upd > "$WORK/out" 2>&1 || { bad "signed release: $(cat "$WORK/out")"; return; }
+  grep -q "signed by Ferrum's release key" "$WORK/out" || { bad "no signature line"; return; }
+  ok
+}
+
+# Stand-in dpkg and linuxcnc_var on PATH.
+fake_tool() { # name output
+  mkdir -p "$WORK/fakebin"
+  printf '#!/bin/sh\necho "%s"\n' "$2" > "$WORK/fakebin/$1"
+  chmod +x "$WORK/fakebin/$1"
+}
+
+t_architecture() {
+  fresh; publish latest 1.0.0; rm -rf "$WORK/fakebin"
+  # 32-bit Raspberry Pi OS: a 64-bit kernel, an armhf system.
+  fake_tool dpkg armhf
+  if PATH="$WORK/fakebin:$PATH" upd > "$WORK/out" 2>&1; then bad "installed on armhf"; return; fi
+  grep -q "32-bit ARM (armhf)" "$WORK/out" || { bad "message: $(cat "$WORK/out")"; return; }
+  [ ! -L "$P/current" ] || { bad "something installed"; return; }
+  fake_tool dpkg "$([ "$ARCH" = aarch64 ] && echo arm64 || echo amd64)"
+  PATH="$WORK/fakebin:$PATH" upd >/dev/null 2>&1 || { bad "native dpkg arch"; return; }
+  eq "$(cur)" 1.0.0 installed || return
+  rm -rf "$WORK/fakebin"; ok
+}
+
+t_linuxcnc_version() {
+  fresh; publish latest 1.0.0; rm -rf "$WORK/fakebin"
+  fake_tool linuxcnc_var 2.10.0~pre0
+  if PATH="$WORK/fakebin:$PATH" upd > "$WORK/out" 2>&1; then bad "installed for LinuxCNC 2.10"; return; fi
+  grep -q "LinuxCNC 2.10.0~pre0, and Ferrum 1.0.0 works with LinuxCNC 2.9 only" "$WORK/out" || { bad "message: $(cat "$WORK/out")"; return; }
+  [ ! -L "$P/current" ] || { bad "something installed"; return; }
+  fake_tool linuxcnc_var 2.9.4
+  PATH="$WORK/fakebin:$PATH" upd > "$WORK/out" 2>&1 || { bad "2.9.4: $(cat "$WORK/out")"; return; }
+  grep -q "LinuxCNC 2.9.4" "$WORK/out" || { bad "no version line"; return; }
+  # A build that says it is for another series.
+  publish latest 1.1.0
+  local d="$WORK/releases/latest/download" x="$WORK/relabel"; rm -rf "$x"; mkdir -p "$x"
+  tar -xzf "$d/ferrum-linux-$ARCH.tar.gz" -C "$x"; echo 2.10 > "$x/ferrum-1.1.0/LINUXCNC"
+  tar -czf "$d/ferrum-linux-$ARCH.tar.gz" -C "$x" ferrum-1.1.0; sums "$d"
+  if PATH="$WORK/fakebin:$PATH" upd >/dev/null 2>&1; then bad "installed a 2.10 build on 2.9"; return; fi
+  PATH="$WORK/fakebin:$PATH" upd --force >/dev/null 2>&1 || { bad "--force"; return; }
+  eq "$(cur)" 1.1.0 "forced" || return
+  rm -rf "$WORK/fakebin"; ok
+}
+
+t_auto_is_stable_only() {
+  fresh; publish latest 1.0.0; upd >/dev/null 2>&1
+  if upd --edge auto on > "$WORK/out" 2>&1; then bad "auto on with edge"; return; fi
+  grep -q "stable releases only" "$WORK/out" || { bad "message: $(cat "$WORK/out")"; return; }
+  upd auto on >/dev/null 2>&1 || { bad "auto on"; return; }
+  upd channel edge > "$WORK/out" 2>&1
+  grep -q "pause while on edge" "$WORK/out" || { bad "channel message: $(cat "$WORK/out")"; return; }
+  publish edge 1.1.0-edge.1
+  upd stage --if-due >/dev/null 2>&1
+  [ ! -f "$P/.staged" ] || { bad "staged an edge build automatically"; return; }
+  upd stage >/dev/null 2>&1 || { bad "stage by hand"; return; }
+  eq "$(cat "$P/.staged")" 1.1.0-edge.1 "edge staged by hand" || return
+  ok
+}
+
 TESTS=(t_install t_update_and_rollback t_up_to_date t_refuses_while_running t_bad_checksum
   t_build_that_does_not_start t_check_regression t_crash_falls_back t_trial_passes
   t_crash_after_window t_shutdown_is_not_a_crash t_adopt_hand_copied_install t_prune
   t_edge_channel t_from_file t_piped_install t_bin_link t_auto_update t_stage_while_running
-  t_no_restage_after_rollback t_no_switch_under_boot_screen t_gui_surface)
+  t_no_restage_after_rollback t_no_switch_under_boot_screen t_gui_surface
+  t_signature t_architecture t_linuxcnc_version t_auto_is_stable_only)
 
 for T in "${TESTS[@]}"; do
   if [ $# -gt 0 ]; then

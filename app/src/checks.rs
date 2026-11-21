@@ -127,6 +127,42 @@ impl Halcmd {
     }
 }
 
+/// The LinuxCNC series whose status layout `lcnc` is built against. Any
+/// 2.9.x reads the same (emc.hh and emc_nml.hh are unchanged from 2.9.0 to
+/// 2.9.10); another series loads the same libnml.so.0 but may not.
+pub const LINUXCNC_SERIES: &str = "2.9";
+
+/// LinuxCNC's version: LINUXCNCVERSION, which `linuxcnc` exports to its
+/// display, else `linuxcnc_var LINUXCNCVERSION`. None when neither says.
+pub fn linuxcnc_version() -> Option<String> {
+    if cfg!(test) {
+        return None;
+    }
+    let v = std::env::var("LINUXCNCVERSION").ok().filter(|v| !v.trim().is_empty()).or_else(|| {
+        let out = Command::new("linuxcnc_var").arg("LINUXCNCVERSION").output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("").to_string())
+    })?;
+    let v = v.trim().to_string();
+    (!v.is_empty()).then_some(v)
+}
+
+/// Does this LinuxCNC version read like the series ferrum is built for?
+pub fn linuxcnc_supported(v: &str) -> bool {
+    let v = v.trim();
+    let v = v.split_once(':').map_or(v, |(_, r)| r);
+    v == LINUXCNC_SERIES || [".", "~"].iter().any(|sep| v.starts_with(&format!("{LINUXCNC_SERIES}{sep}")))
+}
+
+fn linuxcnc_row(version: Option<&str>) -> Check {
+    match version {
+        Some(v) if linuxcnc_supported(v) => Check::new("machine.linuxcnc", Group::Machine, Level::Ok, format!("LinuxCNC {v}")),
+        Some(v) => Check::new("machine.linuxcnc", Group::Machine, Level::Blocks(vec![Feature::Core]), format!("LinuxCNC {v} is not {LINUXCNC_SERIES}"))
+            .detail(format!("This ferrum reads LinuxCNC {LINUXCNC_SERIES}'s status layout; with {v} it could show wrong values. Use a ferrum built for {v}.")),
+        None => Check::new("machine.linuxcnc", Group::Machine, Level::Info, format!("LinuxCNC version unknown; ferrum needs {LINUXCNC_SERIES}"))
+            .detail("Neither LINUXCNCVERSION nor linuxcnc_var says which LinuxCNC this is."),
+    }
+}
+
 fn run_halcmd(args: &[&str]) -> Option<String> {
     let out = Command::new("halcmd").args(args).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
@@ -251,6 +287,7 @@ pub fn run(i: &Inputs) -> Vec<Check> {
         v.push(Check::new("machine.ini", G::Machine, L::Blocks(vec![Feature::Core]), "No INI file").detail("Start ferrum from LinuxCNC, or pass -ini <file>."));
         return v;
     }
+    v.push(linuxcnc_row(linuxcnc_version().as_deref()));
     match &mi.units_unknown {
         Some(u) => v.push(
             Check::new("machine.units", G::Machine, L::Attention, format!("[TRAJ]LINEAR_UNITS = {u} is not a unit ferrum knows"))
@@ -737,5 +774,18 @@ mod tests {
     fn no_ini_blocks_core() {
         let c = run(&Inputs { cfg: &Config::default(), mc: &MachineCfg::default(), mi: &MachineInfo::default(), notes: &[], modules: &[], hal: &NoHal });
         assert!(blocked(&c, Feature::Core).is_some());
+    }
+
+    #[test]
+    fn linuxcnc_series() {
+        for v in ["2.9", "2.9.0", "2.9.4", "2.9.10", "1:2.9.4-2", "2.9.0~pre1+git20230208", " 2.9.10\n"] {
+            assert!(linuxcnc_supported(v), "{v}");
+        }
+        for v in ["2.8.4", "2.10.0~pre0", "2.90", "3.0", ""] {
+            assert!(!linuxcnc_supported(v), "{v}");
+        }
+        assert!(linuxcnc_row(Some("2.10.0")).blocks(Feature::Core));
+        assert_eq!(linuxcnc_row(Some("2.9.10")).level, Level::Ok);
+        assert_eq!(linuxcnc_row(None).level, Level::Info);
     }
 }
