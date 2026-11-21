@@ -1,0 +1,26 @@
+title SETUP refuses a probe feed too fast to stop within 1 mm of a touch
+needs stock
+allow-error Too fast to stop
+wait prop.connected == true within 30
+screen setup
+do setup-go 3
+expect prop.setup-title == "PROBE"
+# The stock sims accelerate at 500 mm/s² (20 in/s²): 6000 per minute cannot stop in time.
+do edit setup-probe.defaults.fast_feed
+expect prop.keypad-open == true
+do keypad-key CLR
+do keypad-key "6"
+do keypad-key "0"
+do keypad-key "0"
+do keypad-key "0"
+do keypad-done true
+expect prop.keypad-open == true      # refused: the keypad stays
+expect prop.keypad-error == true
+expect ui-errors contains "Too fast to stop"
+shot refused
+do keypad-key CLR
+do keypad-key "1"
+do keypad-key "2"
+do keypad-done true
+wait prop.keypad-open == false within 5
+expect prop.setup-rows contains "12"

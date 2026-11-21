@@ -149,13 +149,16 @@ pub struct MachineInfo {
     pub max_rpm: Option<f64>,
     /// The spindle runs in reverse (M4 is offered).
     pub reverse: bool,
+    /// [AXIS_X/Y/Z]MAX_ACCELERATION (machine units/s²), when given: how
+    /// fast a probing move can stop after contact.
+    pub accel: [Option<f64>; 3],
 }
 
 impl Default for MachineInfo {
     /// A metric XYZ trivkins machine whose Z top is machine 0.
     fn default() -> Self {
         let axes = (0..3).map(|i| Axis { letter: AXIS_LETTERS[i], index: i, joints: vec![i], rotary: false, home_switch: true }).collect();
-        MachineInfo { units: Units::Mm, units_unknown: None, axes, trivial_kins: true, joints: 3, z_top: 0.0, home_all: true, max_rpm: None, reverse: true }
+        MachineInfo { units: Units::Mm, units_unknown: None, axes, trivial_kins: true, joints: 3, z_top: 0.0, home_all: true, max_rpm: None, reverse: true, accel: [None; 3] }
     }
 }
 
@@ -206,7 +209,8 @@ impl MachineInfo {
         }
         let home_all = (0..joints).all(|j| cfg.get(&format!("JOINT_{j}"), "HOME_SEQUENCE").is_some());
         let z_max = cfg.get_f64("AXIS_Z", "MAX_LIMIT");
-        MachineInfo { units, units_unknown, axes, trivial_kins, joints, z_top: z_top(units, z_max), home_all, ..MachineInfo::default() }
+        let accel = ['X', 'Y', 'Z'].map(|a| cfg.get_f64(&format!("AXIS_{a}"), "MAX_ACCELERATION").filter(|v| *v > 0.0));
+        MachineInfo { units, units_unknown, axes, trivial_kins, joints, z_top: z_top(units, z_max), home_all, accel, ..MachineInfo::default() }
     }
 
     pub fn axis(&self, index: usize) -> Option<&Axis> {

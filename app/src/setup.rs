@@ -426,6 +426,7 @@ impl Setup {
         }
         // A probe or setter value applies from the next run on.
         if let Some(d) = crate::probe_defaults::by_key(key) {
+            crate::probe_defaults::check_stopping_feed(d.n, v, self.mi())?;
             machine_cfg::write_key(&self.path, self.seed.as_deref(), key, Some(toml_edit::value(v)))?;
             if let Some(p) = &self.probe {
                 p.borrow_mut().adopt(d.n, v);

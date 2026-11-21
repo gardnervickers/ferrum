@@ -72,6 +72,51 @@ pub const DEFS: &[Def] = &[
     d(3037, "toolsetter.breakage_tolerance", "Breakage tolerance", Dist, Some(0.5), Some(0.02), |c| c.toolsetter.breakage_tolerance),
 ];
 
+/// How far past a surface a probe or setter may be pushed when it trips
+/// (mm): a touch probe's stylus deflects a few mm before it breaks; stay
+/// well inside that.
+pub const OVERTRAVEL_MM: f64 = 1.0;
+
+/// Time from contact until motion starts to brake (s): the input's servo
+/// period, the card's read and any input filter, with margin.
+const TRIP_DELAY: f64 = 0.005;
+
+/// The fastest feed (machine units/min) for value `n` that still stops
+/// within [`OVERTRAVEL_MM`] of a touch, from the INI's axis accelerations
+/// (`accel`, X Y Z in machine units/s²). Only for the feeds of moves that
+/// end on contact: the probe's slow, fast and traverse feeds (its
+/// positioning moves are guarded) and the setter's fast and slow ones (Z
+/// only). None for any other value, or with no acceleration in the INI.
+pub fn max_stopping_feed(n: u16, accel: &[Option<f64>; 3], inch: bool) -> Option<f64> {
+    let a = match n {
+        3015..=3017 => accel.iter().flatten().copied().fold(None, |m: Option<f64>, a| Some(m.map_or(a, |m| m.min(a))))?,
+        3004 | 3005 => accel[2]?,
+        _ => return None,
+    };
+    if a <= 0.0 {
+        return None;
+    }
+    let limit = if inch { OVERTRAVEL_MM / 25.4 } else { OVERTRAVEL_MM };
+    // Distance to stop = v x delay + v² / 2a; solved for v.
+    let t = TRIP_DELAY;
+    let v = a * (-t + (t * t + 2.0 * limit / a).sqrt());
+    Some(v * 60.0)
+}
+
+/// Refuses a feed for value `n` too fast to stop within
+/// [`OVERTRAVEL_MM`] of a touch on this machine (SETUP and PROBE ›
+/// DEFAULTS), saying the fastest one that does.
+pub fn check_stopping_feed(n: u16, v: f64, mi: &crate::machine_info::MachineInfo) -> Result<(), String> {
+    let inch = mi.units.inch();
+    let Some(max) = max_stopping_feed(n, &mi.accel, inch) else { return Ok(()) };
+    if v <= max {
+        return Ok(());
+    }
+    let (lim, unit) = if inch { ("0.04", "in") } else { ("1", "mm") };
+    let fastest = if inch { format!("{:.1}", (max * 10.0).floor() / 10.0) } else { format!("{:.0}", max.floor()) };
+    Err(format!("Too fast to stop within {lim} {unit} of a touch on this machine: {fastest} {unit}/min at most"))
+}
+
 /// The tool check's tolerance (`#3037`). Probe Basic left it 0 (unused), so
 /// a 0 in the parameter file means "not set" and the starting value applies.
 pub const BREAKAGE_TOLERANCE: u16 = 3037;
@@ -173,6 +218,25 @@ mod tests {
         ns.sort();
         ns.dedup();
         assert_eq!(ns.len(), DEFS.len());
+    }
+
+    #[test]
+    fn stopping_feed_limit_follows_the_slowest_axis() {
+        // Gardner's mill: X/Y 900, Z 500 mm/s².
+        let acc = [Some(900.0), Some(900.0), Some(500.0)];
+        let probe = max_stopping_feed(3016, &acc, false).unwrap();
+        assert!((1700.0..1800.0).contains(&probe), "{probe}");
+        // A feed that fast stops within 1 mm: v·t + v²/2a.
+        let v = probe / 60.0;
+        assert!((v * TRIP_DELAY + v * v / 1000.0 - 1.0).abs() < 1e-9);
+        // The setter only moves Z; other values have no limit.
+        assert_eq!(max_stopping_feed(3004, &acc, false), Some(probe));
+        assert_eq!(max_stopping_feed(3006, &acc, false), None);
+        assert_eq!(max_stopping_feed(3018, &acc, false), None);
+        assert_eq!(max_stopping_feed(3016, &[None; 3], false), None);
+        // Inch: the same physical limit in in/min.
+        let inch = max_stopping_feed(3016, &acc.map(|a| a.map(|a| a / 25.4)), true).unwrap();
+        assert!((inch * 25.4 - probe).abs() < 1e-6, "{inch}");
     }
 
     #[test]

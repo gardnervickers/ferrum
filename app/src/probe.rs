@@ -1605,6 +1605,7 @@ impl Probe {
         if !s.power_on() || s.busy() || self.run.is_some() {
             return Err("Defaults change through MDI: machine on and nothing running".into());
         }
+        crate::probe_defaults::check_stopping_feed(n, v, crate::machine_info::get())?;
         let saved = self.save_toml(n, v);
         self.machine.send(Command::Mdi(format!("#{n}={v:.6}")));
         self.defaults.insert(n, v);

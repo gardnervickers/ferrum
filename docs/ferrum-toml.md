@@ -145,6 +145,14 @@ Ferrum writes the whole set to LinuxCNC once it is on, homed and idle
 comes first. A value changed in SETUP or on PROBE › DEFAULTS, and a
 calibration result, is saved here at once and used from the next run on.
 
+SETUP and PROBE › DEFAULTS refuse a probe slow, fast or traverse feed
+(#3015 to #3017) or a setter fast or slow feed (#3004, #3005) that could
+not stop within 1 mm (0.04 in) of a touch: a probe stylus deflects only a
+few mm before it breaks. The limit comes from the INI's
+`[AXIS_X/Y/Z]MAX_ACCELERATION` (the slowest of them; Z only for the
+setter) with 5 ms for the trip to reach motion; at 900/900/500 mm/s² it
+is about 1750 mm/min. A value already in this file is not checked.
+
 ## Tool change
 
 Who answers M6 (`iocontrol.0.tool-change`):
