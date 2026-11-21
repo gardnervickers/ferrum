@@ -583,9 +583,12 @@ Arguments `[step] [max]`. Start: anywhere above the part's top within
    `z_stack` depth at `#3016`. A contact within half that depth of the top
    means still over the top (rise, step again); a lower contact is something
    beside the part above the probing depth, such as a vise jaw (rise, abort);
-   none means the top has ended and the probe is at depth beside the part
-   (edge touch back towards the part with reach `#3018`; rise; back over the
-   start). Aborts if a side is still over the top after `[max]`.
+   none means the top has ended and the probe is at depth beside the part.
+   There, a G38.3 further outward for up to `#3018` at `#3016` must find
+   nothing (a contact is the far wall of a slot or step in the top, or a
+   fixture or another part close by: back to the miss point with G1 at
+   `#3017`, abort); then back to the miss point, edge touch back towards the
+   part with reach `#3018`; rise; back over the start. Aborts if a side is still over the top after `[max]`.
    Centre and width as the outside width formula; guarded move over the
    centre.
 3. Y scan the same.

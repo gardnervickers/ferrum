@@ -13,7 +13,11 @@
 ; at depth beside the part: it touches back towards the part (reach
 ; #3018). A touch-down that misses has the ball clear of the face, and
 ; the one before it hit, so the face is less than [step] of travel away:
-; [step] must be shorter than #3018. A side that is still
+; [step] must be shorter than #3018. Before that touch back it
+; checks outward at depth for up to #3018: anything there (the far wall of
+; a slot or step in the top, a fixture, another part) aborts the scan,
+; since a slot narrower than that would otherwise read as the edge. A side
+; that is still
 ; over the top after [max] from the start aborts.
 ; Every touch is reported for the 3D view as
 ; ferrum_scan.receive_point{kind, x, y, z}: kind 1 = touch-down on the
@@ -85,7 +89,26 @@ o200 while [#<side> LE 1]
             (DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{0,#5420,#5421,#5422}])
         o213 endif
     o210 endwhile
-    ; Past the edge, already down at the probing depth: touch back towards it.
+    ; Past the edge, already down at the probing depth. A slot or a step
+    ; down in the top looks the same from here, so first make sure nothing
+    ; is within reach (#3018) further out at this depth: a slot's far wall
+    ; (or a fixture or another part close by) stops the scan.
+    #<px> = #5420
+    #<py> = #5421
+    o216 if [#<axis> EQ 0]
+        G91 G38.3 X[#<side> * #3018] F#3016
+    o216 else
+        G91 G38.3 Y[#<side> * #3018] F#3016
+    o216 endif
+    G90
+    #<wall> = #5070
+    ; Back the way it came: that stretch is clear.
+    G90 G1 X#<px> Y#<py> F#3017
+    o217 if [#<wall> EQ 1]
+        M66 E0 L0
+        (ABORT, Scan found a wall just past the edge at the probing depth: a slot or step in the top, or something close beside the part. Start over a plain part of the top, or give a size hint)
+    o217 endif
+    ; Now touch back towards the part.
     o<ferrum_touch> call [#<axis>] [0 - #<side>] [#3018]
     G90
     #<face> = [#<_ferrum_hit> - #<side> * #<r>]

@@ -60,7 +60,9 @@ says exactly what it does.
   centre. Same results as `probe_round_boss`, plus every touch as
   `ferrum_scan.receive_point{kind, x, y, z}` for the PROBE screen's 3D view.
   Aborts if a touch-down finds something lower than the top but above the
-  probing depth beside the part (a vise jaw or a clamp).
+  probing depth beside the part (a vise jaw or a clamp), or if anything
+  stands within `#3018` past an edge at the probing depth (a slot or step
+  in the top would otherwise read as the edge).
 - `probe_cal_boss`: CAL › PROBE TIP on a gauge pin of diameter `#3034`.
 - `probe_cal_stylus [gauge]`: after either calibration, with the spindle
   turned half a turn by hand, measures the gauge's centre again; Ferrum

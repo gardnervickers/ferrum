@@ -83,6 +83,14 @@ def base_cases():
             [("g5x", "X", cx), ("g5x", "Y", cy), ("g5x", "Z", PLATE_TOP)])
     add("round boss", [dict(start=(325, -35, FEATURE_ABOVE), call="o<probe_round_boss> call")],
         [("g5x", "X", 325), ("g5x", "Y", -35), ("g5x", "Z", FEATURE_TOP), ("param", 1010, 30)], {3025: 30})
+    # No size hint: scan out over the top. The block from a start whose X
+    # line misses both slots (the slots are covered in obstacle_cases).
+    add("boss scan (block)", [dict(start=(160, -130, STOCK_ABOVE), call="o<probe_boss_scan> call [{L:10}] [{L:150}]", timeout=900)],
+        [("g5x", "X", S["cx"]), ("g5x", "Y", S["cy"]), ("g5x", "Z", S["top"]), ("param", 1001, 130), ("param", 1003, 100)])
+    # The rect boss stands 20 mm off its +X side: a short reach (#3018)
+    # keeps the check past each edge clear of it.
+    add("boss scan (round)", [dict(start=(330, -30, FEATURE_ABOVE), call="o<probe_boss_scan> call [{L:5}] [{L:150}]", timeout=900)],
+        [("g5x", "X", 325), ("g5x", "Y", -35), ("g5x", "Z", FEATURE_TOP), ("param", 1010, 30)], {3018: 12})
     add("boss 3 point", [dict(start=(324, -33.5, FEATURE_ABOVE), call="o<probe_boss_3_point> call [180] [240] [300]")],
         [("g5x", "X", 325), ("g5x", "Y", -35), ("g5x", "Z", FEATURE_TOP), ("param", 1010, 30)], {3025: 30})
     add("bore", [dict(start=(380, -90, PLATE_DEPTH), call="o<probe_round_pocket_center_start> call")],
@@ -193,6 +201,22 @@ def obstacle_cases():
         1 << 4, results_unchecked=True)
     add("clamp at the stock's front (front left corner)",
         [dict(start=(153, -137, STOCK_ABOVE), call="o<probe_front_left_top_corner> call")], 1 << 4)
+    scan = "o<probe_boss_scan> call [{L:10}] [{L:150}]"
+    add("vise jaw beside the stock (boss scan)",
+        [dict(start=(160, -130, STOCK_ABOVE), call=scan, timeout=900)], 1 << 0)
+    add("bolt beside the boss (boss scan)",
+        [dict(start=(330, -30, FEATURE_ABOVE), call=scan, timeout=900)], 1 << 1)
+    add("clamp at the stock's front (boss scan)",
+        [dict(start=(160, -130, STOCK_ABOVE), call=scan, timeout=900)], 1 << 4,
+        checks=[("g5x", "X", S["cx"]), ("g5x", "Y", S["cy"]), ("param", 1001, 130), ("param", 1003, 100)])
+    # From the middle, the X scan's touch-downs drop into the X slot: the
+    # check past the edge finds the slot's far wall and stops the scan.
+    add("slot in the top (boss scan from the middle)",
+        [dict(start=(S["cx"], S["cy"], STOCK_ABOVE), call=scan, timeout=900)], 0,
+        checks=[("g5x", "X", S["cx"]), ("g5x", "Y", S["cy"]), ("param", 1001, 130), ("param", 1003, 100)])
+    add("rect boss beside the round boss (boss scan, full reach)",
+        [dict(start=(330, -30, FEATURE_ABOVE), call=scan, timeout=900)], 0,
+        checks=[("g5x", "X", 325), ("g5x", "Y", -35), ("param", 1010, 30)])
     add("block where the back left corner steps off in Y",
         [dict(start=(153, -43, STOCK_ABOVE), call="o<probe_back_left_top_corner> call")], 1 << 5)
     return out
