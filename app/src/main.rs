@@ -40,6 +40,7 @@ mod updater;
 mod toolchange;
 mod offsets;
 mod probe;
+mod scan3d;
 mod probe_defaults;
 mod probe_anim;
 mod tools;

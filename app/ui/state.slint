@@ -304,6 +304,16 @@ export global Live {
     in property <[ProbeSpot]> pr-spots;
     // BORE / BOSS with 3 POINTS: the touch points to drag around the circle.
     in property <[ProbeSpot]> pr-points;
+    // ROUND BOSS › SCAN: the 3D view of the touches and the fitted part
+    // (scan3d.rs), in place of the picture once there are touches. Touches'
+    // ids are their kind ("top" | "side" | "miss"); labels' ids their text.
+    in property <bool> pr-scan;
+    in property <string> pr-scan-face;
+    in property <string> pr-scan-edges;
+    in property <string> pr-scan-below;
+    in property <string> pr-scan-path;
+    in property <[ProbeSpot]> pr-scan-touches;
+    in property <[ProbeSpot]> pr-scan-labels;
     // The preview: the probe tip playing the routine in a loop (probe_anim.rs).
     // Where the tip is in picture units; z is its height (1 clear, 0 at depth).
     in property <bool> pr-tip-on;
@@ -578,6 +588,8 @@ export global Actions {
     // A drag on the probe picture, in picture units (400 x 300): phase 0
     // pressed, 1 moved, 2 released.
     callback probe-drag(phase: int, x: float, y: float);
+    // Turning the SCAN's 3D view: phase 0 down, 1 moved, 2 up (picture units).
+    callback probe-orbit(phase: int, x: float, y: float);
     callback job-select(index: int);
     callback job-toggle(index: int);
     callback job-new();

@@ -102,6 +102,7 @@ Their behaviour is summarised where it matters (§3.4, §11, §12, §13).
 | FIND / pocket / POCKET CENTER | `o<probe_rect_pocket_center_start> call` | none |
 | FIND / top | `o<probe_z_minus_wco> call` | none |
 | FIND / round boss | `o<probe_round_boss> call` | none |
+| FIND / round boss / SCAN | `o<probe_boss_scan> call [step] [max]` | scan step (default 10 mm, 0.4 in), max scan distance (default 150 mm, 6 in) |
 | FIND / bore | `o<probe_round_pocket_center_start> call` | none |
 | FIND / slot, RIDGE, across X or Y | `o<probe_ridge_x> call` / `o<probe_ridge_y> call` | none |
 | FIND / slot, SLOT, across X or Y | `o<probe_valley_x_center_start> call` / `o<probe_valley_y_center_start> call` | none |
@@ -570,6 +571,32 @@ at the clearance plane, G90.
 Precondition: the far-side plunge point is (first touch's retract point) +
 `D_h + #3023 + #3019`; with a poor hint the plunge can land on the boss,
 which the guarded plunge turns into an abort.
+
+### 8.4 probe_boss_scan (Ferrum ROUND BOSS › SCAN; Ferrum's own)
+
+Arguments `[step] [max]`. Start: anywhere above the part's top within
+`#3020`; no size hint. Needs `[step]` < `#3018`.
+
+1. Top touch, as §8.3.
+2. X scan (`ferrum_span_scan`): for −X then +X, guarded steps of `[step]`
+   outward at the clearance plane; after each, a G38.3 straight down to the
+   `z_stack` depth at `#3016`. A contact within half that depth of the top
+   means still over the top (rise, step again); a lower contact is something
+   beside the part above the probing depth, such as a vise jaw (rise, abort);
+   none means the top has ended and the probe is at depth beside the part
+   (edge touch back towards the part with reach `#3018`; rise; back over the
+   start). Aborts if a side is still over the top after `[max]`.
+   Centre and width as the outside width formula; guarded move over the
+   centre.
+3. Y scan the same.
+4. X and Y again with `ferrum_span_outside`, using the scanned widths as the
+   hint (§8.3 step 2), from the refined centre; these count.
+5. If `#3030` = 0, write X Y Z as §8.3.
+
+Outputs: the same as §8.3, plus one
+`ferrum_scan.receive_point{kind, x, y, z}` per touch (kind 0 a touch-down
+that found nothing, 1 a touch-down on the top, 2 a side face point with the
+tip radius taken out; current work coordinates) for the 3D view.
 
 ---
 

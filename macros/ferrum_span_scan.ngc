@@ -1,0 +1,127 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; Measures across a boss or block along one axis from above it without a
+; size hint: o<ferrum_span_scan> call [axis] [z clear] [z top] [z probe]
+; [step] [max], axis 0 = X, 1 = Y. The probe starts at Z [z clear] over the
+; part, which has its top at [z top].
+; For each side (- first, then +) it steps outward along the axis by
+; [step] at a time, at [z clear], and at each step makes a "probe towards,
+; no error" move (G38.3) straight down to [z probe]. A contact near the
+; top (within half the depth) means the probe is still over the top: it
+; rises to [z clear] and steps again. A contact lower than that is
+; something beside the part above the probing depth (a jaw, a clamp): the
+; scan aborts. No contact means the top has ended and the probe is already
+; at depth beside the part: it touches back towards the part (reach
+; #3018). A touch-down that misses has the ball clear of the face, and
+; the one before it hit, so the face is less than [step] of travel away:
+; [step] must be shorter than #3018. A side that is still
+; over the top after [max] from the start aborts.
+; Every touch is reported for the 3D view as
+; ferrum_scan.receive_point{kind, x, y, z}: kind 1 = touch-down on the
+; top, 0 = touch-down that found nothing, 2 = side touch (the
+; face point, tip radius taken out; current work coordinates). Results as o<ferrum_span_outside>: the centre
+; and outside width in #<_ferrum_center> / #<_ferrum_width>, the
+; compensated faces in #1005/#1006 (X) or #1007/#1008 (Y). The probe ends
+; over the centre at [z clear]. Nothing is written to a work offset.
+o<ferrum_span_scan> sub
+#<axis> = #1
+#<z_clear> = #2
+#<z_top> = #3
+#<z_probe> = #4
+#<step> = #5
+#<max> = #6
+#<r> = [[#5410 / 2] - #3032]
+o100 if [[#<axis> NE 0] AND [#<axis> NE 1]]
+    (ABORT, Invalid span axis)
+o100 endif
+o101 if [[#<step> LE 0] OR [#<max> LE 0]]
+    (ABORT, Scan step and max scan distance must be positive)
+o101 endif
+o102 if [#<z_probe> GE #<z_top>]
+    (ABORT, Probing depth must be below the top)
+o102 endif
+o103 if [#<z_clear> LE #<z_top>]
+    (ABORT, Clearance height must be above the top)
+o103 endif
+o104 if [#<step> GE #3018]
+    (ABORT, Scan step must be shorter than the max XY search distance #3018)
+o104 endif
+; A touch-down this far below the top still counts as the top.
+#<tol> = [[#<z_top> - #<z_probe>] / 2]
+o110 if [#<axis> EQ 0]
+    #<c0> = #5420
+o110 else
+    #<c0> = #5421
+o110 endif
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+
+#<side> = -1
+o200 while [#<side> LE 1]
+    ; Walk out over the top until a touch-down finds nothing.
+    #<k> = 0
+    #<over> = 1
+    o210 while [#<over> EQ 1]
+        #<k> = [#<k> + 1]
+        o211 if [[#<k> * #<step>] GT #<max>]
+            (ABORT, Scan found no edge within the max scan distance)
+        o211 endif
+        o212 if [#<axis> EQ 0]
+            o<ferrum_guarded_move> call [#<c0> + #<side> * #<k> * #<step> - #5420] [0] [0]
+        o212 else
+            o<ferrum_guarded_move> call [0] [#<c0> + #<side> * #<k> * #<step> - #5421] [0]
+        o212 endif
+        G91 G38.3 Z[#<z_probe> - #5422] F#3016
+        G90
+        o213 if [#5070 EQ 1]
+            ; Back up the way it came down: that stretch is clear (a
+            ; guarded move would stop at once, the probe still touching).
+            G90 G1 Z#<z_clear> F#3017
+            o214 if [#5063 LT [#<z_top> - #<tol>]]
+                M66 E0 L0
+                (ABORT, Scan found something lower than the top beside the part, above the probing depth: a jaw or clamp?)
+            o214 endif
+            (DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{1,#5061,#5062,#5063}])
+        o213 else
+            #<over> = 0
+            (DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{0,#5420,#5421,#5422}])
+        o213 endif
+    o210 endwhile
+    ; Past the edge, already down at the probing depth: touch back towards it.
+    o<ferrum_touch> call [#<axis>] [0 - #<side>] [#3018]
+    G90
+    #<face> = [#<_ferrum_hit> - #<side> * #<r>]
+    o215 if [#<axis> EQ 0]
+        (DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{2,#<face>,#5421,#5422}])
+    o215 else
+        (DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{2,#5420,#<face>,#5422}])
+    o215 endif
+    o220 if [#<side> LT 0]
+        #<lo> = #<_ferrum_hit>
+    o220 else
+        #<hi> = #<_ferrum_hit>
+    o220 endif
+    o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+    ; Back over the start before the other side.
+    o230 if [#<axis> EQ 0]
+        o<ferrum_guarded_move> call [#<c0> - #5420] [0] [0]
+    o230 else
+        o<ferrum_guarded_move> call [0] [#<c0> - #5421] [0]
+    o230 endif
+    #<side> = [#<side> + 2]
+o200 endwhile
+
+#<_ferrum_center> = [[#<lo> + #<hi>] / 2]
+#<_ferrum_width> = [#<hi> - #<lo> - [2 * #<r>]]
+o240 if [#<_ferrum_width> LE 0]
+    (ABORT, The two faces were not found on opposite sides)
+o240 endif
+o250 if [#<axis> EQ 0]
+    #1006 = [#<lo> + #<r>]
+    #1005 = [#<hi> - #<r>]
+    o<ferrum_guarded_move> call [#<_ferrum_center> - #5420] [0] [0]
+o250 else
+    #1008 = [#<lo> + #<r>]
+    #1007 = [#<hi> - #<r>]
+    o<ferrum_guarded_move> call [0] [#<_ferrum_center> - #5421] [0]
+o250 endif
+o<ferrum_span_scan> endsub
+M2

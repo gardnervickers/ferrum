@@ -1,0 +1,61 @@
+; Part of ferrum. MIT licence, see ferrum/LICENSE.
+; FIND/MEASURE boss or block without a size hint: finds the top, centre
+; and size of a round or rectangular boss (or a block of stock in a vise).
+; o<probe_boss_scan> call [step] [max]. The probe starts above the part,
+; anywhere over its top, within #3020 of it. It touches the top, then
+; scans across X and across Y with o<ferrum_span_scan> (touch-downs every
+; [step] outward until the top ends, then a side touch back towards the
+; part, plunging #3021 + tip diameter + #3022 below the clearance height),
+; moving over each new centre; then measures X and Y again from the
+; refined centre with o<ferrum_span_outside>, using the scanned widths as
+; the size hint, and those second results count. Reports the same as
+; o<probe_boss_scan> (#1009 top, #1001/#1002 X width and centre,
+; #1003/#1004 Y, #1010 the mean of the widths), plus every touch as
+; ferrum_scan.receive_point. With #3030 = 0 the active work offset gets
+; Z0 at the top and X0 Y0 at the centre. Ends over the centre, #3021
+; above the top.
+o<probe_boss_scan> sub
+o10 if [#<_task> EQ 0]
+    o<probe_boss_scan> return
+o10 endif
+o<ferrum_probe_ready> call
+M73
+M50 P0
+G90 G94
+
+o<ferrum_touch> call [2] [-1] [#3020]
+#1009 = #<_ferrum_hit>
+(DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{1,#5420,#5421,#1009}])
+#<z_clear> = [#1009 + #3021]
+#<z_probe> = [#1009 - #5410 - #3022]
+o<ferrum_guarded_move> call [0] [0] [#<z_clear> - #5422]
+
+o<ferrum_span_scan> call [0] [#<z_clear>] [#1009] [#<z_probe>] [#1] [#2]
+#<wx> = #<_ferrum_width>
+o<ferrum_span_scan> call [1] [#<z_clear>] [#1009] [#<z_probe>] [#1] [#2]
+#<wy> = #<_ferrum_width>
+o<ferrum_span_outside> call [0] [#<wx>] [#<z_clear>] [#<z_probe>]
+#1001 = #<_ferrum_width>
+#1002 = #<_ferrum_center>
+(DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{2,#1006,#5421,#<z_probe>}])
+(DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{2,#1005,#5421,#<z_probe>}])
+o<ferrum_span_outside> call [1] [#<wy>] [#<z_clear>] [#<z_probe>]
+#1003 = #<_ferrum_width>
+#1004 = #<_ferrum_center>
+(DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{2,#5420,#1008,#<z_probe>}])
+(DEBUG, EVAL[vcp.getWidget{"ferrum_scan"}.receive_point{2,#5420,#1007,#<z_probe>}])
+#1010 = [[#1001 + #1003] / 2]
+
+(DEBUG, EVAL[vcp.getWidget{"z_minus_probed_position"}.setValue{#1009}])
+(DEBUG, EVAL[vcp.getWidget{"x_probed_width"}.setValue{#1001}])
+(DEBUG, EVAL[vcp.getWidget{"x_center_probed"}.setValue{#1002}])
+(DEBUG, EVAL[vcp.getWidget{"y_probed_width"}.setValue{#1003}])
+(DEBUG, EVAL[vcp.getWidget{"y_center_probed"}.setValue{#1004}])
+(DEBUG, EVAL[vcp.getWidget{"averaged_diam"}.setValue{#1010}])
+
+o30 if [#3030 EQ 0]
+    G10 L20 P0 X[#5420 - #1002] Y[#5421 - #1004] Z[#5422 - #1009]
+o30 endif
+G90
+o<probe_boss_scan> endsub
+M2

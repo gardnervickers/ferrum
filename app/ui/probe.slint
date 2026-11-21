@@ -88,8 +88,8 @@ export component ProbeScreen inherits Rectangle {
     property <bool> wcs-open: Live.pr-dialog == "wcs";
     property <bool> job-open: Live.pr-dialog == "job";
     // The picture shows either the approach arrows or the preview, never both.
-    property <bool> arrows: Live.pr-running || !Live.pr-preview;
-    property <bool> tip: Live.pr-tip-on && !self.arrows;
+    property <bool> arrows: (Live.pr-running || !Live.pr-preview) && !Live.pr-scan;
+    property <bool> tip: Live.pr-tip-on && !self.arrows && !Live.pr-scan;
     // The browser build redraws a changed Path over open overlays.
     property <bool> paths-visible: !(Live.tc-open || Live.pick-open || Live.keypad-open || Live.drawer-open || Live.pr-dialog != "");
     // Three cards, left to right: what to probe, where on it, then the
@@ -254,12 +254,93 @@ export component ProbeScreen inherits Rectangle {
                             }
                         }
                     }
+                    // ROUND BOSS › SCAN: what the scan touched, in 3D, over
+                    // the picture once there are touches. Drag to turn it.
+                    if Live.pr-scan: Rectangle {
+                        x: 0; y: 0; width: parent.width; height: parent.height;
+                        background: Theme.well;
+                        Text { x: 0; y: 6px; width: parent.width; horizontal-alignment: center; text: Live.pr-hint; font-family: Theme.body; font-size: Theme.t-body; color: Theme.dim; }
+                        Path {
+                            x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
+                            viewbox-width: 400; viewbox-height: 300;
+                            commands: Live.pr-scan-below;
+                            stroke: Theme.dim.with-alpha(0.45); stroke-width: 1.5px; fill: transparent;
+                        }
+                        Path {
+                            x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
+                            viewbox-width: 400; viewbox-height: 300;
+                            commands: Live.pr-scan-face;
+                            fill: Theme.sel.with-alpha(0.10); stroke: transparent;
+                        }
+                        Path {
+                            x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
+                            viewbox-width: 400; viewbox-height: 300;
+                            commands: Live.pr-scan-path;
+                            stroke: Theme.muted.with-alpha(0.3); stroke-width: 1.5px; fill: transparent;
+                        }
+                        Path {
+                            x: pic.ox; y: pic.oy; width: 400px * pic.sc; height: 300px * pic.sc;
+                            viewbox-width: 400; viewbox-height: 300;
+                            commands: Live.pr-scan-edges;
+                            stroke: Theme.sel-ink.with-alpha(0.8); stroke-width: 2px; fill: transparent;
+                        }
+                        for t in Live.pr-scan-touches: Rectangle {
+                            property <length> r: t.id == "miss" ? 4px : 6px;
+                            x: pic.ox + t.x * pic.sc * 1px - self.r;
+                            y: pic.oy + t.y * pic.sc * 1px - self.r;
+                            width: 2 * self.r; height: 2 * self.r;
+                            border-radius: self.r;
+                            background: t.id == "top" ? Theme.good : t.id == "side" ? Theme.info : transparent;
+                            border-width: t.id == "miss" ? 2px : 1.5px;
+                            border-color: t.id == "miss" ? Theme.dim : Theme.well;
+                        }
+                        for l in Live.pr-scan-labels: Rectangle {
+                            property <length> w: lt.preferred-width + 16px;
+                            x: pic.ox + l.x * pic.sc * 1px - self.w / 2;
+                            y: pic.oy + l.y * pic.sc * 1px - 16px;
+                            width: self.w; height: 32px;
+                            border-radius: 6px;
+                            background: Theme.well.with-alpha(0.85);
+                            lt := Text { text: l.id; font-family: Theme.body; font-weight: 600; font-size: Theme.t-ctl; color: Theme.info; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            x: 16px; y: parent.height - 32px; height: 24px;
+                            spacing: 24px;
+                            alignment: start;
+                            for k in [{ c: Theme.good, t: "TOP", miss: false }, { c: Theme.info, t: "SIDE", miss: false }, { c: Theme.dim, t: "NOTHING THERE", miss: true }]: HorizontalLayout {
+                                spacing: 6px;
+                                Rectangle {
+                                    width: 12px; height: 12px; y: 6px;
+                                    border-radius: 6px;
+                                    background: k.miss ? transparent : k.c;
+                                    border-width: k.miss ? 2px : 0;
+                                    border-color: k.c;
+                                }
+                                Caption { vertical-alignment: center; text: k.t; }
+                            }
+                        }
+                        TouchArea {
+                            pointer-event(e) => {
+                                if e.kind == PointerEventKind.down {
+                                    Actions.probe-orbit(0, (self.mouse-x - pic.ox) / pic.sc / 1px, (self.mouse-y - pic.oy) / pic.sc / 1px);
+                                } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                                    Actions.probe-orbit(2, 0, 0);
+                                }
+                            }
+                            moved => {
+                                if self.pressed {
+                                    Actions.probe-orbit(1, (self.mouse-x - pic.ox) / pic.sc / 1px, (self.mouse-y - pic.oy) / pic.sc / 1px);
+                                }
+                            }
+                        }
+                    }
                     // What the tip is doing; its own band, so it never
                     // covers the picture.
                     Caption {
                         x: 16px; y: parent.height - 32px;
                         width: parent.width - 32px; height: 24px;
                         vertical-alignment: center;
+                        visible: !Live.pr-scan;
                         text: Live.pr-caption;
                         color: Theme.good;
                         overflow: elide;

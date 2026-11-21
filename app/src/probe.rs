@@ -40,7 +40,7 @@ pub const MACROS: &[&str] = &[
     "probe_a_measure_deflection", "probe_a_measure_diameter", "probe_a_measure_runout", "probe_a_rotary",
     "probe_a_setup_cylinder_center", "probe_auto_stock_center", "probe_back_left_inside_corner",
     "probe_back_left_top_corner", "probe_back_right_inside_corner", "probe_back_right_top_corner",
-    "probe_bore_3_point", "probe_boss_3_point", "probe_cal_boss", "probe_cal_round_pocket", "probe_cal_stylus", "probe_edge_skew", "probe_front_left_inside_corner", "probe_front_left_top_corner",
+    "probe_bore_3_point", "probe_boss_3_point", "probe_boss_scan", "probe_cal_boss", "probe_cal_round_pocket", "probe_cal_stylus", "probe_edge_skew", "probe_front_left_inside_corner", "probe_front_left_top_corner",
     "probe_front_right_inside_corner", "probe_front_right_top_corner", "probe_rect_pocket_center_start",
     "probe_ridge_x", "probe_ridge_y", "probe_round_boss", "probe_round_pocket_center_start",
     "probe_spindle_nose", "probe_top_back_edge_angle", "probe_top_front_edge_angle",
@@ -229,6 +229,8 @@ impl Local {
 fn locals(kind: &str) -> &'static [Local] {
     match kind {
         "stock" => &[Local { label: "Max span", mm: 150.0, inch: 6.0 }],
+        // Touch-downs every step outward, up to max scan from the start.
+        "bscan" => &[Local { label: "Scan step", mm: 10.0, inch: 0.4 }, Local { label: "Max scan", mm: 150.0, inch: 6.0 }],
         "cyl" => &[Local { label: "Reference dia est.", mm: 30.0, inch: 1.25 }],
         "dia" | "runout" => &[Local { label: "Diameter est.", mm: 25.0, inch: 1.0 }],
         "defl" => &[Local { label: "Diameter est.", mm: 25.0, inch: 1.0 }, Local { label: "X span", mm: 50.0, inch: 2.0 }],
@@ -326,6 +328,16 @@ pub struct Probe {
     skew: bool,
     /// BORE / ROUND BOSS: three touches at `angles` instead of across X and Y.
     three: bool,
+    /// ROUND BOSS: no size hint; scan out to the edges (probe_boss_scan).
+    scan: bool,
+    /// SCAN: draw the part as round (else as a block).
+    scan_round: bool,
+    /// SCAN: the touches so far, the fitted part and the 3D view's turn.
+    scan_touches: Vec<crate::scan3d::Touch>,
+    scan_fit: Option<crate::scan3d::Fit>,
+    scan_view: crate::scan3d::View,
+    /// SCAN: the last drag position (picture units).
+    orbit_at: Option<(f64, f64)>,
     angles: [f64; 3],
     /// The point being dragged on the picture.
     drag: Option<usize>,
@@ -403,6 +415,7 @@ impl Probe {
                 center("pocket", 200.0, 150.0, "POCKET CENTER"),
             ],
             "top" => vec![center("top", 200.0, 150.0, "TOP FACE · SETS Z")],
+            "round" if self.scan => vec![center("bscan", 200.0, 150.0, "BOSS CENTER · SCAN")],
             "round" => vec![center("boss", 200.0, 150.0, if self.three { "BOSS CENTER · 3 POINTS" } else { "BOSS CENTER" })],
             "bore" => vec![center("bore", 200.0, 150.0, if self.three { "BORE CENTER · 3 POINTS" } else { "BORE CENTER" })],
             "slot" => {
@@ -447,6 +460,7 @@ impl Probe {
             "two" => vec![3019, 3018],
             "top" => vec![3020, 3021],
             "boss" => vec![3025, 3019, 3018],
+            "bscan" => vec![3022],
             "pocket" => vec![3026, 3027, 3018],
             "bore" => vec![3025, 3018],
             "slot" => vec![if self.axes == "Y" { 3029 } else { 3028 }, 3019],
@@ -507,7 +521,15 @@ impl Probe {
                 "MEASURE (REPORTS ONLY)",
                 vec![it("tgt-dia", "DIAMETER", sel.id == "dia"), it("tgt-runout", "RUNOUT", sel.id == "runout"), it("tgt-defl", "DEFLECTION", sel.id == "defl")],
             ),
-            ("bore" | "round", _) => ("TOUCHES", vec![it("pts-4", "ACROSS X AND Y", !self.three), it("pts-3", "3 POINTS", self.three)], "", vec![]),
+            ("round", _) => {
+                let pts = vec![it("pts-4", "ACROSS X AND Y", !self.three && !self.scan), it("pts-3", "3 POINTS", self.three), it("pts-scan", "SCAN", self.scan)];
+                if self.scan {
+                    ("TOUCHES", pts, "DRAW AS", vec![it("scan-block", "BLOCK", !self.scan_round), it("scan-round", "ROUND", self.scan_round)])
+                } else {
+                    ("TOUCHES", pts, "", vec![])
+                }
+            }
+            ("bore", _) => ("TOUCHES", vec![it("pts-4", "ACROSS X AND Y", !self.three), it("pts-3", "3 POINTS", self.three)], "", vec![]),
             ("ring", _) => (
                 "GAUGE",
                 vec![it("gauge-ring", "RING", !self.pin), it("gauge-pin", "PIN", self.pin)],
@@ -561,7 +583,7 @@ impl Probe {
                 (format!("o<probe_edge_skew> call [{axis}] [{side}] [{}] [{}]", u.fmt(self.local("skew", 0)), u.fmt(self.local("skew", 1))), None)
             }
             "top" => ("o<probe_z_minus_wco> call".into(), None),
-            "boss" | "bore" | "pocket" => (self.plain_call(t).unwrap_or_default(), None),
+            "boss" | "bore" | "pocket" | "bscan" => (self.plain_call(t).unwrap_or_default(), None),
             "slot" => {
                 let a = if self.axes == "Y" { "y" } else { "x" };
                 if self.ridge { (format!("o<probe_ridge_{a}> call"), None) } else { (format!("o<probe_valley_{a}_center_start> call"), None) }
@@ -771,6 +793,7 @@ impl Probe {
             "boss" if self.three => format!("o<probe_boss_3_point> call {}", self.angle_args()),
             "bore" if self.three => format!("o<probe_bore_3_point> call {}", self.angle_args()),
             "boss" => "o<probe_round_boss> call".into(),
+            "bscan" => format!("o<probe_boss_scan> call [{}] [{}]", units().fmt(self.local("bscan", 0)), units().fmt(self.local("bscan", 1))),
             "pocket" => "o<probe_rect_pocket_center_start> call".into(),
             "bore" => "o<probe_round_pocket_center_start> call".into(),
             "slot" => {
@@ -795,6 +818,25 @@ impl Probe {
     /// The three touch angles as macro arguments: `[90] [210] [330]`.
     fn angle_args(&self) -> String {
         self.angles.iter().map(|a| format!("[{}]", a.rem_euclid(360.0).round())).collect::<Vec<_>>().join(" ")
+    }
+
+    /// Whether the picture shows the SCAN's 3D view (once it has touches).
+    fn scan_shown(&self) -> bool {
+        self.mode == "find" && self.selected().kind == "bscan" && (!self.scan_touches.is_empty() || self.scan_fit.is_some())
+    }
+
+    /// Turning the SCAN's 3D view: phase 0 down, 1 moved, 2 up (picture units).
+    fn orbit(&mut self, phase: i32, x: f64, y: f64) -> bool {
+        match (phase, self.orbit_at) {
+            (0, _) => self.orbit_at = Some((x, y)),
+            (1, Some((x0, y0))) => {
+                self.scan_view = self.scan_view.dragged(x - x0, y - y0);
+                self.orbit_at = Some((x, y));
+                return true;
+            }
+            _ => self.orbit_at = None,
+        }
+        false
     }
 
     /// Whether the picture shows the three touch points to drag.
@@ -953,6 +995,10 @@ impl Probe {
             restore.push(mode.to_string());
         }
         self.results.clear();
+        if t.kind == "bscan" {
+            self.scan_touches.clear();
+            self.scan_fit = None;
+        }
         let what = self.selected().label;
         self.result_text = format!("Running: {what}");
         self.run = Some(Run { steps, restore, sent: None, failed: None, restoring: false, restore_failed: false, what, kind: t.kind, flow_step, not_before: None, done_at: None });
@@ -1056,6 +1102,11 @@ impl Probe {
         }
         let num = |name: &str| results.iter().find(|(n, _)| n == name).and_then(|(_, v)| v.first().copied());
         let mut lines: Vec<String> = Vec::new();
+        if run.kind == "bscan" {
+            if let (Some(cx), Some(cy), Some(wx), Some(wy), Some(top)) = (num("x_center_probed"), num("y_center_probed"), num("x_probed_width"), num("y_probed_width"), num("z_minus_probed_position")) {
+                self.scan_fit = Some(crate::scan3d::Fit { center: (cx, cy), size: (wx, wy), top, round: self.scan_round });
+            }
+        }
         match run.flow_step {
             Some("stock-measure") => {
                 if let Some((_, v)) = results.iter().find(|(n, _)| n == "auto_stock_panel.receive_result") {
@@ -1147,6 +1198,10 @@ impl Probe {
                     if run.kind == "skew" && name.ends_with("_probed_position") && !name.starts_with('z') {
                         continue;
                     }
+                    // A block's two widths have no diameter.
+                    if run.kind == "bscan" && !self.scan_round && name == "averaged_diam" {
+                        continue;
+                    }
                     if let Some(x) = v.first() {
                         // SET ROTATION applies the angle (unless measuring only).
                         let label = if run.kind == "skew" && name == "edge_angle" { "Edge angle".to_string() } else { result_label(name) };
@@ -1192,6 +1247,17 @@ impl Probe {
                     }
                 }
             }
+        }
+        // SCAN's touches, one by one, for the 3D view.
+        if name == "ferrum_scan.receive_point" {
+            if let (Some(r), [k, x, y, z]) = (&self.run, &args[..]) {
+                if r.kind == "bscan" {
+                    if let Some(kind) = crate::scan3d::Kind::from_code(*k) {
+                        self.scan_touches.push(crate::scan3d::Touch { kind, p: [*x, *y, *z] });
+                    }
+                }
+            }
+            return true;
         }
         // Kept only for a routine this page started: a job's probing
         // steps print the same lines.
@@ -1261,6 +1327,8 @@ impl Probe {
         let on_picture = self.picks_on_picture();
         let gap = widest_gap(&self.angles);
         let hint: String = match sel.kind {
+            "bscan" if self.scan_shown() => format!("{} TOUCHES · DRAG TO TURN", self.scan_touches.len()),
+            "bscan" => "START ANYWHERE OVER THE TOP · NO SIZE NEEDED".into(),
             "skew" => "START OVER THE TOP BY THE EDGE'S MIDDLE · DRAG THE TWO TOUCHES ALONG IT".into(),
             _ if on_picture => "TAP A BLUE SPOT TO CHOOSE WHERE".into(),
             // Three points on a short arc still fit, but less surely.
@@ -1283,6 +1351,7 @@ impl Probe {
                 // A gauge pin is measured as a boss is.
                 kind: match sel.kind {
                     "ring" if self.pin => "boss",
+                    "bscan" => "boss",
                     "skew" => "edge",
                     k => k,
                 },
@@ -1318,6 +1387,23 @@ impl Probe {
             .map(|(i, (x, y))| ProbeSpot { id: format!("{}", i + 1).into(), x: x as f32, y: y as f32, w: 0.0, h: 0.0, r: 22.0, on: self.drag == Some(i) })
             .collect();
         crate::models::sync(live.get_pr_points(), points, |m| live.set_pr_points(m));
+        // SCAN: the touches and the fitted part in 3D, in place of the picture.
+        let scan_on = self.scan_shown();
+        live.set_pr_scan(scan_on);
+        let drawn = if scan_on {
+            let fit = self.scan_fit.map(|f| crate::scan3d::Fit { round: self.scan_round, ..f });
+            let u = units();
+            crate::scan3d::draw(&self.scan_touches, fit.as_ref(), self.scan_view, u.name(), u.decimals())
+        } else {
+            crate::scan3d::Drawn::default()
+        };
+        live.set_pr_scan_face(drawn.face.into());
+        live.set_pr_scan_edges(drawn.edges.into());
+        live.set_pr_scan_below(drawn.below.into());
+        live.set_pr_scan_path(drawn.path.into());
+        let marks = |v: Vec<crate::scan3d::Mark>| v.into_iter().map(|m| ProbeSpot { id: m.text.into(), x: m.x as f32, y: m.y as f32, w: 0.0, h: 0.0, r: 0.0, on: false }).collect::<Vec<_>>();
+        crate::models::sync(live.get_pr_scan_touches(), marks(drawn.touches), |m| live.set_pr_scan_touches(m));
+        crate::models::sync(live.get_pr_scan_labels(), marks(drawn.labels), |m| live.set_pr_scan_labels(m));
         // Choices for the target: two labelled groups, always the same
         // buttons for a target (a choice that doesn't apply is disabled, not
         // removed), so nothing moves under the finger.
@@ -1403,6 +1489,7 @@ impl Probe {
             "boss" if self.three => "three touches around a round boss (top Z first)".into(),
             "bore" if self.three => "three touches in a bore, start near its center".into(),
             "boss" => "round boss (touches top Z first)".into(),
+            "bscan" => "no size hint: top Z, then touch-downs out to each edge".into(),
             "pocket" => "rectangular pocket from its center".into(),
             "bore" => "round pocket from its center".into(),
             "slot" => if self.ridge { "ridge (touches top Z)" } else { "slot from its center" }.into(),
@@ -1544,8 +1631,20 @@ impl Probe {
                     self.tgt = t.id;
                 }
             }
-            "pts-3" => self.three = true,
-            "pts-4" => self.three = false,
+            "pts-3" => {
+                self.three = true;
+                self.scan = false;
+            }
+            "pts-4" => {
+                self.three = false;
+                self.scan = false;
+            }
+            "pts-scan" => {
+                self.three = false;
+                self.scan = true;
+            }
+            "scan-block" => self.scan_round = false,
+            "scan-round" => self.scan_round = true,
             "gauge-ring" => self.pin = false,
             "gauge-pin" => self.pin = true,
             "stylus-on" => self.stylus = true,
@@ -1864,7 +1963,7 @@ fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
                 })
                 .collect()
         }
-        "boss" => vec![[60.0, 150.0, 120.0, 150.0], [340.0, 150.0, 280.0, 150.0], [200.0, 30.0, 200.0, 70.0], [200.0, 270.0, 200.0, 230.0]],
+        "boss" | "bscan" => vec![[60.0, 150.0, 120.0, 150.0], [340.0, 150.0, 280.0, 150.0], [200.0, 30.0, 200.0, 70.0], [200.0, 270.0, 200.0, 230.0]],
         "pocket" => vec![[200.0, 150.0, 290.0, 150.0], [200.0, 150.0, 110.0, 150.0], [200.0, 150.0, 200.0, 80.0], [200.0, 150.0, 200.0, 220.0]],
         "bore" => vec![[200.0, 150.0, 260.0, 150.0], [200.0, 150.0, 140.0, 150.0], [200.0, 150.0, 200.0, 90.0], [200.0, 150.0, 200.0, 210.0]],
         "slot" if p.ridge => {
@@ -1970,6 +2069,12 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         ridge: true,
         skew: false,
         three: false,
+        scan: false,
+        scan_round: false,
+        scan_touches: Vec::new(),
+        scan_fit: None,
+        scan_view: crate::scan3d::View::default(),
+        orbit_at: None,
         angles: ANGLES,
         drag: None,
         pin: false,
@@ -2111,6 +2216,13 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
             p.refresh();
         }
     });
+    let p = probe.clone();
+    actions.on_probe_orbit(move |phase, x, y| {
+        let mut p = p.borrow_mut();
+        if p.orbit(phase, x as f64, y as f64) {
+            p.refresh();
+        }
+    });
     probe.borrow().refresh();
     probe
 }
@@ -2229,6 +2341,12 @@ mod tests {
             ridge: true,
             skew: false,
             three: false,
+            scan: false,
+            scan_round: false,
+            scan_touches: Vec::new(),
+            scan_fit: None,
+            scan_view: crate::scan3d::View::default(),
+            orbit_at: None,
             angles: ANGLES,
             drag: None,
             pin: false,
@@ -2349,7 +2467,7 @@ mod tests {
         for (mode, shapes) in SHAPES {
             for (shape, _) in *shapes {
                 pick(&mut p, mode, shape);
-                let combos: [&[&str]; 14] = [&[], &["angle-on"], &["angle-skew"], &["axis-X"], &["axis-Y"], &["valley"], &["Y"], &["valley", "Y"], &["tgt-flat"], &["tgt-dia"], &["tgt-runout"], &["tgt-defl"], &["pts-3"], &["gauge-pin"]];
+                let combos: [&[&str]; 15] = [&[], &["angle-on"], &["angle-skew"], &["axis-X"], &["axis-Y"], &["valley"], &["Y"], &["valley", "Y"], &["tgt-flat"], &["tgt-dia"], &["tgt-runout"], &["tgt-defl"], &["pts-3"], &["pts-scan"], &["gauge-pin"]];
                 for opts in combos {
                     for o in opts {
                         p.option(o);
@@ -2373,6 +2491,7 @@ mod tests {
                     p.both = true;
                     p.ridge = true;
                     p.three = false;
+                    p.scan = false;
                     p.pin = false;
                     p.skew = false;
                     p.axes = "XY";
@@ -2382,6 +2501,25 @@ mod tests {
         }
         let want: Vec<String> = MACROS.iter().map(|m| format!("o<{m}>")).collect();
         assert_eq!(macros.into_iter().collect::<Vec<_>>(), want);
+    }
+
+    #[test]
+    fn scan_call_and_touches() {
+        let mut p = probe();
+        pick(&mut p, "find", "round");
+        p.option("pts-scan");
+        assert_eq!(p.selected().kind, "bscan");
+        assert_eq!(call_now(&mut p), "o<probe_boss_scan> call [10.000] [150.000]");
+        // Nothing from a job (it needs no jogging, but jobs don't know it yet).
+        assert!(p.job_routine(&p.selected()).is_none());
+        assert!(!p.scan_shown());
+        p.scan_touches.push(crate::scan3d::Touch { kind: crate::scan3d::Kind::Top, p: [0.0, 0.0, 0.0] });
+        assert!(p.scan_shown());
+        // Back to the plain boss: no 3D view, the size hint returns.
+        p.option("pts-4");
+        assert_eq!(call_now(&mut p), "o<probe_round_boss> call");
+        assert!(!p.scan_shown());
+        assert_eq!(p.key_params(p.selected().kind)[0], 3025);
     }
 
     #[test]

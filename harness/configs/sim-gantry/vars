@@ -35,3 +35,9 @@ unit = mm
 # The FEED and RAPID override rows (basics/overrides): screen y of each.
 ovr_feed_y = 562
 ovr_rapid_y = 616
+# PROBE › ROUND BOSS › SCAN (scenarios/probe/boss-scan): a start over the
+# block well off its middle, and the block's size.
+scan_start_x = 62
+scan_start_y = -22
+block_w = 80
+block_d = 50

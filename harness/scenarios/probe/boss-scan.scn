@@ -1,0 +1,50 @@
+title PROBE › ROUND BOSS › SCAN on a stock machine: finds the block with no size hint, from off its middle
+needs stock
+# stock.py's block (mm: X 40..120, Y -60..-10, top -100; inch: X 1.5..4.5,
+# Y -2.5..-0.5, top -4), in tip Z. Start over the top well off its middle;
+# the scan steps out to each edge, then the boss touches measure across.
+include ../common/ready.scn
+mdi M61 Q99 G43
+idle 30
+expect stat.tool_in_spindle == 99
+mdi G54
+mdi G10 L2 P1 X0 Y0 Z0
+screen probe
+do probe-mode "find"
+do probe-wcs "G54"
+do probe-shape "round"
+do probe-opt "pts-scan"
+expect prop.pr-title == "BOSS CENTER · SCAN"
+expect prop.pr-opts2-label == "DRAW AS"
+expect prop.pr-scan == false
+mdi G53 G0 Z${probe_up_z}
+mdi G53 G0 X${scan_start_x} Y${scan_start_y}
+# As common/probe-run.scn, with a look at the 3D view part way.
+wait prop.pr-running == false within 30
+wait prop.pr-ready == "" within 30
+do probe-run
+wait prop.pr-running == true within 10
+wait prop.pr-scan == true within 60
+wait prop.pr-scan-touches.len >= 8 within 120
+shot boss-scan-running
+wait prop.pr-running == false within 300
+idle 30
+expect prop.pr-result !contains failed
+expect stat.g5x_offset[0] ~= ${block_x} +- ${probe_fine}
+expect stat.g5x_offset[1] ~= ${block_y} +- ${probe_fine}
+expect stat.g5x_offset[2] ~= ${block_top} +- ${probe_fine}
+expect prop.pr-result{X width} ~= ${block_w} +- ${probe_fine}
+expect prop.pr-result{Y width} ~= ${block_d} +- ${probe_fine}
+expect prop.pr-result !contains Diameter
+expect prop.pr-scan == true
+expect prop.pr-scan-labels.len == 2
+idle 2
+shot boss-scan-block
+do probe-opt "scan-round"
+expect prop.pr-opts2[1].on == true
+expect prop.pr-scan-labels.len == 2
+idle 2
+shot boss-scan-round
+do probe-opt "scan-block"
+mdi G53 G0 Z${probe_up_z}
+expect ui-errors.len == 0

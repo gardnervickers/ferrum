@@ -53,6 +53,14 @@ says exactly what it does.
   angles (degrees counter-clockwise from +X), fitted with
   `ferrum_circle3`; same results as the bore and boss routines. The PROBE
   screen's 3 POINTS lets the operator drag the angles.
+- `probe_boss_scan [step] [max]` (with `ferrum_span_scan`): ROUND BOSS ›
+  SCAN, a boss or a block of stock with no size hint. From anywhere over
+  the top it touches down every `[step]` outward until the top ends, then
+  touches each face from the side, and measures across again from the
+  centre. Same results as `probe_round_boss`, plus every touch as
+  `ferrum_scan.receive_point{kind, x, y, z}` for the PROBE screen's 3D view.
+  Aborts if a touch-down finds something lower than the top but above the
+  probing depth beside the part (a vise jaw or a clamp).
 - `probe_cal_boss`: CAL › PROBE TIP on a gauge pin of diameter `#3034`.
 - `probe_cal_stylus [gauge]`: after either calibration, with the spindle
   turned half a turn by hand, measures the gauge's centre again; Ferrum
