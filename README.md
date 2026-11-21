@@ -10,7 +10,7 @@ Ferrum is the screen you stand in front of: big targets, one job per screen, and
 
 **[Try the demo in your browser](https://gardnervickers.github.io/ferrum/).** It is Ferrum itself against its built-in simulated machine, running entirely in the page: run a sample program, jog, probe, build a job. It never talks to a real mill.
 
-![The RUN screen running a program on the simulated machine](docs/images/run.gif)
+![The RUN screen: load a program on FILES, CYCLE START, then drag the feed and spindle overrides while it runs](docs/images/run.gif)
 
 > **Status: early.** Ferrum runs its author's mill, and it has just been split out of the machine config it grew up in. Expect names and paths to move. (It was called millgui: settings files, INI sections and environment variables under that name are still read.)
 
@@ -28,7 +28,11 @@ Ferrum is the screen you stand in front of: big targets, one job per screen, and
 
 | Probe | Setup |
 | --- | --- |
-| ![The PROBE screen](docs/images/probe.png) | ![The SETUP screen](docs/images/setup.png) |
+| ![The PROBE screen: tap where to touch and a preview plays the routine](docs/images/probe.gif) | ![The SETUP screen stepping through its pages](docs/images/setup.gif) |
+
+![A tour of Ferrum's screens](docs/images/tour.gif)
+
+The GIFs are recorded from the built-in simulated machine.
 
 Ferrum is built to keep you out of trouble, not to keep the machine safe. Destructive buttons need a hold, and buttons that cannot apply are disabled. Limits, interlocks and the e-stop chain stay where they belong, in LinuxCNC, HAL and hardware, so a GUI bug cannot defeat them.
 
