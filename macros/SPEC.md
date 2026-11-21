@@ -102,7 +102,7 @@ Their behaviour is summarised where it matters (§3.4, §11, §12, §13).
 | FIND / pocket / POCKET CENTER | `o<probe_rect_pocket_center_start> call` | none |
 | FIND / top | `o<probe_z_minus_wco> call` | none |
 | FIND / round boss | `o<probe_round_boss> call` | none |
-| FIND / round boss / SCAN | `o<probe_boss_scan> call [step] [max]` | scan step (default 10 mm, 0.4 in), max scan distance (default 150 mm, 6 in) |
+| FIND / boss (round or block), size hint 0 | `o<probe_boss_scan> call [step] [max]` | scan step 10 mm (0.4 in), at most 0.7 × `#3018`; max scan distance 150 mm (6 in) |
 | FIND / bore | `o<probe_round_pocket_center_start> call` | none |
 | FIND / slot, RIDGE, across X or Y | `o<probe_ridge_x> call` / `o<probe_ridge_y> call` | none |
 | FIND / slot, SLOT, across X or Y | `o<probe_valley_x_center_start> call` / `o<probe_valley_y_center_start> call` | none |
@@ -572,7 +572,7 @@ Precondition: the far-side plunge point is (first touch's retract point) +
 `D_h + #3023 + #3019`; with a poor hint the plunge can land on the boss,
 which the guarded plunge turns into an abort.
 
-### 8.4 probe_boss_scan (Ferrum ROUND BOSS › SCAN; Ferrum's own)
+### 8.4 probe_boss_scan (Ferrum BOSS with a size hint of 0; Ferrum's own)
 
 Arguments `[step] [max]`. Start: anywhere above the part's top within
 `#3020`; no size hint. Needs `[step]` < `#3018`.

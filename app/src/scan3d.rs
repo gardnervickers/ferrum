@@ -1,4 +1,4 @@
-//! PROBE › ROUND BOSS › SCAN: the 3D view of what the scan touched.
+//! PROBE › BOSS with no size hint (it scans): the 3D view of what the scan touched.
 //!
 //! The scan macro (`macros/ferrum_span_scan.ngc`) reports every touch as
 //! `ferrum_scan.receive_point{kind, x, y, z}`; when the routine ends the

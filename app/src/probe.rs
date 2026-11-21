@@ -197,7 +197,7 @@ fn center(kind: &'static str, x: f64, y: f64, label: &str) -> Target {
 }
 
 const SHAPES: &[(&str, &[(&str, &str)])] = &[
-    ("find", &[("block", "BLOCK / STOCK"), ("top", "TOP FACE Z"), ("round", "ROUND BOSS"), ("pocket", "POCKET"), ("bore", "BORE"), ("slot", "RIDGE / SLOT"), ("cyl", "ON THE ROTARY")]),
+    ("find", &[("block", "BLOCK / STOCK"), ("top", "TOP FACE Z"), ("round", "BOSS"), ("pocket", "POCKET"), ("bore", "BORE"), ("slot", "RIDGE / SLOT"), ("cyl", "ON THE ROTARY")]),
     ("cal", &[("ring", "PROBE TIP"), ("setter", "TOOL LENGTH"), ("nose", "SPINDLE NOSE")]),
 ];
 
@@ -229,8 +229,6 @@ impl Local {
 fn locals(kind: &str) -> &'static [Local] {
     match kind {
         "stock" => &[Local { label: "Max span", mm: 150.0, inch: 6.0 }],
-        // Touch-downs every step outward, up to max scan from the start.
-        "bscan" => &[Local { label: "Scan step", mm: 10.0, inch: 0.4 }, Local { label: "Max scan", mm: 150.0, inch: 6.0 }],
         "cyl" => &[Local { label: "Reference dia est.", mm: 30.0, inch: 1.25 }],
         "dia" | "runout" => &[Local { label: "Diameter est.", mm: 25.0, inch: 1.0 }],
         "defl" => &[Local { label: "Diameter est.", mm: 25.0, inch: 1.0 }, Local { label: "X span", mm: 50.0, inch: 2.0 }],
@@ -326,12 +324,11 @@ pub struct Probe {
     ridge: bool,
     /// EDGE: SET ROTATION (skew) from two touches dragged along the edge.
     skew: bool,
-    /// BORE / ROUND BOSS: three touches at `angles` instead of across X and Y.
+    /// BORE / BOSS: three touches at `angles` instead of across X and Y.
     three: bool,
-    /// ROUND BOSS: no size hint; scan out to the edges (probe_boss_scan).
-    scan: bool,
-    /// SCAN: draw the part as round (else as a block).
-    scan_round: bool,
+    /// BOSS: a square block rather than a round boss (it is measured the
+    /// same way; the picture, the 3D view and the results differ).
+    block: bool,
     /// SCAN: the touches so far, the fitted part and the 3D view's turn.
     scan_touches: Vec<crate::scan3d::Touch>,
     scan_fit: Option<crate::scan3d::Fit>,
@@ -415,7 +412,9 @@ impl Probe {
                 center("pocket", 200.0, 150.0, "POCKET CENTER"),
             ],
             "top" => vec![center("top", 200.0, 150.0, "TOP FACE · SETS Z")],
-            "round" if self.scan => vec![center("bscan", 200.0, 150.0, "BOSS CENTER · SCAN")],
+            // No size hint: scan out to the edges (probe_boss_scan).
+            "round" if !self.three && self.pv(3025) <= 0.0 => vec![center("bscan", 200.0, 150.0, if self.block { "BLOCK CENTER · SCAN" } else { "BOSS CENTER · SCAN" })],
+            "round" if self.block => vec![center("boss", 200.0, 150.0, "BLOCK CENTER")],
             "round" => vec![center("boss", 200.0, 150.0, if self.three { "BOSS CENTER · 3 POINTS" } else { "BOSS CENTER" })],
             "bore" => vec![center("bore", 200.0, 150.0, if self.three { "BORE CENTER · 3 POINTS" } else { "BORE CENTER" })],
             "slot" => {
@@ -460,7 +459,8 @@ impl Probe {
             "two" => vec![3019, 3018],
             "top" => vec![3020, 3021],
             "boss" => vec![3025, 3019, 3018],
-            "bscan" => vec![3022],
+            // The hint keeps its slot: typing a size goes back to the plain boss.
+            "bscan" => vec![3025, 3019, 3018],
             "pocket" => vec![3026, 3027, 3018],
             "bore" => vec![3025, 3018],
             "slot" => vec![if self.axes == "Y" { 3029 } else { 3028 }, 3019],
@@ -522,12 +522,10 @@ impl Probe {
                 vec![it("tgt-dia", "DIAMETER", sel.id == "dia"), it("tgt-runout", "RUNOUT", sel.id == "runout"), it("tgt-defl", "DEFLECTION", sel.id == "defl")],
             ),
             ("round", _) => {
-                let pts = vec![it("pts-4", "ACROSS X AND Y", !self.three && !self.scan), it("pts-3", "3 POINTS", self.three), it("pts-scan", "SCAN", self.scan)];
-                if self.scan {
-                    ("TOUCHES", pts, "DRAW AS", vec![it("scan-block", "BLOCK", !self.scan_round), it("scan-round", "ROUND", self.scan_round)])
-                } else {
-                    ("TOUCHES", pts, "", vec![])
-                }
+                let shape = vec![it("shape-round", "ROUND", !self.block), it("shape-block", "BLOCK", self.block)];
+                // 3 POINTS is for a round boss; for a block it keeps its slot, disabled.
+                let pts = vec![it("pts-4", "ACROSS X AND Y", !self.three), ProbeOpt { enabled: !self.block, ..it("pts-3", "3 POINTS", self.three) }];
+                ("SHAPE", shape, "TOUCHES", pts)
             }
             ("bore", _) => ("TOUCHES", vec![it("pts-4", "ACROSS X AND Y", !self.three), it("pts-3", "3 POINTS", self.three)], "", vec![]),
             ("ring", _) => (
@@ -793,7 +791,14 @@ impl Probe {
             "boss" if self.three => format!("o<probe_boss_3_point> call {}", self.angle_args()),
             "bore" if self.three => format!("o<probe_bore_3_point> call {}", self.angle_args()),
             "boss" => "o<probe_round_boss> call".into(),
-            "bscan" => format!("o<probe_boss_scan> call [{}] [{}]", units().fmt(self.local("bscan", 0)), units().fmt(self.local("bscan", 1))),
+            "bscan" => {
+                // Touch-downs every 10 mm (0.4 in), shorter than the XY search
+                // distance the side touch needs; up to 150 mm (6 in) out.
+                let u = units();
+                let reach = self.pv(3018);
+                let step = if reach > 0.0 { u.pick(10.0, 0.4).min(reach * 0.7) } else { u.pick(10.0, 0.4) };
+                format!("o<probe_boss_scan> call [{}] [{}]", u.fmt(step), u.fmt(u.pick(150.0, 6.0)))
+            }
             "pocket" => "o<probe_rect_pocket_center_start> call".into(),
             "bore" => "o<probe_round_pocket_center_start> call".into(),
             "slot" => {
@@ -1104,7 +1109,7 @@ impl Probe {
         let mut lines: Vec<String> = Vec::new();
         if run.kind == "bscan" {
             if let (Some(cx), Some(cy), Some(wx), Some(wy), Some(top)) = (num("x_center_probed"), num("y_center_probed"), num("x_probed_width"), num("y_probed_width"), num("z_minus_probed_position")) {
-                self.scan_fit = Some(crate::scan3d::Fit { center: (cx, cy), size: (wx, wy), top, round: self.scan_round });
+                self.scan_fit = Some(crate::scan3d::Fit { center: (cx, cy), size: (wx, wy), top, round: !self.block });
             }
         }
         match run.flow_step {
@@ -1199,7 +1204,7 @@ impl Probe {
                         continue;
                     }
                     // A block's two widths have no diameter.
-                    if run.kind == "bscan" && !self.scan_round && name == "averaged_diam" {
+                    if self.block && name == "averaged_diam" {
                         continue;
                     }
                     if let Some(x) = v.first() {
@@ -1351,7 +1356,6 @@ impl Probe {
                 // A gauge pin is measured as a boss is.
                 kind: match sel.kind {
                     "ring" if self.pin => "boss",
-                    "bscan" => "boss",
                     "skew" => "edge",
                     k => k,
                 },
@@ -1391,7 +1395,7 @@ impl Probe {
         let scan_on = self.scan_shown();
         live.set_pr_scan(scan_on);
         let drawn = if scan_on {
-            let fit = self.scan_fit.map(|f| crate::scan3d::Fit { round: self.scan_round, ..f });
+            let fit = self.scan_fit;
             let u = units();
             crate::scan3d::draw(&self.scan_touches, fit.as_ref(), self.scan_view, u.name(), u.decimals())
         } else {
@@ -1414,13 +1418,16 @@ impl Probe {
         crate::models::sync(live.get_pr_opts2(), o2, |m| live.set_pr_opts2(m));
         // Values
         let key = self.key_params(sel.kind);
+        // BOSS: a hint of 0 means scan for the edges.
+        let boss = matches!(sel.kind, "boss" | "bscan") && !self.three;
         let row = |n: u16| {
             let p = param(n);
+            let scan = boss && n == 3025 && self.pv(n) <= 0.0;
             ProbeParam {
                 id: n.to_string().into(),
-                label: p.map_or("", |p| p.label).into(),
-                value: fmt_value(n, self.pv(n)).into(),
-                unit: p.map_or("", |p| unit_of(p.unit, units())).into(),
+                label: if boss && n == 3025 && self.block { "Size hint" } else { p.map_or("", |p| p.label) }.into(),
+                value: if scan { "0 · SCAN".to_string() } else { fmt_value(n, self.pv(n)) }.into(),
+                unit: if scan { String::new() } else { p.map_or("", |p| unit_of(p.unit, units())).to_string() }.into(),
                 changed: self.runv.contains_key(&n),
                 def: fmt_value(n, self.defaults.get(&n).copied().unwrap_or(0.0)).into(),
             }
@@ -1487,6 +1494,7 @@ impl Probe {
             "two" => "Two Faces: first face, opposite face, APPLY".into(),
             "top" => "Z down onto the top face; start above it".into(),
             "boss" if self.three => "three touches around a round boss (top Z first)".into(),
+            "boss" if self.block => "block (touches top Z first)".into(),
             "bore" if self.three => "three touches in a bore, start near its center".into(),
             "boss" => "round boss (touches top Z first)".into(),
             "bscan" => "no size hint: top Z, then touch-downs out to each edge".into(),
@@ -1631,20 +1639,15 @@ impl Probe {
                     self.tgt = t.id;
                 }
             }
-            "pts-3" => {
-                self.three = true;
-                self.scan = false;
+            "pts-3" if !(self.shape == "round" && self.block) => self.three = true,
+            "pts-4" => self.three = false,
+            "shape-round" => self.block = false,
+            "shape-block" => {
+                self.block = true;
+                if self.shape == "round" {
+                    self.three = false;
+                }
             }
-            "pts-4" => {
-                self.three = false;
-                self.scan = false;
-            }
-            "pts-scan" => {
-                self.three = false;
-                self.scan = true;
-            }
-            "scan-block" => self.scan_round = false,
-            "scan-round" => self.scan_round = true,
             "gauge-ring" => self.pin = false,
             "gauge-pin" => self.pin = true,
             "stylus-on" => self.stylus = true,
@@ -1833,6 +1836,7 @@ fn picture(p: &Probe, sel: &Target) -> (String, String, String) {
         "pocket" => rect(60.0, 40.0, 280.0, 220.0) + &rect(110.0, 80.0, 180.0, 140.0),
         // Seen from the front: the stock and the face the probe comes down on.
         "top" => rect(80.0, 170.0, 240.0, 90.0),
+        "round" if p.block => rect(100.0, 90.0, 200.0, 120.0),
         "round" => circle(200.0, 150.0, 80.0),
         "bore" => rect(60.0, 40.0, 280.0, 220.0) + &circle(200.0, 150.0, 60.0),
         "slot" if p.axes == "Y" => rect(60.0, 110.0, 280.0, 80.0),
@@ -1963,6 +1967,7 @@ fn segs(p: &Probe, t: &Target) -> Vec<[f64; 4]> {
                 })
                 .collect()
         }
+        "boss" | "bscan" if p.block => vec![[60.0, 150.0, 100.0, 150.0], [340.0, 150.0, 300.0, 150.0], [200.0, 40.0, 200.0, 90.0], [200.0, 260.0, 200.0, 210.0]],
         "boss" | "bscan" => vec![[60.0, 150.0, 120.0, 150.0], [340.0, 150.0, 280.0, 150.0], [200.0, 30.0, 200.0, 70.0], [200.0, 270.0, 200.0, 230.0]],
         "pocket" => vec![[200.0, 150.0, 290.0, 150.0], [200.0, 150.0, 110.0, 150.0], [200.0, 150.0, 200.0, 80.0], [200.0, 150.0, 200.0, 220.0]],
         "bore" => vec![[200.0, 150.0, 260.0, 150.0], [200.0, 150.0, 140.0, 150.0], [200.0, 150.0, 200.0, 90.0], [200.0, 150.0, 200.0, 210.0]],
@@ -2069,8 +2074,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         ridge: true,
         skew: false,
         three: false,
-        scan: false,
-        scan_round: false,
+        block: false,
         scan_touches: Vec::new(),
         scan_fit: None,
         scan_view: crate::scan3d::View::default(),
@@ -2341,8 +2345,7 @@ mod tests {
             ridge: true,
             skew: false,
             three: false,
-            scan: false,
-            scan_round: false,
+            block: false,
             scan_touches: Vec::new(),
             scan_fit: None,
             scan_view: crate::scan3d::View::default(),
@@ -2467,10 +2470,21 @@ mod tests {
         for (mode, shapes) in SHAPES {
             for (shape, _) in *shapes {
                 pick(&mut p, mode, shape);
-                let combos: [&[&str]; 15] = [&[], &["angle-on"], &["angle-skew"], &["axis-X"], &["axis-Y"], &["valley"], &["Y"], &["valley", "Y"], &["tgt-flat"], &["tgt-dia"], &["tgt-runout"], &["tgt-defl"], &["pts-3"], &["pts-scan"], &["gauge-pin"]];
+                let combos: [&[&str]; 15] = [&[], &["angle-on"], &["angle-skew"], &["axis-X"], &["axis-Y"], &["valley"], &["Y"], &["valley", "Y"], &["tgt-flat"], &["tgt-dia"], &["tgt-runout"], &["tgt-defl"], &["pts-3"], &["shape-block"], &["gauge-pin"]];
                 for opts in combos {
                     for o in opts {
                         p.option(o);
+                    }
+                    // BOSS scans with no size hint and runs the plain boss with one.
+                    let hints: &[Option<f64>] = if p.shape == "round" { &[None, Some(30.0)] } else { &[None] };
+                    for h in hints {
+                    match h {
+                        Some(v) => {
+                            p.runv.insert(3025, *v);
+                        }
+                        None => {
+                            p.runv.remove(&3025);
+                        }
                     }
                     for t in p.targets() {
                         p.tgt = t.id;
@@ -2481,6 +2495,8 @@ mod tests {
                         assert!(o1.len() <= 4 && o2.len() <= 4);
                         macros.insert(call_now(&mut p).split_whitespace().next().unwrap().to_string());
                     }
+                    }
+                    p.runv.remove(&3025);
                     if p.shape == "ring" {
                         // The stylus check is the second run of a calibration.
                         p.flow = Some(Flow::CalTurn { center: (0.0, 0.0), pin: p.pin });
@@ -2491,7 +2507,7 @@ mod tests {
                     p.both = true;
                     p.ridge = true;
                     p.three = false;
-                    p.scan = false;
+                    p.block = false;
                     p.pin = false;
                     p.skew = false;
                     p.axes = "XY";
@@ -2507,19 +2523,36 @@ mod tests {
     fn scan_call_and_touches() {
         let mut p = probe();
         pick(&mut p, "find", "round");
-        p.option("pts-scan");
+        // No size hint: scan.
+        p.runv.remove(&3025);
         assert_eq!(p.selected().kind, "bscan");
+        assert_eq!(p.selected().label, "BOSS CENTER · SCAN");
         assert_eq!(call_now(&mut p), "o<probe_boss_scan> call [10.000] [150.000]");
         // Nothing from a job (it needs no jogging, but jobs don't know it yet).
         assert!(p.job_routine(&p.selected()).is_none());
         assert!(!p.scan_shown());
         p.scan_touches.push(crate::scan3d::Touch { kind: crate::scan3d::Kind::Top, p: [0.0, 0.0, 0.0] });
         assert!(p.scan_shown());
-        // Back to the plain boss: no 3D view, the size hint returns.
-        p.option("pts-4");
+        // A block: same routine, its own title; 3 POINTS is off for it.
+        p.option("pts-3");
+        p.option("shape-block");
+        assert!(!p.three);
+        assert_eq!(p.selected().label, "BLOCK CENTER · SCAN");
+        p.option("pts-3");
+        assert!(!p.three);
+        let (l1, o1, l2, o2) = p.options(&p.selected());
+        assert_eq!((l1, l2), ("SHAPE", "TOUCHES"));
+        assert!(o1[1].on && !o2[1].enabled);
+        // A size hint: the plain boss routine, no 3D view.
+        p.runv.insert(3025, 30.0);
+        assert_eq!(p.selected().kind, "boss");
         assert_eq!(call_now(&mut p), "o<probe_round_boss> call");
         assert!(!p.scan_shown());
-        assert_eq!(p.key_params(p.selected().kind)[0], 3025);
+        // The step stays shorter than the XY search distance.
+        p.runv.remove(&3025);
+        p.option("shape-round");
+        p.runv.insert(3018, 8.0);
+        assert_eq!(call_now(&mut p), "o<probe_boss_scan> call [5.600] [150.000]");
     }
 
     #[test]
@@ -2555,6 +2588,8 @@ mod tests {
         pick(&mut p, "find", "round");
         assert_eq!(call_now(&mut p), "o<probe_boss_3_point> call [90] [160] [280]");
         p.option("pts-4");
+        // Across X and Y with a size hint (none would scan).
+        p.runv.insert(3025, 30.0);
         assert_eq!(call_now(&mut p), "o<probe_round_boss> call");
     }
 

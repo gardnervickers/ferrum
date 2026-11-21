@@ -53,8 +53,8 @@ says exactly what it does.
   angles (degrees counter-clockwise from +X), fitted with
   `ferrum_circle3`; same results as the bore and boss routines. The PROBE
   screen's 3 POINTS lets the operator drag the angles.
-- `probe_boss_scan [step] [max]` (with `ferrum_span_scan`): ROUND BOSS ›
-  SCAN, a boss or a block of stock with no size hint. From anywhere over
+- `probe_boss_scan [step] [max]` (with `ferrum_span_scan`): BOSS (round
+  or block) with a size hint of 0: no size needed. From anywhere over
   the top it touches down every `[step]` outward until the top ends, then
   touches each face from the side, and measures across again from the
   centre. Same results as `probe_round_boss`, plus every touch as

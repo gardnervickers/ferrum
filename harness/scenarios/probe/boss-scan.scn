@@ -1,4 +1,4 @@
-title PROBE › ROUND BOSS › SCAN on a stock machine: finds the block with no size hint, from off its middle
+title PROBE › BOSS with no size hint on a stock machine: scans out to the block's edges from off its middle
 needs stock
 # stock.py's block (mm: X 40..120, Y -60..-10, top -100; inch: X 1.5..4.5,
 # Y -2.5..-0.5, top -4), in tip Z. Start over the top well off its middle;
@@ -13,10 +13,20 @@ screen probe
 do probe-mode "find"
 do probe-wcs "G54"
 do probe-shape "round"
-do probe-opt "pts-scan"
-expect prop.pr-title == "BOSS CENTER · SCAN"
-expect prop.pr-opts2-label == "DRAW AS"
+do probe-opt "shape-block"
+expect prop.pr-opts-label == "SHAPE"
+expect prop.pr-opts2-label == "TOUCHES"
+# A size hint of 0: scan.
+do edit "prun-3025"
+wait prop.keypad-open == true within 5
+do keypad-key CLR
+do keypad-key "0"
+do keypad-done true
+wait prop.keypad-open == false within 5
+expect prop.pr-title == "BLOCK CENTER · SCAN"
+expect prop.pr-params[0].value == "0 · SCAN"
 expect prop.pr-scan == false
+shot boss-scan-setup
 mdi G53 G0 Z${probe_up_z}
 mdi G53 G0 X${scan_start_x} Y${scan_start_y}
 # As common/probe-run.scn, with a look at the 3D view part way.
@@ -40,11 +50,12 @@ expect prop.pr-scan == true
 expect prop.pr-scan-labels.len == 2
 idle 2
 shot boss-scan-block
-do probe-opt "scan-round"
-expect prop.pr-opts2[1].on == true
-expect prop.pr-scan-labels.len == 2
+# ROUND draws the same touches as a round boss.
+do probe-opt "shape-round"
+expect prop.pr-title == "BOSS CENTER · SCAN"
+expect prop.pr-opts[0].on == true
 idle 2
 shot boss-scan-round
-do probe-opt "scan-block"
+do probe-opt "shape-block"
 mdi G53 G0 Z${probe_up_z}
 expect ui-errors.len == 0

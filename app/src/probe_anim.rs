@@ -306,6 +306,29 @@ pub fn script(r: &Routine) -> Script {
                 b.go(start(1), 0.0, 450.0, "BACK OFF");
             }
         }
+        // No size hint: top Z, then out over the top in touch-downs until
+        // one finds nothing, a side touch back in, and back over the start.
+        "bscan" => {
+            b.cur = r.at;
+            b.top(r.at, "START ANYWHERE OVER THE TOP");
+            for (i, s) in segs.iter().enumerate() {
+                let c = (s[2], s[3]);
+                let u = unit(r.at, c);
+                for f in [0.4, 0.8] {
+                    let p = (r.at.0 + (c.0 - r.at.0) * f, r.at.1 + (c.1 - r.at.1) * f);
+                    b.go(p, 1.0, 450.0, "STEP OUT");
+                    b.push(p, 0.4, b.a, 600.0, "TOUCH DOWN · STILL ON TOP", true);
+                    b.go(p, 1.0, 300.0, "RETRACT Z");
+                }
+                let past = (c.0 + u.0 * (TIP_R + 10.0), c.1 + u.1 * (TIP_R + 10.0));
+                b.go(past, 1.0, 450.0, "STEP OUT");
+                b.go(past, 0.0, 800.0, "TOUCH DOWN · NOTHING THERE");
+                b.touch(c, &of(i, n));
+                b.go(past, 0.0, 300.0, "BACK OFF");
+                b.go(past, 1.0, 500.0, "RETRACT Z");
+                b.go(r.at, 1.0, 700.0, "BACK OVER THE START");
+            }
+        }
         // Top Z in the middle, then each side from outside, over the top.
         "boss" | "slot" if r.kind == "boss" || r.ridge => {
             b.cur = r.at;
@@ -625,6 +648,22 @@ mod tests {
         assert!(s.steps.iter().filter(|st| st.label == "MOVE OFF THE SIDE").all(|st| st.z0 == 1.0 && st.z1 == 1.0));
         let last = s.steps.last().unwrap();
         assert_eq!((last.to, last.z1), ((100.0, 230.0), 1.0));
+    }
+
+    #[test]
+    fn a_scan_taps_out_over_the_top_then_touches_each_side_from_depth() {
+        let segs = [[60.0, 150.0, 100.0, 150.0], [340.0, 150.0, 300.0, 150.0]];
+        let s = script(&routine("bscan", &segs));
+        let taps = s.steps.iter().filter(|st| st.label.contains("STILL ON TOP")).count();
+        assert_eq!(taps, 4);
+        // Each side touch is made at depth and stops a tip radius short of the face.
+        let sides: Vec<_> = s.steps.iter().filter(|st| st.label.starts_with("SLOW TOUCH")).collect();
+        assert_eq!(sides.len(), 2);
+        assert!(sides.iter().all(|st| st.z0 == 0.0 && st.z1 == 0.0));
+        assert_eq!(sides[0].to, (100.0 - TIP_R, 150.0));
+        assert_eq!(sides[1].to, (300.0 + TIP_R, 150.0));
+        let last = s.steps.last().unwrap();
+        assert_eq!((last.to, last.z1), ((200.0, 150.0), 1.0));
     }
 
     #[test]
