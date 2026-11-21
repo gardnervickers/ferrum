@@ -1,0 +1,66 @@
+# The probe bench (harness/probe-bench/README.md): Ferrum's probe macros
+# against a simulated world with a collision check, in mm and inch, on
+# LinuxCNC 2.9.10. Runs when the macros or the bench change. Simulator
+# only; nothing here talks to a machine.
+name: Probe bench
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "macros/**"
+      - "harness/probe-bench/**"
+      - "sim/sim_card.py"
+      - ".github/workflows/probe-bench.yml"
+  workflow_dispatch:
+    inputs:
+      fuzz:
+        description: "random fuzz cases per unit system (0 = fixed cases only)"
+        required: false
+        default: "0"
+      seed:
+        description: "fuzz seed"
+        required: false
+        default: "1"
+
+concurrency:
+  group: probe-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: Probe bench (${{ matrix.units }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        units: [mm, inch]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache LinuxCNC build
+        uses: actions/cache@v4
+        with:
+          path: ~/lcnc
+          key: lcnc-2.9.10-${{ runner.os }}-${{ hashFiles('harness/setup-linuxcnc') }}
+
+      - name: Set up LinuxCNC simulator
+        run: harness/setup-linuxcnc ~/lcnc
+
+      - name: Run the probe bench
+        env:
+          BENCH_FUZZ: ${{ inputs.fuzz || '0' }}
+          BENCH_SEED: ${{ inputs.seed || '1' }}
+        run: harness/probe-bench/run -u ${{ matrix.units }}
+
+      - name: Summary
+        if: always()
+        run: cat probe-bench-out/${{ matrix.units }}/report.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-bench-${{ matrix.units }}
+          path: probe-bench-out
+          retention-days: 14

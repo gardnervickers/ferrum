@@ -62,3 +62,14 @@ says exactly what it does.
   system's rotation to it, leaving X0 Y0 as they are.
 
 `ferrum_touch_xy [angle] [max]` is `ferrum_touch` along any XY direction.
+
+## Crash testing
+
+`harness/probe-bench` runs every routine here headless on LinuxCNC 2.9.10
+against a world with fixtures and a probe with a body, and fails on any
+move that would hurt a real probe: a non-probing move into anything, the
+body or spindle nose hitting anything, or a probing move more than 1 mm
+past the surface. It also checks refusals (bad values, G20/G92/G52,
+rotation, wrong tool or TLO), modal state left behind, abort and E-stop
+part way, and random fuzz. See `harness/probe-bench/README.md`; CI runs it
+when this folder changes.

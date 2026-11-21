@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# The probe bench: Ferrum's probe macros against a simulated world with a
+# collision check (see README.md). Simulator only.
+#
+#   ferrum/harness/probe-bench/run                 # mm and inch, fixed cases
+#   ferrum/harness/probe-bench/run -u mm           # one unit system
+#   BENCH_FUZZ=200 BENCH_SEED=7 ferrum/harness/probe-bench/run -u mm
+#   BENCH_ONLY='boss,corner' ferrum/harness/probe-bench/run -u mm
+#
+# Needs LinuxCNC from ferrum/harness/setup-linuxcnc (LCNC_DIR, default
+# ~/lcnc). As root it runs LinuxCNC as user `cncsim`. Exit status: number
+# of failing cases (0 = all pass). Reports: probe-bench-out/<units>/report.md
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+FERRUM="$(cd "$HERE/../.." && pwd)"
+LCNC="${LCNC_DIR:-$HOME/lcnc}"
+OUT="${BENCH_OUT_DIR:-$FERRUM/probe-bench-out}"
+UNITS=(mm inch)
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -u|--units) UNITS=("$2"); shift 2 ;;
+    -o|--out) OUT="$2"; shift 2 ;;
+    *) echo "unknown argument $1" >&2; exit 2 ;;
+  esac
+done
+[ -f "$LCNC/src/scripts/rip-environment" ] || { echo "No LinuxCNC in $LCNC (run ferrum/harness/setup-linuxcnc)" >&2; exit 2; }
+LCNC="$(cd "$LCNC" && pwd)"
+# A LinuxCNC that just shut down takes a few seconds to go.
+for _ in $(seq 30); do pgrep -x milltask >/dev/null || break; sleep 1; done
+if pgrep -x milltask >/dev/null; then echo "A LinuxCNC is already running here; one bench at a time." >&2; exit 2; fi
+mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
+
+as_user=()
+if [ "$(id -u)" = 0 ]; then
+  id cncsim >/dev/null 2>&1 || useradd -m -s /bin/bash cncsim
+  for p in "$LCNC" "$FERRUM"; do
+    d="$p"; while [ "$d" != / ]; do chmod o+rx "$d" 2>/dev/null || true; d="$(dirname "$d")"; done
+  done
+  chown -R cncsim "$OUT"
+  as_user=(runuser -u cncsim -- env HOME=/home/cncsim)
+fi
+
+fails=0
+for u in "${UNITS[@]}"; do
+  dir="$OUT/$u"
+  rm -rf "$dir"; mkdir -p "$dir"
+  python3 "$HERE/make_config.py" "$dir/config" --units "$u"
+  [ -z "${as_user[*]}" ] || chown -R cncsim "$dir"
+  echo "== probe bench ($u): $dir"
+  # LinuxCNC runs the bench driver as its display; it exits when done.
+  (cd "$dir/config" && "${as_user[@]}" env BENCH_UNITS="$u" BENCH_OUT="$dir" BENCH_EVENTS="$dir/events.jsonl" \
+      BENCH_TOOL_TABLE="$dir/config/tool.tbl" BENCH_FUZZ="${BENCH_FUZZ:-0}" BENCH_SEED="${BENCH_SEED:-1}" \
+      BENCH_ONLY="${BENCH_ONLY:-}" PATH="$PATH" \
+      bash -c "source '$LCNC/src/scripts/rip-environment' && linuxcnc bench.ini" > "$dir/linuxcnc.log" 2>&1) || true
+  if [ ! -f "$dir/done" ]; then
+    echo "bench did not finish ($u): see $dir/linuxcnc.log" >&2
+    tail -30 "$dir/linuxcnc.log" >&2
+    fails=$((fails + 1))
+    continue
+  fi
+  n="$(cat "$dir/done")"
+  head -4 "$dir/report.md"
+  fails=$((fails + n))
+done
+exit $((fails > 255 ? 255 : fails))
