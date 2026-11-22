@@ -1,0 +1,32 @@
+title An offset edit before homing is refused, not shown as taken
+# LinuxCNC takes no MDI before homing. The row of a system that is not
+# active showed the new value anyway, and the travel check used it.
+allow-error Home the machine first
+wait prop.connected == true within 30
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10
+screen offsets
+do offsets-select 1
+do edit off-x
+do keypad-key CLR
+do keypad-key "7"
+do keypad-key "7"
+do keypad-done true
+expect prop.keypad-error == true
+do keypad-done false
+sleep 1
+shot unhomed-edit
+expect prop.offsets !contains "77"
+# Homed, the same edit goes in.
+do home-all
+wait prop.homed == true within 120
+idle 10
+do edit off-x
+do keypad-key CLR
+do keypad-key "7"
+do keypad-key "7"
+do keypad-done true
+wait prop.keypad-open == false within 5
+wait prop.offsets contains "77.000" within 5

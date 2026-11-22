@@ -63,6 +63,8 @@ pub struct Offsets {
     status: Option<Status>,
     machine: Handle,
     ui: slint::Weak<MainWindow>,
+    /// [TRAJ]NO_FORCE_HOMING: LinuxCNC takes MDI before homing.
+    no_force_homing: bool,
 }
 
 impl Offsets {
@@ -75,6 +77,9 @@ impl Offsets {
         match &self.status {
             Some(s) if !s.power_on() => Err("Turn the machine on first".into()),
             Some(s) if s.busy() => Err("Offsets can't change while a program or MDI command runs".into()),
+            // LinuxCNC refuses MDI before homing; an inactive system's row
+            // would show a value it never took (and the travel check use it).
+            Some(s) if !s.all_homed() && !self.no_force_homing => Err("Home the machine first: LinuxCNC takes offset changes only when homed".into()),
             Some(s) => Ok(s),
             None => Err("Not connected to LinuxCNC".into()),
         }
@@ -224,7 +229,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, sim: bool) -> Rc<Re
         let path = cfg.dir().join(cfg.get("RS274NGC", "PARAMETER_FILE").unwrap_or("linuxcnc.var"));
         std::fs::read_to_string(path).map(|t| parse_var(&t)).unwrap_or([[0.0; 5]; 9])
     };
-    let o = Rc::new(RefCell::new(Offsets { pending: Default::default(), table, selected: 0, status: None, machine: machine.clone(), ui: ui.as_weak() }));
+    let o = Rc::new(RefCell::new(Offsets { pending: Default::default(), table, selected: 0, status: None, machine: machine.clone(), ui: ui.as_weak(), no_force_homing: cfg.get("TRAJ", "NO_FORCE_HOMING").is_some_and(|v| v.trim() == "1") }));
     crate::manual::add_keypad_target(Rc::new(Keys(o.clone())));
     let actions = ui.global::<Actions>();
     let t = o.clone();
