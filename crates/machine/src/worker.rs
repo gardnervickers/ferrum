@@ -666,6 +666,15 @@ fn execute(m: &mut dyn Machine, last: &Option<lcnc::Status>, cmd: Command, on_ev
     // and a mode switch while something runs aborts it (task's
     // emcTaskSetMode aborts motion and the interpreter).
     let now = fresh(m, last);
+    // LinuxCNC refuses to open a program while one runs or is paused (and
+    // says so in its own words, twice); the program going on is unchanged.
+    if let (Command::ProgramOpen(_), Some(s)) = (&cmd, &now) {
+        if s.interp != Interp::Idle {
+            let text = "Stop the program before loading another".to_string();
+            on_event(Event::Message(Message { kind: MessageKind::Error, text }));
+            return None;
+        }
+    }
     if let (Some(want), Some(s)) = (required_mode(&cmd), &now) {
         if s.mode != want && !s.busy() {
             if let Err(e) = m.send(&Command::SetMode(want)) {

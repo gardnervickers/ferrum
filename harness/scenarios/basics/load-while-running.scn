@@ -1,0 +1,32 @@
+title Loading another program while one runs or is paused changes nothing
+allow-error Stop the program before loading another
+include ../common/ready.scn
+include ../common/work-zero.scn
+screen files
+tap files name h_long.ngc files-tap
+do files-load
+wait stat.file contains h_long.ngc within 10
+screen run
+wait prop.plot-summary contains " h " within 120
+do cycle-start
+wait stat.interp_state != 1 within 10
+screen files
+tap files name h_square.ngc files-tap
+do files-load
+sleep 2
+expect stat.file contains h_long.ngc
+expect stat.interp_state != 1
+screen run
+expect prop.gcode-lines contains "o100"
+do feed-hold
+wait stat.interp_state == 3 within 5
+screen files
+tap files name h_square.ngc files-tap
+do files-load
+sleep 2
+expect stat.file contains h_long.ngc
+expect stat.interp_state == 3
+screen run
+expect prop.gcode-lines contains "o100"
+do stop
+wait stat.interp_state == 1 within 10
