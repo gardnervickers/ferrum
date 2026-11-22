@@ -171,8 +171,9 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
         let gs: Vec<f64> = w.iter().filter(|(a, _)| *a == 'G').map(|&(_, v)| v).collect();
         let g = |v: f64| gs.iter().any(|&b| (b - v).abs() < 1e-6);
         if unreplayable.is_none() {
-            const G_NO: [(f64, &str); 12] = [
+            const G_NO: [(f64, &str); 15] = [
                 (10.0, "writes offsets or tool data"),
+                (52.0, "shifts the work offsets (local offset)"),
                 (92.0, "shifts the work offsets"),
                 (92.1, "clears G92 offsets"),
                 (92.2, "suspends G92 offsets"),
@@ -184,6 +185,8 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
                 (43.2, "adds a tool length offset"),
                 (38.2, "probes"),
                 (38.3, "probes"),
+                (38.4, "probes"),
+                (38.5, "probes"),
             ];
             // M codes whose effect the preamble sets (or that leave none).
             const M_OK: [f64; 14] = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 30.0, 48.0, 49.0, 61.0];
@@ -685,6 +688,9 @@ mod tests {
         let mut g: Vec<String> = (0..14).map(|_| "G0 X0 Y0 Z5".to_string()).collect();
         g[3] = "G10 L20 P1 X0".into();
         assert!(plan(&g, 13).problem.unwrap().contains("Line 4 before here: G10 writes offsets"));
+        // G52 shifts every later move like G92; skipping it moves the cut.
+        g[3] = "G52 X10".into();
+        assert!(plan(&g, 13).problem.unwrap().contains("Line 4 before here: G52 shifts the work offsets"));
         g[3] = "M100 P1".into();
         assert!(plan(&g, 13).problem.unwrap().contains("M100"));
         g[3] = "G64 P0.02".into();
