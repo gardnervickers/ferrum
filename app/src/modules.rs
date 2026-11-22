@@ -624,14 +624,36 @@ impl Module for Watchdog {
     }
 }
 
-/// The module's HAL file ran: its heartbeat must reach something.
+/// The module's HAL file ran: its heartbeat must reach a timer, and the
+/// timer must reach something that stops the machine. (halcmd runs the
+/// file with -k, so a missing `estop-latch.0` on this machine only fails
+/// that line, and the heartbeat alone would look wired.)
 fn check_watchdog_file() -> Result<String, String> {
-    use crate::halmap::pin_info;
-    let beat = pin_info("ferrum.watchdog.heartbeat").map(|(_, s)| s).unwrap_or_default();
+    let all = crate::halmap::snapshot().ok_or("HAL did not answer")?;
+    watchdog_trip(&all)
+}
+
+/// From the whole HAL: the heartbeat's signal goes into a component (the
+/// oneshot) one of whose outputs drives a pin outside ferrum.
+fn watchdog_trip(all: &[crate::halmap::HalItem]) -> Result<String, String> {
+    let pin = |n: &str| all.iter().find(|i| !i.is_signal() && i.name == n);
+    let beat = pin("ferrum.watchdog.heartbeat").map(|i| i.sig.clone()).unwrap_or_default();
     if beat.is_empty() {
         return Err("ferrum/hal/watchdog.hal left ferrum.watchdog.heartbeat unconnected".into());
     }
-    Ok(format!("ferrum/hal/watchdog.hal (heartbeat on {beat})"))
+    let outside_readers = |sig: &str| -> Vec<&str> {
+        all.iter().filter(|i| !i.is_signal() && i.dir == "IN" && i.sig == sig && !i.name.starts_with("ferrum.")).map(|i| i.name.as_str()).collect()
+    };
+    for timer in outside_readers(&beat) {
+        let Some((comp, _)) = timer.rsplit_once('.') else { continue };
+        let outs = all.iter().filter(|i| !i.is_signal() && i.dir == "OUT" && !i.sig.is_empty() && i.name.rsplit_once('.').is_some_and(|(c, _)| c == comp));
+        for out in outs {
+            if let Some(trip) = outside_readers(&out.sig).first() {
+                return Ok(format!("ferrum/hal/watchdog.hal (heartbeat on {beat}, trips {trip})"));
+            }
+        }
+    }
+    Err(format!("ferrum/hal/watchdog.hal: the heartbeat ({beat}) reaches no timer that trips E-stop (is estop-latch.0 in the machine's HAL?)"))
 }
 
 /// No HAL file: load and connect the oneshot, then the trip.
@@ -761,5 +783,24 @@ mod tests {
         assert_eq!(ids, ["run", "manual", "toolchange", "setup", "watchdog"]);
         assert_eq!(problems.len(), 1);
         std::fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn the_watchdog_file_must_reach_an_estop() {
+        use crate::halmap::parse_all;
+        let pins = "ferrum bit OUT TRUE ferrum.watchdog.heartbeat ==> ferrum-screen-heartbeat\n\
+                    ferrum bit IN TRUE ferrum.watchdog.ok <== ferrum-screen-ok\n\
+                    oneshot bit IN TRUE ferrum-screen-watchdog.in <== ferrum-screen-heartbeat\n\
+                    oneshot bit OUT TRUE ferrum-screen-watchdog.out ==> ferrum-screen-ok\n\
+                    oneshot bit OUT FALSE ferrum-screen-watchdog.out-not ==> ferrum-screen-stale\n";
+        let sigs = "bit TRUE ferrum-screen-heartbeat\nbit TRUE ferrum-screen-ok\nbit FALSE ferrum-screen-stale\n";
+        // estop-latch.0 missing: the net to its fault-in failed, nothing trips.
+        let e = watchdog_trip(&parse_all(pins, sigs)).unwrap_err();
+        assert!(e.contains("reaches no timer"), "{e}");
+        let wired = format!("{pins}estop_latch bit IN FALSE estop-latch.0.fault-in <== ferrum-screen-stale\n");
+        let ok = watchdog_trip(&parse_all(&wired, sigs)).unwrap();
+        assert!(ok.contains("trips estop-latch.0.fault-in"), "{ok}");
+        let loose = "ferrum bit OUT TRUE ferrum.watchdog.heartbeat\n";
+        assert!(watchdog_trip(&parse_all(loose, "")).unwrap_err().contains("unconnected"));
     }
 }
