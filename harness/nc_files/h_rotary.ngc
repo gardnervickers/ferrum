@@ -1,0 +1,18 @@
+( ferrum harness: an indexed A move, then two squares at A90 )
+G21 G90 G17 G40 G80 G94 G54
+G0 Z5
+G0 X0 Y0
+G0 A90
+G1 Z0 F${feed}
+(SQUARE)
+G1 X${dist}
+G1 Y${dist}
+G1 X0
+G1 Y0
+(SQUARE AGAIN)
+G1 X${dist}
+G1 Y${dist}
+G1 X0
+G1 Y0
+G0 Z5
+M30

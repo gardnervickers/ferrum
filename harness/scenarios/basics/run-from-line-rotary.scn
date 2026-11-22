@@ -1,0 +1,26 @@
+title RUN FROM SELECTED turns A to where the skipped lines left it
+# h_rotary.ngc indexes A to 90 on line 5 and cuts from there. Started at
+# line 14 with A still at 0, the restart copy must turn A to 90 (at the
+# top of Z) before it comes down: the cut line itself has no A word.
+needs xyza
+include ../common/ready.scn
+include ../common/work-zero.scn
+expect stat.position[3] ~= 0
+screen files
+tap files name h_rotary.ngc files-tap
+do files-load
+wait stat.file contains h_rotary.ngc within 10
+screen run
+wait prop.plot-summary contains " OP" within 30
+set gcode-selected 13
+sleep 0.5
+do gcode-run-from-selected
+wait stat.interp_state != 1 within 10
+shot running
+idle 60
+expect stat.position[3] ~= 90
+expect stat.position[0] ~= ${safe_x}
+expect stat.position[1] ~= ${safe_y}
+# The original program is back once the run ends.
+wait stat.file !contains ferrum-restart within 10
+expect stat.file contains h_rotary.ngc

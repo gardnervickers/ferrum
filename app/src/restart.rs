@@ -11,14 +11,15 @@
 //!   sets what they left behind (units, plane, work offset, tool length
 //!   offset, feed, spindle, coolant) and moves to where the start line
 //!   begins: Z to machine top, X and Y over the spot, rapid down to the last
-//!   rapid height above it, then feed down at the program's feed;
+//!   rapid height above it, then feed down at the program's feed; rotary
+//!   axes the program turned go back to their angle at the top first;
 //! - the rest is padded with blank lines so every line keeps its number, and
 //!   the screen keeps showing the original program;
 //! - the original is loaded again when the run ends or stops.
 //!
 //! It refuses when the wrong tool is in the spindle, when the line is in or
 //! after o-word code or parameters, inside a drilling cycle, with cutter
-//! compensation or incremental moves on, or for a JOB program (jobs start at
+//! compensation, incremental moves or inverse time feed (G93) on, or for a JOB program (jobs start at
 //! an op on the JOB screen instead).
 
 use machine::{Command, Handle, Interp, Status};
@@ -54,6 +55,9 @@ pub struct Plan {
     /// Program position before the start line, per axis (None: unknown,
     /// e.g. after a G53 move).
     pos: [Option<f64>; 3],
+    /// Rotary A B C before the start line (None: the program never set it,
+    /// or it is not known from the text).
+    rot: [Option<f64>; 3],
     /// Height of the last rapid that only moved Z: the retract plane.
     rapid_z: Option<f64>,
     /// The first line starts with "%", so the copy must too.
@@ -136,6 +140,7 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
     let mut comp = false;
     let mut incremental = false;
     let mut cycle = false;
+    let mut inverse_time = false;
     let mut code_before = false;
     // The first skipped line whose effect the restart copy cannot replay.
     let mut unreplayable: Option<String> = None;
@@ -272,6 +277,12 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
                 None => "G43".into(),
             });
         }
+        if g(93.0) {
+            inverse_time = true;
+        }
+        if g(94.0) || g(95.0) {
+            inverse_time = false;
+        }
         if g(80.0) {
             cycle = false;
         }
@@ -286,21 +297,34 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
         let axes = ['X', 'Y', 'Z'];
         let moved: Vec<(usize, f64)> =
             w.iter().filter_map(|&(a, v)| axes.iter().position(|&x| x == a).map(|i| (i, v))).collect();
+        let turned: Vec<(usize, f64)> =
+            w.iter().filter_map(|&(a, v)| ['A', 'B', 'C'].iter().position(|&x| x == a).map(|i| (i, v))).collect();
         if g(53.0) || g(28.0) || g(30.0) || g(10.0) || g(92.0) {
             // Machine-coordinate moves and offset changes: the program
             // position afterwards is not known from the text.
             if g(28.0) || g(30.0) || g(92.0) {
                 p.pos = [None; 3];
+                p.rot = [None; 3];
             }
             for (i, _) in &moved {
                 p.pos[*i] = None;
             }
-        } else if !moved.is_empty() && !cycle {
-            for &(i, v) in &moved {
-                p.pos[i] = Some(v);
+            for (i, _) in &turned {
+                p.rot[*i] = None;
             }
-            if p.motion == Some(0) && moved.len() == 1 && moved[0].0 == 2 {
-                p.rapid_z = Some(moved[0].1);
+        } else {
+            // A rotary word turns the axis in a drilling cycle too (before
+            // the hole's moves), so it is followed there as well.
+            for &(i, v) in &turned {
+                p.rot[i] = Some(v);
+            }
+            if !moved.is_empty() && !cycle {
+                for &(i, v) in &moved {
+                    p.pos[i] = Some(v);
+                }
+                if p.motion == Some(0) && moved.len() == 1 && moved[0].0 == 2 {
+                    p.rapid_z = Some(moved[0].1);
+                }
             }
         }
     }
@@ -331,6 +355,10 @@ pub fn plan<S: AsRef<str>>(lines: &[S], index: usize) -> Plan {
         Some("Incremental moves (G91) are on at this line; pick another line".into())
     } else if cycle {
         Some("A drilling cycle is on at this line; pick the G8x line or one before it".into())
+    } else if inverse_time {
+        // The approach's feed down would read the program's last F as
+        // inverse time (1/F minutes for the move), not a feed rate.
+        Some("Inverse time feed (G93) is on at this line; pick a line before the G93".into())
     } else if arc_without_g {
         Some("This line continues an arc; pick the line that starts it".into())
     } else if index < p.preamble().len() + usize::from(p.percent) {
@@ -367,6 +395,11 @@ impl Plan {
         }
         if self.flood {
             parts.push("flood".into());
+        }
+        for (r, a) in self.rot.iter().zip(['A', 'B', 'C']) {
+            if let Some(r) = r {
+                parts.push(format!("{a} at {}", fmt(*r)));
+            }
         }
         let how = match (self.approach().is_empty(), self.changes_tool) {
             (_, true) | (true, _) => "Z goes to the top first",
@@ -441,6 +474,13 @@ impl Plan {
         };
         let top = jobcore::mill_ops::machine_top_in(Some(mi.units.upper()), units);
         let mut v = vec![modal.join(" "), format!("{top} (ferrum restart: Z to the top)")];
+        // Rotary axes the program turned go back to where it left them, at
+        // the top: the start line cuts at that angle and may not name it.
+        let turn: Vec<String> =
+            self.rot.iter().zip(['A', 'B', 'C']).filter_map(|(r, a)| r.map(|r| format!("{a}{}", fmt(r)))).collect();
+        if !turn.is_empty() {
+            v.push(format!("G0 {}", turn.join(" ")));
+        }
         let mut setup = Vec::new();
         if let Some(f) = self.feed {
             setup.push(format!("F{}", fmt(f)));
@@ -666,6 +706,37 @@ mod tests {
         assert_eq!(words("M3S1200(spindle on)"), vec![('M', 3.0), ('S', 1200.0)]);
         assert_eq!(words("g1 x-1.5 ; note M5"), vec![('G', 1.0), ('X', -1.5)]);
         assert_eq!(words("T#1 M6"), vec![('M', 6.0)]);
+    }
+
+    #[test]
+    fn rotary_goes_back_to_its_angle_at_the_top() {
+        // An indexed 4th-axis job: the start line cuts at A90 without
+        // naming it, so the copy turns A there before coming down.
+        let g = ["G21 G90 G54", "T1 M6", "S3000 M3", "G0 A90", "G0 X0 Y0", "G43 Z15 H1", "G0 Z5", "G1 Z-1 F200", "G1 X10", "G1 Y10", "G1 X0", "G1 Y0"];
+        let p = plan(&g, 10);
+        assert!(p.problem.is_none(), "{:?}", p.problem);
+        let pre = p.preamble();
+        let top = pre.iter().position(|l| l.contains("Z to the top")).unwrap();
+        assert_eq!(pre[top + 1], "G0 A90", "{pre:?}");
+        assert!(pre.iter().position(|l| l.starts_with("G0 X")).unwrap() > top + 1);
+        assert!(p.summary(1).contains("A at 90"), "{}", p.summary(1));
+        // A G53 or G28 move leaves it unknown: not turned.
+        let mut g2 = g.to_vec();
+        g2[4] = "G28 G91 Z0";
+        g2[5] = "G90 G0 X0 Y0";
+        assert!(!plan(&g2, 10).preamble().iter().any(|l| l.contains('A')));
+        // A 3-axis program turns nothing.
+        assert!(!plan(FUSION, 13).preamble().iter().any(|l| l.contains("A")));
+    }
+
+    #[test]
+    fn inverse_time_feed_refuses() {
+        // In G93 the approach's "G1 Z.. F" would read F as 1/minutes.
+        let mut g: Vec<String> = (0..14).map(|_| "G0 X0 Y0 Z5".to_string()).collect();
+        g[10] = "G93 G1 X1 A10 F50".into();
+        assert!(plan(&g, 13).problem.unwrap().contains("G93"));
+        g[11] = "G94".into();
+        assert!(plan(&g, 13).problem.is_none());
     }
 
     #[test]
