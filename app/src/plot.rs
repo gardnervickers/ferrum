@@ -312,10 +312,17 @@ impl Plot {
     fn run_check(&mut self, ui: &MainWindow) {
         self.check = self.check_from(0);
         let live = ui.global::<Live>();
-        let (text, level, line) = match &self.check {
+        let (mut text, mut level, line) = match &self.check {
             None => (String::new(), 0, 0),
             Some(r) => check_text(r, &self.tp, self.live.as_ref()),
         };
+        // The preview stopped early: what follows was never checked, so the
+        // banner must not say OK.
+        if let (Some(e), true) = (&self.tp.error, level == 0 && self.limits.is_some()) {
+            let after = self.tp.segs.last().map_or(String::new(), |s| format!(" after line {}", s.line));
+            text = format!("NOT CHECKED{after}: the preview stopped there ({e})");
+            level = 1;
+        }
         live.set_plot_check(text.into());
         live.set_plot_check_level(level);
         live.set_plot_check_line(line as i32);

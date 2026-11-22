@@ -1,0 +1,7 @@
+( ferrum harness: the preview stops at line 5; the move after it is never checked )
+G90 G17 G40 G80
+G0 X0 Y0
+G1 X${dist} F${feed}
+o<ferrum_no_such_sub> call
+G1 X5000
+M30

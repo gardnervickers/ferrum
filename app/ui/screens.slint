@@ -513,9 +513,15 @@ component ProgramCard inherits Card {
                 width: min(parent.width - 96px - 154px, 820px);
                 height: 48px;
                 border-radius: Theme.radius-ctl;
-                background: Live.plot-check-level == 2 ? Theme.bad-soft : Live.plot-check-level == 1 ? Theme.warn-soft : Theme.good-soft;
-                border-width: 1px;
-                border-color: Live.plot-check-level == 2 ? Theme.stop-border : Live.plot-check-level == 1 ? Theme.hold-border : Theme.go-border;
+                // Opaque under the tint: the toolpath and tool marker must
+                // not show through the text.
+                background: Theme.panel;
+                Rectangle {
+                    border-radius: Theme.radius-ctl;
+                    background: Live.plot-check-level == 2 ? Theme.bad-soft : Live.plot-check-level == 1 ? Theme.warn-soft : Theme.good-soft;
+                    border-width: 1px;
+                    border-color: Live.plot-check-level == 2 ? Theme.stop-border : Live.plot-check-level == 1 ? Theme.hold-border : Theme.go-border;
+                }
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 14px;
                     spacing: 10px;

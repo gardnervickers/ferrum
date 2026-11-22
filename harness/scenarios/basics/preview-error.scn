@@ -1,0 +1,16 @@
+title A program the preview could not read to the end is not TRAVEL OK
+# The travel check sees only the moves before the preview error; the
+# banner said OK for the rest (here a move past the limit).
+allow-error Preview
+include ../common/ready.scn
+include ../common/work-zero.scn
+screen files
+tap files name h_preview_error.ngc files-tap
+do files-load
+wait stat.file contains h_preview_error.ngc within 10
+screen run
+wait prop.plot-check contains NOT CHECKED within 30
+expect prop.plot-check-level == 1
+shot banner
+expect prop.message contains "h_preview_error.ngc"
+expect prop.message contains "line: 5"
