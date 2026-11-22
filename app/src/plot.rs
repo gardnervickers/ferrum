@@ -52,6 +52,12 @@ pub struct Plot {
     /// How the rotary turns the drawing (see `preview::wrap_a`).
     a_sign: f64,
     file: String,
+    /// Counts program reads (`load`); a read's result is used only if no
+    /// later read started, so a slow read of the program before cannot
+    /// replace the one now loaded.
+    reads: u64,
+    /// A read is under way: there is no travel check yet.
+    reading: bool,
     /// The file's path, time and size when it was read (see program::stale).
     stamp: crate::program::Stamp,
     /// Slint draws with OpenGL and the GPU backplot is ready: frames are
@@ -348,6 +354,11 @@ fn check_text(r: &Report, tp: &Toolpath, live: Option<&preflight::Live>) -> (Str
 /// A tool tip below the table only warns (the model is approximate).
 pub fn start_problem(plot: &Rc<RefCell<Plot>>, from_line: u32) -> Option<String> {
     let st = plot.borrow();
+    if st.reading {
+        // Until the read is done there is nothing to check: a start now
+        // would skip the travel check.
+        return Some("The program is still being read for the travel check; start again when the preview shows".into());
+    }
     let r = st.check_from(from_line)?;
     let p = r.travel().next()?;
     let mut text = preflight::describe(p, crate::machine_info::get().units.inch());
@@ -537,14 +548,19 @@ pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpa
         (p.setup.as_ref().map(|s| rs274::Setup { ini: s.ini.clone(), config_dir: s.config_dir.clone(), var_file: s.var_file.clone(), tool_table: s.tool_table.clone(), rapid_mm_s: s.rapid_mm_s, inch: s.inch }), p.rapid)
     };
     crate::util::background(move || {
-        let mut tp = match &setup {
-            Some(s) => rs274::run(s, &path),
-            None => match std::fs::read_to_string(&path) {
-                Ok(t) => preview::mini::parse(&t, rapid),
-                Err(e) => Toolpath { error: Some(e.to_string()), ..Default::default() },
-            },
-        };
-        timing::estimate(&mut tp, &lim);
+        // Always answer, even if the read panics: a start waits for it.
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut tp = match &setup {
+                Some(s) => rs274::run(s, &path),
+                None => match std::fs::read_to_string(&path) {
+                    Ok(t) => preview::mini::parse(&t, rapid),
+                    Err(e) => Toolpath { error: Some(e.to_string()), ..Default::default() },
+                },
+            };
+            timing::estimate(&mut tp, &lim);
+            tp
+        }));
+        let tp = read.unwrap_or_else(|_| Toolpath { error: Some("the program could not be read for the preview".into()), ..Default::default() });
         let _ = slint::invoke_from_event_loop(move || done(tp));
     });
 }
@@ -553,19 +569,28 @@ pub fn analyze(plot: &Rc<RefCell<Plot>>, path: PathBuf, done: impl FnOnce(Toolpa
 pub fn load(ui: &MainWindow, plot: &Rc<RefCell<Plot>>, file: &str) {
     let weak = ui.as_weak();
     let path = PathBuf::from(file);
-    {
+    let read = {
         let mut p = plot.borrow_mut();
         p.trail.clear();
         p.trail_load.clear();
         p.set_toolpath(ui, Toolpath::default());
-    }
+        p.reads += 1;
+        p.reading = !file.is_empty();
+        p.reads
+    };
     if file.is_empty() {
         return;
     }
     ui.global::<Live>().set_plot_summary("READING PROGRAM…".into());
     analyze(plot, path, move |tp| {
         if let Some(ui) = weak.upgrade() {
-            with(|p| p.borrow_mut().set_toolpath(&ui, tp));
+            with(|p| {
+                let mut p = p.borrow_mut();
+                if p.reads == read {
+                    p.reading = false;
+                    p.set_toolpath(&ui, tp);
+                }
+            });
         }
     });
 }
@@ -692,6 +717,8 @@ pub fn wire(ui: &MainWindow, cfg: &Config, model: &crate::machine_cfg::Model) ->
         rapid: rapid(cfg),
         a_sign: a_sign(cfg),
         file: String::new(),
+        reads: 0,
+        reading: false,
         stamp: (String::new(), None, 0),
         // The GPU may have been set up already, while the splash drew.
         gpu: gpu_ready(),

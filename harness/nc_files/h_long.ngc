@@ -1,0 +1,10 @@
+( ferrum harness: a loop of 20000 short moves, slow to read for the preview )
+G21 G90 G17 G94 G54
+G0 X0 Y0 Z5
+#1 = 0
+o100 while [#1 LT 20000]
+G1 X[#1 MOD 10] Y[#1 MOD 7] F${feed}
+#1 = [#1 + 1]
+o100 endwhile
+G0 Z5
+M30

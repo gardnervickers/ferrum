@@ -1,0 +1,37 @@
+title CYCLE START waits for the travel check, and a slow read never replaces a later program
+allow-error still being read
+include ../common/ready.scn
+include ../common/work-zero.scn
+screen files
+tap files name h_long.ngc files-tap
+do files-load
+wait stat.file contains h_long.ngc within 10
+screen run
+expect prop.plot-summary contains READING
+do cycle-start
+sleep 1
+expect stat.interp_state == 1
+expect prop.message contains still being read
+shot refused
+wait prop.plot-summary contains " OP" within 120
+shot read
+# h_long again, then h_square while h_long is still being read: the preview
+# and travel check must end up h_square's.
+screen files
+tap files name h_long.ngc files-tap
+do files-load
+wait stat.file contains h_long.ngc within 10
+tap files name h_square.ngc files-tap
+do files-load
+wait stat.file contains h_square.ngc within 10
+screen run
+wait prop.plot-summary contains " OP" within 30
+sleep 20
+shot square
+expect prop.plot-summary !contains min        # h_square's seconds, not h_long's hour
+wait prop.can-start == true within 10
+do cycle-start
+wait stat.interp_state != 1 within 10
+idle 120
+expect stat.position[0] ~= ${safe_x}
+expect stat.position[1] ~= ${safe_y}
