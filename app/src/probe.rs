@@ -1098,7 +1098,9 @@ impl Probe {
         if let Some(e) = &run.failed {
             self.result_text = if e == "Stopped" { format!("{}: stopped", run.what) } else { format!("{} failed: {e}", run.what) };
             self.flow = None;
-            self.note(format!("Probe routine failed: {e}"), true);
+            // The quiet-time defaults write is no probe routine; it is tried again.
+            let what = if run.kind.is_empty() { "Writing the probe defaults to LinuxCNC failed (tried again later)" } else { "Probe routine failed" };
+            self.note(format!("{what}: {e}"), true);
             return;
         }
         // Putting the defaults back measures nothing: the last result stays.
