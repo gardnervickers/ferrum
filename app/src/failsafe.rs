@@ -11,7 +11,9 @@
 //!   [`KEEPALIVE`].
 //! - Stale input: a tap or key press that arrives when no frame has been
 //!   drawn for [`STALE`] is dropped. What is under the finger is not what
-//!   the operator sees.
+//!   the operator sees. So is one in the [`AFTER_GAP`] after such a gap:
+//!   winit may hand over the first new frame before the presses queued
+//!   during the freeze.
 
 use crate::MainWindow;
 use slint::ComponentHandle;
@@ -24,6 +26,9 @@ pub const KEEPALIVE: Duration = Duration::from_millis(250);
 pub const STALE: Duration = Duration::from_millis(600);
 /// The HAL watchdog's timeout (`oneshot.width`), in seconds.
 pub const TIMEOUT: f64 = 1.0;
+/// After a gap longer than [`STALE`], input stays stale this long: the
+/// presses queued during the freeze can come in after the first new frame.
+pub const AFTER_GAP: Duration = Duration::from_millis(250);
 
 #[derive(Default)]
 struct State {
@@ -34,6 +39,8 @@ struct State {
     /// Longest time between two drawn frames since `reset_max_gap`.
     max_gap: Duration,
     dropped: u64,
+    /// Input before this is stale: the screen just came back from a gap.
+    quiet_until: Option<Instant>,
     /// The rendering notifier marks frames (femtovg); the winit
     /// RedrawRequested hook must not count them twice.
     notifier: bool,
@@ -71,6 +78,9 @@ fn mark(now: Instant) {
             if gap > s.max_gap {
                 s.max_gap = gap;
             }
+            if gap > STALE {
+                s.quiet_until = Some(now + AFTER_GAP);
+            }
             if s.armed && gap.as_secs_f64() >= TIMEOUT * 0.9 {
                 s.froze = Some(gap);
                 eprintln!("ferrum: the screen did not draw for {} ms: the HAL screen watchdog E-stops the machine", gap.as_millis());
@@ -102,7 +112,10 @@ pub fn clear_froze() {
 
 /// True when no frame has been drawn for [`STALE`] (or none at all).
 pub fn stale(now: Instant) -> bool {
-    STATE.with(|s| s.borrow().last.is_none_or(|t| now.saturating_duration_since(t) > STALE))
+    STATE.with(|s| {
+        let s = s.borrow();
+        s.last.is_none_or(|t| now.saturating_duration_since(t) > STALE) || s.quiet_until.is_some_and(|q| now < q)
+    })
 }
 
 /// (frames drawn, longest gap between frames in ms, input events dropped).
@@ -195,6 +208,9 @@ mod tests {
         let (frames, gap, _) = stats();
         assert_eq!(frames, 2);
         assert_eq!(gap, 900);
+        // Presses queued in the gap may come in after the first new frame.
+        assert!(stale(t0 + Duration::from_millis(950)));
+        assert!(!stale(t0 + Duration::from_millis(900) + AFTER_GAP + Duration::from_millis(1)));
         reset_max_gap();
         assert_eq!(stats().1, 0);
     }

@@ -10,7 +10,7 @@ sleep 1
 do jog-step-set "CONT"
 # Past the probe defaults' quiet-time write, which a jog would refuse.
 sleep 4
-press 1691 424   # X+, held
+press 1667 424   # X+, held (inside it with or without an A column)
 wait stat.current_vel > 0 within 3
 signal STOP
 release
