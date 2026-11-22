@@ -1572,6 +1572,29 @@ impl Probe {
         self.job_op(measure)
     }
 
+    /// Before CYCLE START. This screen sends its MDI line by line, and a
+    /// line that lands after the program starts is refused by LinuxCNC. The
+    /// quiet-time defaults write gives way: the lines not sent yet wait for
+    /// the next quiet time (still marked pending). A probe routine between
+    /// its lines refuses the start.
+    pub fn start_problem(&mut self) -> Option<String> {
+        if let Some(r) = &self.run {
+            if !r.kind.is_empty() {
+                return Some(format!("{} is still sending to LinuxCNC; start again in a moment", r.what));
+            }
+            self.run = None;
+            self.mark_dirty(true);
+        }
+        self.hold_restore();
+        None
+    }
+
+    /// Something else is about to talk to LinuxCNC (a start, a file opened
+    /// again): the quiet-time defaults write waits out QUIET_FOR again.
+    pub fn hold_restore(&mut self) {
+        self.quiet_since = None;
+    }
+
     /// A job with probing ops is starting: put the probe defaults back once
     /// it is idle again, as after a run from this screen.
     pub fn job_started(&mut self) {
@@ -1673,25 +1696,30 @@ impl Probe {
         self.settle();
     }
 
-    fn set_value(&mut self, id: &str, v: f64) {
+    fn set_value(&mut self, id: &str, v: f64) -> Result<(), String> {
         // To the machine's decimals (3 in mm, 4 in inches).
         let v = units().round(v);
         if let Some(i) = id.strip_prefix('L').and_then(|i| i.parse::<usize>().ok()) {
             // Places along an edge are either side of the start.
             let kind = self.selected().kind;
             self.locv.insert(Self::local_key(kind, i), if kind == "skew" { v } else { v.max(0.0) });
-            return;
+            return Ok(());
         }
-        let Ok(n) = id.parse::<u16>() else { return };
+        let Ok(n) = id.parse::<u16>() else { return Ok(()) };
         let mut v = v;
         if let Some(p) = param(n).filter(|p| !p.seg.is_empty()) {
             v = v.clamp(0.0, (p.seg.len() - 1) as f64);
+        }
+        // A feed for this run alone must stop in time as well as a default.
+        if self.defaults.get(&n) != Some(&v) {
+            crate::probe_defaults::check_stopping_feed(n, v, crate::machine_info::get())?;
         }
         if self.defaults.get(&n) == Some(&v) {
             self.runv.remove(&n);
         } else {
             self.runv.insert(n, v);
         }
+        Ok(())
     }
 
     fn get_value(&self, id: &str) -> f64 {
@@ -2017,8 +2045,7 @@ impl KeypadTarget for Keys {
     fn apply(&self, what: &str, v: f64) -> Option<Result<(), String>> {
         let mut p = self.0.borrow_mut();
         let r = if let Some(id) = what.strip_prefix("prun-") {
-            p.set_value(id, v);
-            Ok(())
+            p.set_value(id, v)
         } else {
             let n = what.strip_prefix("pdef-")?.parse::<u16>().ok()?;
             p.set_default(n, v)
@@ -2166,7 +2193,9 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, io: Option<Rc<dyn I
         let step = id.parse::<u16>().map_or(u.pick(0.5, 0.02), |n| step_of(n, u));
         let v = p.get_value(&id) + step * dir as f64;
         let v = if p.selected().kind == "skew" && id.starts_with('L') { v } else { v.max(0.0) };
-        p.set_value(&id, v);
+        if let Err(e) = p.set_value(&id, v) {
+            p.note(e, true);
+        }
         p.refresh();
     });
     let p = probe.clone();

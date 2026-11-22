@@ -89,6 +89,22 @@ see. So (app/src/failsafe.rs, the always-on `watchdog` module):
   700 ms apart, and `scenarios/failsafe/` freezes Ferrum mid-move (SIGSTOP),
   taps a frozen screen and tries to power on without a screen.
 
+### What runs is what was checked
+
+LinuxCNC reads the program file as it runs. A file copied over the loaded
+program (scp, a re-post from CAM) would run the new text while RUN shows
+and travel-checks the old one. So (main.rs `reload_if_changed`): while
+idle, a change (inode change time, which `scp -p` cannot set back) loads
+the file again in LinuxCNC and re-reads the preview; CYCLE START and RUN
+FROM SELECTED refuse while the file changed or is still being read for
+the travel check; a change under a running program feed holds it and
+says so.
+
+CYCLE START stops the PROBE screen's quiet-time defaults write midway
+(it goes line by line, and a line that lands after the program starts is
+refused); the rest waits for the next quiet time. A start or a reload
+restarts that quiet time (`Probe::start_problem`, `hold_restore`).
+
 ## Remote (web) access
 
 Requested 2026-11-13: use the GUI from a MacBook's browser. Plan: the same

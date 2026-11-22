@@ -13,7 +13,28 @@ pub type Stamp = (String, Option<std::time::SystemTime>, u64);
 
 pub fn stamp(file: &str) -> Stamp {
     let meta = if file.is_empty() { None } else { std::fs::metadata(file).ok() };
-    (file.to_string(), meta.as_ref().and_then(|m| m.modified().ok()), meta.map_or(0, |m| m.len()))
+    (file.to_string(), meta.as_ref().and_then(changed_at), meta.map_or(0, |m| m.len()))
+}
+
+/// When the file last changed. On Unix the inode change time: every write
+/// moves it, and unlike the modification time nothing can set it back
+/// (`scp -p` and `rsync -t` copy the old modification time over).
+fn changed_at(m: &std::fs::Metadata) -> Option<std::time::SystemTime> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let ns = u64::try_from(m.ctime()).ok()?.checked_mul(1_000_000_000)?.checked_add(u64::try_from(m.ctime_nsec()).ok()?)?;
+        Some(std::time::UNIX_EPOCH + std::time::Duration::from_nanos(ns))
+    }
+    #[cfg(not(unix))]
+    m.modified().ok()
+}
+
+/// The loaded program's file was written (or replaced) since the RUN
+/// screen read it: what LinuxCNC would run is not what is shown and was
+/// travel-checked.
+pub fn changed_on_disk(file: &str) -> bool {
+    !file.is_empty() && LOADED.with(|l| l.borrow().0 == file && *l.borrow() != stamp(file))
 }
 
 /// Whether the program shown as `shown` should be read again for `file`.

@@ -1,0 +1,6 @@
+( ferrum harness: h_square's replacement, far past X+ )
+G90 G17 G40 G80
+G0 X0 Y0
+G1 X5000 F${feed}
+G1 X0
+M30

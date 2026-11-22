@@ -81,6 +81,9 @@ pub enum Step {
     /// Press (and hold) the pointer at X Y; `release` lets go.
     Press(i32, i32),
     Release,
+    /// Copy config file SRC over DST in place (same file, truncated and
+    /// rewritten, as scp does), while everything runs.
+    Overwrite(String, String),
     /// From (x0, y0) to (x1, y1), pressed the whole way.
     Drag(i32, i32, i32, i32),
 }
@@ -301,6 +304,10 @@ impl Scenario {
                     Step::Press(x.parse().map_err(|_| err("bad x"))?, y.parse().map_err(|_| err("bad y"))?)
                 }
                 "release" => Step::Release,
+                "overwrite" => {
+                    let (dst, src) = split_word(rest);
+                    Step::Overwrite(dst.to_string(), src.trim().to_string())
+                }
                 "drag" => {
                     let n: Vec<i32> = rest.split_whitespace().filter_map(|w| w.parse().ok()).collect();
                     match n[..] {

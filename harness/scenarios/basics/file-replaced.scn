@@ -1,0 +1,49 @@
+title A program replaced on disk (scp) is read again before it can run
+# LinuxCNC reads the file as it runs, so a copy over the loaded program
+# would run the new text while RUN showed and travel-checked the old one.
+allow-error changed on disk
+allow-error still being read
+allow-error past its + limit
+include ../common/ready.scn
+include ../common/work-zero.scn
+screen files
+tap files name h_square.ngc files-tap
+do files-load
+wait stat.file contains h_square.ngc within 10
+screen run
+wait prop.plot-summary contains " OP" within 30
+expect prop.plot-check-level == 0
+# Copied over and started at once: refused, and read again.
+overwrite nc_files/h_square.ngc nc_files/h_square_far.ngc
+# (The idle check may have read it again first: then the start waits
+# for the new travel check instead. Refused either way.)
+do cycle-start
+sleep 1
+expect stat.interp_state == 1
+# The new text is what RUN shows and checks: X goes 5 m, past the limit.
+wait prop.plot-check-level == 2 within 30
+expect prop.gcode-lines contains X5000
+shot reloaded
+do cycle-start
+sleep 1
+expect stat.interp_state == 1
+# Copied over while idle, nobody starting: read again by itself.
+overwrite nc_files/h_square.ngc nc_files/h_square_near.ngc
+wait prop.plot-check-level == 0 within 30
+expect prop.message contains loaded again
+expect prop.gcode-lines !contains X5000
+# Copied over while it runs: the operator is told.
+tap files name h_long.ngc files-tap
+do files-load
+wait stat.file contains h_long.ngc within 10
+# Its own summary (hours long), not the last program's still showing.
+wait prop.plot-summary contains " h " within 120
+wait prop.can-start == true within 10
+do cycle-start
+wait stat.interp_state != 1 within 10
+overwrite nc_files/h_long.ngc nc_files/h_square.ngc
+wait prop.message contains changed on disk while it runs within 5
+wait stat.interp_state == 3 within 5     # feed hold (INTERP_PAUSED)
+shot running-changed
+do stop
+wait stat.interp_state == 1 within 10

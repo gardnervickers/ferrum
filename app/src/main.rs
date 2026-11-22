@@ -600,7 +600,11 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
             let block = ui.global::<Live>().get_motion_block();
             // A job with probing ops loads the probe and puts it away itself.
             let probing = gcode_lines(&ui).iter().any(|l| l.contains("(MYMILL-PROBE"));
-            let problem = if s.tool_in_spindle == probe_tool && !probing {
+            let problem = if reload_if_changed(&ui, &m, &s) {
+                Some(CHANGED_ON_DISK.to_string())
+            } else if let Some(p) = with_probe_ret(|p| p.start_problem()).flatten() {
+                Some(p)
+            } else if s.tool_in_spindle == probe_tool && !probing {
                 Some("Unload the probe before cycle start".to_string())
             } else if !block.is_empty() {
                 Some(block.to_string())
@@ -658,7 +662,11 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         }
         let plan = restart::plan(&gcode_lines(&ui), sel as usize);
         let block = live.get_motion_block();
-        let problem = if s.tool_in_spindle == probe_tool && !plan.changes_tool {
+        let problem = if reload_if_changed(&ui, &m, &s) {
+            Some(CHANGED_ON_DISK.to_string())
+        } else if let Some(p) = with_probe_ret(|p| p.start_problem()).flatten() {
+            Some(p)
+        } else if s.tool_in_spindle == probe_tool && !plan.changes_tool {
             Some("Unload the probe first".to_string())
         } else if !block.is_empty() {
             Some(block.to_string())
@@ -1303,6 +1311,27 @@ async fn run(
             // changes, and an idle machine sends none after a line is picked.
             if let Some(s) = st.status.as_ref() {
                 restart_status(&ui, s, &handle);
+                if !s.busy() && reload_if_changed(&ui, &handle, s) {
+                    let live = ui.global::<Live>();
+                    live.set_message("The program file changed on disk: loaded again. Check the preview before starting".into());
+                    live.set_message_error(false);
+                }
+                // Changed under a running program: LinuxCNC reads ahead from
+                // the file, so the rest may be the new text. Say so, once.
+                let changed = s.busy() && program::changed_on_disk(&s.file);
+                if changed && !CHANGED_WHILE_RUNNING.replace(true) {
+                    let text = "The program file changed on disk while it runs: what follows may be the new text, not what the preview shows. Feed hold: STOP, or CYCLE START to go on";
+                    eprintln!("ferrum: {text}");
+                    if s.interp != Interp::Paused {
+                        handle.send(Command::Pause);
+                    }
+                    toast(&ui, text.to_string());
+                    let live = ui.global::<Live>();
+                    live.set_message(text.into());
+                    live.set_message_error(true);
+                } else if !s.busy() {
+                    CHANGED_WHILE_RUNNING.set(false);
+                }
             }
             let load = modules.iter().find_map(|m| m.load(st.status.as_ref()));
             plot::with(|p| plot::set_load(&ui, p, load));
@@ -1944,6 +1973,10 @@ fn program_file(s: &mut Status, sub_dirs: &[PathBuf]) {
     });
 }
 
+fn with_probe_ret<T>(f: impl FnOnce(&mut probe::Probe) -> T) -> Option<T> {
+    PROBE.with(|p| p.borrow().as_ref().map(|p| f(&mut p.borrow_mut())))
+}
+
 fn with_probe(f: impl FnOnce(&mut probe::Probe)) {
     PROBE.with(|p| {
         if let Some(p) = p.borrow().as_ref() {
@@ -2020,6 +2053,31 @@ fn wire_job_probing(ui: &MainWindow, j: &Rc<RefCell<job::Job>>) {
 fn gcode_lines(ui: &MainWindow) -> Vec<SharedString> {
     use slint::Model;
     ui.global::<Live>().get_gcode_lines().iter().collect()
+}
+
+thread_local! {
+    /// The running program's file changed on disk and the operator was told.
+    static CHANGED_WHILE_RUNNING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+const CHANGED_ON_DISK: &str = "The program file changed on disk since it was read; it is being loaded again. Check the preview, then start";
+
+/// The loaded program was written or replaced on disk (an scp, a re-post
+/// from CAM) since the RUN screen read it. LinuxCNC reads the file as it
+/// runs, so it would run the new text while the listing, preview and travel
+/// check show the old one. When idle: open it again in LinuxCNC and read it
+/// again here (a start then waits for the new travel check). True when it
+/// had changed.
+fn reload_if_changed(ui: &MainWindow, m: &Handle, s: &Status) -> bool {
+    if s.busy() || !program::changed_on_disk(&s.file) {
+        return false;
+    }
+    eprintln!("ferrum: {} changed on disk; loading it again", s.file);
+    with_probe(|p| p.hold_restore());
+    m.send(Command::ProgramOpen(s.file.clone().into()));
+    program::sync(ui, &s.file, false);
+    plot::sync(ui, &s.file, false);
+    true
 }
 
 /// Keep the line under the program list saying what RUN FROM SELECTED will

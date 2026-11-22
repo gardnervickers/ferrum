@@ -115,6 +115,7 @@ One step per line; `#` after a space starts a comment. Files under
 | `signal STOP\|CONT\|KILL` | signal Ferrum's GUI process (STOP freezes it: no frames, no input) |
 | `click X Y` | a real X pointer click at screen pixels (xdotool), through the same path as a tap |
 | `press X Y` / `release` | a real X pointer pressed at screen pixels and held, then let go (a held jog button) |
+| `overwrite DST SRC` | copy config file SRC over DST in place (truncate and rewrite, as `scp` does) while LinuxCNC and Ferrum run |
 | `drag X0 Y0 X1 Y1` | a real X pointer drag at screen pixels (xdotool), pressed from the first point to the second |
 | `screen-may-stall` | the scenario stalls Ferrum on purpose: skip the end-of-run screen watchdog checks |
 

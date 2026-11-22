@@ -24,3 +24,20 @@ do keypad-key "2"
 do keypad-done true
 wait prop.keypad-open == false within 5
 expect prop.setup-rows contains "12"
+# PROBE's values for one run are held to the same limit.
+screen probe
+do edit prun-3016
+expect prop.keypad-open == true
+do keypad-key CLR
+do keypad-key "6"
+do keypad-key "0"
+do keypad-key "0"
+do keypad-key "0"
+do keypad-done true
+expect prop.keypad-open == true
+expect prop.keypad-error == true
+do keypad-key CLR
+do keypad-key "1"
+do keypad-key "2"
+do keypad-done true
+wait prop.keypad-open == false within 5

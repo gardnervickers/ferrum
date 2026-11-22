@@ -805,6 +805,11 @@ fn step(
         Step::Click(x, y) => s.click(*x, *y),
         Step::Press(x, y) => s.xdo(&["mousemove", &x.to_string(), &y.to_string(), "mousedown", "1"]),
         Step::Release => s.xdo(&["mouseup", "1"]),
+        Step::Overwrite(dst, src) => {
+            let cfg = dir.join("cfg");
+            let text = std::fs::read(cfg.join(src)).map_err(|e| format!("overwrite {src}: {e}"))?;
+            std::fs::write(cfg.join(dst), text).map_err(|e| format!("overwrite {dst}: {e}"))
+        }
         Step::Drag(x0, y0, x1, y1) => s.drag((*x0, *y0), (*x1, *y1)),
         Step::Reconnect(secs) => s.reconnect(Duration::from_secs_f64(*secs)),
         Step::Sleep(secs) => {
