@@ -291,8 +291,10 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     match &mi.units_unknown {
         Some(u) => v.push(
             Check::new("machine.units", G::Machine, L::Attention, format!("[TRAJ]LINEAR_UNITS = {u} is not a unit ferrum knows"))
-                .detail("ferrum shows millimetres. Use mm or inch.")
-                .fix(Fix::IniLines { section: "TRAJ", lines: vec!["LINEAR_UNITS = mm".into()] }),
+                // No INI fix: LinuxCNC may well read this value, and every
+                // length in the INI is in these units, so `--write-ini`
+                // turning it into mm would rescale the whole machine.
+                .detail("ferrum shows millimetres. Set LINEAR_UNITS to mm or inch, whichever the INI's lengths are in."),
         ),
         None => v.push(Check::new(
             "machine.units",
@@ -768,6 +770,23 @@ mod tests {
         // No parameter file and no ferrum.toml values: starting values.
         let r = c.iter().find(|c| c.id == "probe.values").unwrap();
         assert!(r.level == Level::Attention && r.title.contains("starting values"), "{r:?}");
+    }
+
+    #[test]
+    fn unknown_units_are_never_rewritten() {
+        // LinuxCNC reads "0.1" (cm) though ferrum does not: --write-ini must
+        // not turn it into mm and rescale every length in the INI.
+        let mut cfg = Config::default();
+        cfg.path = Some("/nonexistent/cm.ini".into());
+        cfg.insert("TRAJ", "LINEAR_UNITS", "0.1");
+        let mi = MachineInfo::from_ini(&cfg);
+        let mc = MachineCfg::default();
+        let modules: Vec<String> = vec!["run".into()];
+        let hal = FakeHal { pins: HashMap::new(), writers: HashMap::new() };
+        let c = run(&Inputs { cfg: &cfg, mc: &mc, mi: &mi, notes: &[], modules: &modules, hal: &hal });
+        let r = c.iter().find(|c| c.id == "machine.units").unwrap();
+        assert_eq!(r.level, Level::Attention);
+        assert!(!matches!(r.fix, Fix::IniLines { .. }), "{r:?}");
     }
 
     #[test]
