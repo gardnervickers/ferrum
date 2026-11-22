@@ -4,7 +4,7 @@
 
 ```sh
 curl -fsSL https://github.com/gardnervickers/ferrum/releases/latest/download/install.sh | bash
-curl -fsSL .../install.sh | bash -s -- --prefix ~/linuxcnc/configs/mymill/ferrum --edge
+curl -fsSL .../install.sh | bash -s -- --prefix ~/linuxcnc/configs/mymill/ferrum --beta
 ```
 
 ## What you need
@@ -30,8 +30,8 @@ curl -fsSL .../install.sh | bash -s -- --prefix ~/linuxcnc/configs/mymill/ferrum
 | `ferrum-update use V --on-restart`, `rollback --on-restart` | switch at the next start instead | yes |
 | `ferrum-update check` | is there a newer version? (changes nothing) | yes |
 | `ferrum-update status [--json]`, `list` | what is installed | yes |
-| `ferrum-update channel stable\|edge`, `--edge`, `--stable` | which builds to follow (remembered) | yes |
-| `ferrum-update auto on\|off` | automatic updates (stable releases only) | yes |
+| `ferrum-update channel stable\|beta`, `--beta`, `--stable` | which builds to follow (remembered; `edge` is beta's old name) | yes |
+| `ferrum-update auto on\|off` | automatic updates on that channel | yes |
 
 Other options: `--prefix DIR`, `--ini FILE` (the INI the self-test checks; remembered), `--keep N` (old versions kept, default 3), `--force` (install although `--check` got worse, or for another LinuxCNC series), `--allow-unsigned` (install a release from before signing, by hand only), `--reinstall`.
 
@@ -40,7 +40,9 @@ Other options: `--prefix DIR`, `--ini FILE` (the INI the self-test checks; remem
 ## Channels
 
 - **stable** (default) follows tagged releases (`vX.Y.Z`).
-- **edge** follows every commit to main that passes CI, including the LinuxCNC simulator harness. Versions look like `0.1.0-edge.202611191500.71d7ce6`.
+- **beta** (opt in: `ferrum-update channel beta`, or SETUP › SOFTWARE › UPDATES FROM › BETA) also gets the builds between releases: every commit to main that passes CI, including the LinuxCNC simulator harness. They are published as the rolling `edge` prerelease (its old name, so older installers still find it). Versions look like `0.1.1-beta.202611221000.71d7ce6`: the last release's number, then the build time.
+
+Versions order by their three numbers, then a build from main after that release (`-beta.`, and the older `-edge.` and `-dev.` from `scripts/deploy`) comes after the plain release, and those order by build time. So `0.1.1 < 0.1.1-beta.202611221000.… < 0.1.2`. A plain `ferrum-update`, `stage` and automatic updates never go back to an older version: after switching from beta to stable you stay on the beta build until a release newer than it comes out. `--version V`, `rollback` and naming the channel (`--stable`) do go back.
 
 ## The install folder
 
@@ -74,7 +76,7 @@ A screen that *freezes* rather than crashes is caught by the screen watchdog (`h
 
 ## Automatic updates
 
-Automatic updates follow **stable** releases only: `auto on` is refused on the edge channel, and switching to edge pauses them. Edge builds change with every commit; update those by hand.
+Automatic updates follow the channel: tagged releases on **stable**, and on **beta** the newest beta build, at most one a day (so a machine on beta is at most a day behind main, and a burst of commits gives one update, not many). Every safety step below applies the same to beta builds: verified download, self-test, trial start with crash fallback, and a build you rolled back from is not staged again.
 
 `ferrum-update auto on` makes `run` start `ferrum-update stage --if-due` in the background, at the lowest priority and at most once every 20 hours, each time the screen starts. Staging downloads, verifies and self-tests the new version into `versions/` and changes nothing in use. The next time `run` starts the screen, before the screen opens, the staged version goes into use (on trial), and the screen says *"Updated Ferrum X to Y. ferrum-update rollback goes back."*
 
@@ -89,7 +91,7 @@ Automatic updates follow **stable** releases only: `auto on` is refused on the e
 ## Releasing
 
 - **Stable:** on GitHub, Actions > **Cut a release** > Run workflow, pick patch, minor or major (or type a version). From a terminal: `gh workflow run cut-release.yml -R gardnervickers/ferrum -f bump=minor`. It refuses unless CI passed on main's newest commit, then bumps `app/Cargo.toml`, commits "Release vX.Y.Z", tags it and starts the release build. (Pushing a `v<version>` tag by hand, matching `app/Cargo.toml`, does the same.) `.github/workflows/release.yml` builds on Debian 12 against LinuxCNC 2.9.10 for aarch64 and x86_64, runs the installer tests, installs the package and checks that it loads, and publishes release `v<version>` with `ferrum-linux-<arch>.tar.gz`, `install.sh`, `VERSION` and `SHA256SUMS`.
-- **Edge:** every main commit whose CI passes refreshes the `edge` prerelease. Nothing to do by hand.
+- **Beta:** every main commit whose CI passes refreshes the `edge` prerelease (the beta channel). Nothing to do by hand.
 - `scripts/package BINARY VERSION ARCH` packs any build, for example a local one for `ferrum-update --from`. `scripts/deploy` uses it to install on the author's Pi.
 
 ## Release signing

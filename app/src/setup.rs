@@ -1151,8 +1151,8 @@ impl Setup {
             kind: "choice".into(),
             key: "upd-channel".into(),
             title: "Updates from".into(),
-            detail: "STABLE: tagged releases. EDGE: every build of main that passed its tests.".into(),
-            value: if s.channel == "edge" { "EDGE" } else { "STABLE" }.into(),
+            detail: "STABLE: tagged releases. BETA: also the builds between releases, every change to main that passed its tests.".into(),
+            value: if s.beta() { "BETA" } else { "STABLE" }.into(),
             off: self.updater.busy.is_some(),
             ..Default::default()
         });
@@ -1160,7 +1160,12 @@ impl Setup {
             kind: "bool".into(),
             key: "upd-auto".into(),
             title: "Download updates by themselves".into(),
-            detail: "A new version is downloaded and checked in the background, and goes into use only when LinuxCNC next starts.".into(),
+            detail: if s.beta() {
+                "The newest beta build is downloaded and checked in the background, at most once a day, and goes into use only when LinuxCNC next starts."
+            } else {
+                "A new version is downloaded and checked in the background, and goes into use only when LinuxCNC next starts."
+            }
+            .into(),
             value: yes(s.auto).into(),
             off: self.updater.busy.is_some(),
             ..Default::default()
@@ -1568,10 +1573,10 @@ pub fn wire(
             st.open_hal_picker(&ui, &name);
             Ok(())
         } else if key == "upd-channel" {
-            let current = st.upd.as_ref().and_then(|r| r.as_ref().ok()).map(|u| (u.channel == "edge") as usize);
+            let current = st.upd.as_ref().and_then(|r| r.as_ref().ok()).map(|u| u.beta() as usize);
             st.picking = Some(Pick::Channel);
             drop(st);
-            crate::picker::open(&ui, "setup", "UPDATES FROM", vec!["STABLE".into(), "EDGE".into()], current);
+            crate::picker::open(&ui, "setup", "UPDATES FROM", vec!["STABLE".into(), "BETA".into()], current);
             return;
         } else if key == "upd-refresh" {
             st.refresh_updates(true);
@@ -1626,8 +1631,8 @@ pub fn wire(
                 },
             },
             Some(Pick::Channel) => {
-                let edge = st.upd.as_ref().and_then(|r| r.as_ref().ok()).is_some_and(|u| u.channel == "edge");
-                if (i == 1) != edge {
+                let beta = st.upd.as_ref().and_then(|r| r.as_ref().ok()).is_some_and(|u| u.beta());
+                if (i == 1) != beta {
                     st.update_action("upd-channel");
                 }
                 Ok(())

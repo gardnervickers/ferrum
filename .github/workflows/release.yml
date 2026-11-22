@@ -1,7 +1,9 @@
 # Release builds for scripts/ferrum-update to install:
 #   - a tag vX.Y.Z (matching app/Cargo.toml's version; cut-release.yml makes
 #     one) publishes release vX.Y.Z, which becomes "latest";
-#   - every main commit that passed CI refreshes the "edge" prerelease.
+#   - every main commit that passed CI refreshes the "edge" prerelease: the
+#     beta channel's builds (the tag keeps its old name so older installers
+#     still find it), versioned <crate>-beta.<yyyymmddhhmm>.<sha>.
 # Both build on Debian 12 (the Pi's OS, and LinuxCNC 2.9's) against
 # LinuxCNC 2.9.10 for aarch64 and x86_64. Nothing here talks to a machine.
 name: Release
@@ -46,7 +48,7 @@ jobs:
             [ "$v" = "$crate" ] || { echo "::error::tag $GITHUB_REF_NAME does not match app/Cargo.toml version $crate"; exit 1; }
             echo channel=stable >> "$GITHUB_OUTPUT"
           else
-            v="$crate-edge.$(git show -s --format=%cd --date=format:%Y%m%d%H%M HEAD).${sha::7}"
+            v="$crate-beta.$(git show -s --format=%cd --date=format:%Y%m%d%H%M HEAD).${sha::7}"
             echo channel=edge >> "$GITHUB_OUTPUT"
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
@@ -209,7 +211,7 @@ jobs:
       - name: Edge
         if: needs.version.outputs.channel == 'edge'
         run: |
-          notes="Built from every main commit that passes CI: $SHA. Install with \`ferrum-update --edge\`."
+          notes="Beta: built from every main commit that passes CI: $SHA. Follow it with \`ferrum-update --beta\` (or SETUP › SOFTWARE › UPDATES FROM BETA)."
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/edge" -f sha="$SHA" -F force=true >/dev/null 2>&1 ||
             gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/edge -f sha="$SHA" >/dev/null
           if gh release view edge >/dev/null 2>&1; then
@@ -222,7 +224,7 @@ jobs:
               gh release upload edge out/VERSION out/SHA256SUMS --clobber
               gh release delete-asset edge SHA256SUMS.sig -y 2>/dev/null || true
             fi
-            gh release edit edge --title "Ferrum edge ($V)" --notes "$notes" --prerelease
+            gh release edit edge --title "Ferrum beta ($V)" --notes "$notes" --prerelease
           else
-            gh release create edge out/* --title "Ferrum edge ($V)" --notes "$notes" --prerelease --target "$SHA"
+            gh release create edge out/* --title "Ferrum beta ($V)" --notes "$notes" --prerelease --target "$SHA"
           fi

@@ -7,7 +7,8 @@
 #
 # After that:
 #   ferrum-update                 update to the newest release
-#   ferrum-update --edge          follow builds of every green main (remembered)
+#   ferrum-update --beta          follow beta builds: every main commit that
+#                                 passed CI (remembered; --edge is the old name)
 #   ferrum-update --stable        back to tagged releases (remembered)
 #   ferrum-update --version 0.2.0 install that release
 #   ferrum-update --from F.tar.gz install a downloaded or locally built package
@@ -15,13 +16,13 @@
 #   ferrum-update rollback        go back to the version before
 #   ferrum-update use 0.2.0       switch to any installed version
 #   ferrum-update list | status | check
-#   ferrum-update auto on|off     automatic updates, stable releases only (see below)
+#   ferrum-update auto on|off     automatic updates on the channel followed (see below)
 #   ferrum-update stage           download and test the newest, use it at the next start
 #   ferrum-update unstage         forget a staged update
 #   ferrum-update apply           put a staged update into use now
 #   ferrum-update use V --on-restart, rollback --on-restart
 #                                 switch at the next start instead of now
-#   ferrum-update channel stable|edge
+#   ferrum-update channel stable|beta
 #   ferrum-update status --json   for the SETUP screen; no network
 #
 # Commands that change nothing in use (status, list, check, stage,
@@ -44,21 +45,27 @@
 # for another LinuxCNC than this machine's is refused. Only 64-bit
 # systems get builds: arm64 (Raspberry Pi) and amd64.
 #
-# Automatic updates (`ferrum-update auto on`, stable releases only): each time `run` starts the
+# Automatic updates (`ferrum-update auto on`, on stable or beta): each time `run` starts the
 # screen it also starts `ferrum-update stage --if-due` in the background, at
 # most once a day. That downloads, verifies and self-tests the newest
 # version into versions/ while the machine works, and changes nothing in
 # use. The staged version goes into use the next time `run` starts, before
 # the screen opens, so an update never lands under a running program. It is
 # then on trial like any other. A version you rolled back from, or one that
-# crashed on its first start, is not staged again.
+# crashed on its first start, is not staged again, and neither is one older
+# than the version in use (after switching from beta back to stable, the
+# next stable release newer than the beta build is the next update).
+#
+# Versions order by their numbers, then a build from main after its release
+# (0.1.1-beta.<yyyymmddhhmm>.<sha>, also -edge. and -dev.) comes after the
+# plain 0.1.1, and those builds order by their build time.
 #
 # Never edits your INI, ferrum.toml or machine.toml.
 set -euo pipefail
 
 REPO_URL="${FERRUM_REPO_URL:-https://github.com/gardnervickers/ferrum}"
 # Where release files come from. Tests point this at a local folder:
-# <base>/latest/..., <base>/edge/..., <base>/v0.2.0/...
+# <base>/latest/..., <base>/edge/... (beta), <base>/v0.2.0/...
 RELEASES="${FERRUM_RELEASES:-$REPO_URL/releases}"
 DEFAULT_PREFIX="${XDG_DATA_HOME:-$HOME/.local/share}/ferrum"
 # Folders and files a version provides; PREFIX/<name> links into current.
@@ -257,11 +264,16 @@ fetch() { # url dest
   fi
 }
 
-# Release folder for a channel or version: latest, edge, or v<version>.
+# Release folder for a channel or version: latest, edge (the beta builds'
+# prerelease, named before the channel was), or v<version>.
 release_dir() {
+  case "$WANT_VERSION" in
+    # A beta build is only in the rolling prerelease, while it is the newest.
+    *-*|*+*) echo edge; return ;;
+  esac
   if [ -n "$WANT_VERSION" ]; then
     echo "v${WANT_VERSION#v}"
-  elif [ "$CHANNEL" = edge ]; then
+  elif [ "$CHANNEL" = beta ]; then
     echo edge
   else
     echo latest
@@ -276,6 +288,38 @@ release_url() { # dir file
 }
 
 sha256() { sha256sum "$1" | cut -d' ' -f1; }
+
+# A version's sort key, "X Y Z later time", or nothing for one that is not
+# numbered (pre-installer). later is 1 for a build from main after release
+# X.Y.Z (any -suffix), time its first all-digit field (the build time).
+version_key() {
+  local v="${1#v}" base rest f t=0 later=0
+  base="${v%%[-+]*}"; rest="${v#"$base"}"
+  case "$base" in
+    *[!0-9.]*|.*|*.|*..*) return 0 ;;
+  esac
+  IFS=. read -r a b c x <<< "$base"
+  [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ -z "$x" ] || return 0
+  if [ -n "$rest" ]; then
+    later=1
+    for f in $(printf '%s' "${rest#?}" | tr '.+-' '   '); do
+      case "$f" in *[!0-9]*) ;; *) t="$f"; break ;; esac
+    done
+  fi
+  printf '%s %s %s %s %s' "$((10#$a))" "$((10#$b))" "$((10#$c))" "$later" "$((10#$t))"
+}
+
+# Is version $1 older than $2? No when either is not numbered.
+older_than() {
+  local ka kb i
+  ka=($(version_key "$1")); kb=($(version_key "$2"))
+  [ ${#ka[@]} = 5 ] && [ ${#kb[@]} = 5 ] || return 1
+  for i in 0 1 2 3 4; do
+    [ "${ka[$i]}" -lt "${kb[$i]}" ] && return 0
+    [ "${ka[$i]}" -gt "${kb[$i]}" ] && return 1
+  done
+  return 1
+}
 
 # Download this machine's package and its checksum into $TMP; sets PKG.
 download() {
@@ -510,10 +554,6 @@ prune() {
 cmd_update() {
   if [ -n "$STAGE" ]; then
     [ -n "$(current_version)" ] || die "Ferrum is not installed in $PREFIX; install it first"
-    if [ -n "$IF_DUE" ] && [ "$CHANNEL" = edge ]; then
-      say "Automatic updates follow stable releases only; not staging edge builds"
-      return 0
-    fi
     if [ -n "$IF_DUE" ]; then
       local last now; last="$(state_get last_stage)"; now="$(date +%s)"
       [ -n "$last" ] && [ $((now - last)) -lt "${FERRUM_STAGE_INTERVAL:-72000}" ] && return 0
@@ -569,11 +609,26 @@ cmd_update() {
         say "Ferrum $avail was rolled back or crashed here before; not staging it again (ferrum-update stage --version $avail does)"
         return 0
       fi
+      if [ -z "$WANT_VERSION" ] && older_than "$avail" "$(current_version)"; then
+        rm -f "$PREFIX/.staged"
+        say "Ferrum $(current_version) is newer than $CHANNEL's $avail; nothing to stage (ferrum-update stage --version $avail does)"
+        return 0
+      fi
     fi
     download
   fi
   unpack
   local v="$NEW_VERSION"
+  if [ -n "$WANT_VERSION" ] && [ "$v" != "${WANT_VERSION#v}" ]; then
+    die "asked for Ferrum ${WANT_VERSION#v}, but the release holds $v (a newer beta build replaced it?). Nothing was changed."
+  fi
+  # A plain update never goes back: the beta build in use can be newer
+  # than the stable release. Naming the version or the channel does.
+  if [ -z "$STAGE" ] && [ -z "$FROM" ] && [ -z "$WANT_VERSION" ] && [ -z "$CHANNEL_SET" ] && [ -z "$FORCE" ] &&
+     older_than "$v" "$(current_version)"; then
+    say "Ferrum $(current_version) is newer than $CHANNEL's $v; nothing to update (ferrum-update --version ${v} installs it)"
+    return 0
+  fi
   if [ "$(current_version)" = "$v" ] && [ -z "$REINSTALL" ]; then
     say "Ferrum $v is already installed and in use"
     return 0
@@ -607,7 +662,7 @@ cmd_update() {
   touch "$dest"
   switch_to "$v"
   prune
-  [ -n "$CHANNEL_SET" ] && state_set channel "$CHANNEL"
+  [ -n "$CHANNEL_SET" ] && state_set channel "$(stored_channel "$CHANNEL")"
   [ -n "$INI" ] && state_set ini "$INI"
   [ -n "$KEEP" ] && state_set keep "$KEEP"
   first_steps
@@ -650,12 +705,11 @@ cmd_apply() {
 cmd_auto() {
   case "${1:-}" in
     on)
-      [ "$CHANNEL" = edge ] && die "automatic updates follow stable releases only (edge changes with every commit). Switch with ferrum-update channel stable, or update edge by hand."
       state_set auto 1; say "Automatic updates on ($CHANNEL): checked at most daily when the screen starts, put into use at the next start." ;;
     off) state_set auto 0; rm -f "$PREFIX/.staged"; say "Automatic updates off" ;;
     *) die "auto on or auto off?" ;;
   esac
-  [ -n "$CHANNEL_SET" ] && state_set channel "$CHANNEL"
+  [ -n "$CHANNEL_SET" ] && state_set channel "$(stored_channel "$CHANNEL")"
   return 0
 }
 
@@ -756,14 +810,25 @@ cmd_unstage() {
 
 cmd_channel() {
   case "${1:-}" in
-    stable|edge)
-      state_set channel "$1"
-      say "Channel: $1 (ferrum-update stage or update fetches from it)"
-      if [ "$1" = edge ] && [ "$(state_get auto)" = 1 ]; then
-        say "Automatic updates pause while on edge (they follow stable releases only)"
+    stable|beta|edge)
+      local c; c="$(channel_name "$1")"
+      state_set channel "$(stored_channel "$c")"
+      say "Channel: $c (ferrum-update stage or update fetches from it)"
+      if [ "$c" = beta ] && [ "$(state_get auto)" = 1 ]; then
+        say "Automatic updates now follow beta builds: every main commit that passed CI, at most one a day"
       fi ;;
-    *) die "channel stable or channel edge?" ;;
+    *) die "channel stable or channel beta?" ;;
   esac
+}
+
+# "edge" is the beta channel's old name, and .ferrum-install keeps saying
+# edge: a rollback puts that version's older ferrum-update back, which
+# knows only stable and edge.
+channel_name() {
+  case "$1" in edge|beta) echo beta ;; *) echo stable ;; esac
+}
+stored_channel() {
+  case "$1" in beta|edge) echo edge ;; *) echo stable ;; esac
 }
 
 json_str() { # value, or null when empty
@@ -832,7 +897,7 @@ main() {
       stage) cmd=update; STAGE=1 ;;
       --if-due) IF_DUE=1 ;;
       --prefix) PREFIX="${2:?--prefix needs a folder}"; shift ;;
-      --edge) CHANNEL=edge; CHANNEL_SET=1 ;;
+      --beta|--edge) CHANNEL=beta; CHANNEL_SET=1 ;;
       --stable) CHANNEL=stable; CHANNEL_SET=1 ;;
       --version) WANT_VERSION="${2:?--version needs a version}"; shift ;;
       --from) FROM="$(readlink -f "${2:?--from needs a file}")"; shift ;;
@@ -856,7 +921,7 @@ main() {
   mkdir -p "$PREFIX" 2>/dev/null || true
   PREFIX="$(cd "$PREFIX" 2>/dev/null && pwd -P || printf '%s' "$PREFIX")"
   [ -n "$CHANNEL" ] || CHANNEL="$(state_get channel)"
-  CHANNEL="${CHANNEL:-stable}"
+  CHANNEL="$(channel_name "${CHANNEL:-stable}")"
   case "$cmd" in
     update|install) cmd_update ;;
     rollback) cmd_rollback ;;

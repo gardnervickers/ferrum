@@ -41,16 +41,42 @@ fn or_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> 
 }
 
 impl Status {
-    /// A newer version than the one in use is known.
+    /// A newer version than the one in use is known. One that sorts the
+    /// same but is another build (no build time to tell) counts as newer.
     pub fn newer(&self) -> Option<&str> {
-        self.available.as_deref().filter(|v| *v != self.current && newer_than(v, &self.current))
+        self.available.as_deref().filter(|v| *v != self.current && !older_than(v, &self.current))
+    }
+
+    /// On the beta channel ("edge" from updaters before it had that name).
+    pub fn beta(&self) -> bool {
+        matches!(self.channel.as_str(), "beta" | "edge")
     }
 }
 
-/// `a` is a later version than `b` (dotted numbers; anything else by text).
-pub fn newer_than(a: &str, b: &str) -> bool {
-    let parts = |s: &str| -> Option<Vec<u64>> { s.trim_start_matches('v').split(['.', '-', '+']).take(3).map(|p| p.parse().ok()).collect() };
-    match (parts(a), parts(b)) {
+/// A version's sort key: its three numbers, then whether it is a build from
+/// main after that release (`0.1.1-beta.<yyyymmddhhmm>.<sha>`, also `-edge.`
+/// and `-dev.`), then that build's time (its first all-digit field). None
+/// for a version that is not numbered, like `pre-installer`. The same order
+/// as `version_key` in scripts/ferrum-update.
+fn version_key(v: &str) -> Option<[u64; 5]> {
+    let v = v.strip_prefix('v').unwrap_or(v);
+    let (base, rest) = v.find(['-', '+']).map_or((v, ""), |i| v.split_at(i));
+    let n: Vec<u64> = base.split('.').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+    let [a, b, c] = n[..] else { return None };
+    let later = !rest.is_empty();
+    let time = rest.get(1..).unwrap_or("").split(['.', '-', '+']).find(|f| !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit())).and_then(|f| f.parse().ok()).unwrap_or(0);
+    Some([a, b, c, later as u64, time])
+}
+
+/// `a` is an earlier version than `b`; false when either is not numbered.
+pub fn older_than(a: &str, b: &str) -> bool {
+    matches!((version_key(a), version_key(b)), (Some(x), Some(y)) if x < y)
+}
+
+/// `a` is a later version than `b` (anything not numbered: when they differ).
+#[cfg(test)]
+fn newer_than(a: &str, b: &str) -> bool {
+    match (version_key(a), version_key(b)) {
         (Some(x), Some(y)) => x > y,
         _ => a != b,
     }
@@ -187,7 +213,7 @@ pub fn command(action: &str, s: Option<&Status>) -> Option<(Op, Vec<String>)> {
         "upd-unstage" => (Op::Unstage, v(&["unstage"])),
         "upd-rollback" => (Op::Rollback, v(&["rollback", "--on-restart"])),
         "upd-channel" => {
-            let next = if s.is_some_and(|s| s.channel == "edge") { "stable" } else { "edge" };
+            let next = if s.is_some_and(Status::beta) { "stable" } else { "beta" };
             (Op::Channel, v(&["channel", next]))
         }
         "upd-auto" => (Op::Auto, v(&["auto", if s.is_some_and(|s| s.auto) { "off" } else { "on" }])),
@@ -214,6 +240,13 @@ mod tests {
         assert!(!newer_than("0.4.0", "0.4.0"));
         assert!(!newer_than("0.3.9", "0.4.0"));
         assert!(newer_than("edge-abc", "0.4.0"));
+        // Builds from main come after their release, and by build time.
+        let (rel, edge, dev, beta) = ("0.1.1", "0.1.1-edge.202611211315.fe22ccd", "0.1.1-dev.202611211400.fe22ccd", "0.1.1-beta.202611221000.abc1234");
+        assert!(newer_than(edge, rel) && newer_than(dev, edge) && newer_than(beta, dev));
+        assert!(!newer_than(dev, beta));
+        assert!(newer_than("0.1.2", beta) && older_than(beta, "0.1.2"));
+        assert!(newer_than("0.1.10", "0.1.9-beta.202611221000.abc"));
+        assert!(!older_than("pre-installer", "0.1.1") && !older_than("0.1.1", "pre-installer"));
     }
 
     #[test]
@@ -224,7 +257,10 @@ mod tests {
         let s: Status = serde_json::from_str(j).unwrap();
         assert_eq!(s.newer(), Some("0.4.1"));
         assert_eq!(command("upd-stage", Some(&s)).unwrap().1, ["stage", "--version", "0.4.1"]);
-        assert_eq!(command("upd-channel", Some(&s)).unwrap().1, ["channel", "edge"]);
+        assert_eq!(command("upd-channel", Some(&s)).unwrap().1, ["channel", "beta"]);
+        let b: Status = serde_json::from_str(&j.replace(r#""channel":"stable""#, r#""channel":"edge""#)).unwrap();
+        assert!(b.beta());
+        assert_eq!(command("upd-channel", Some(&b)).unwrap().1, ["channel", "stable"]);
         assert_eq!(command("upd-auto", Some(&s)).unwrap().1, ["auto", "on"]);
         assert_eq!(command("upd-rollback", Some(&s)).unwrap().1, ["rollback", "--on-restart"]);
     }

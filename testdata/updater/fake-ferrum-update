@@ -1,7 +1,8 @@
 #!/bin/sh
 # A stand-in for the installer's ferrum-update (scripts/ferrum-update), for
 # SETUP › SOFTWARE screenshots and tests: FERRUM_UPDATER=this file.
-# FAKE_UPDATE picks the state: current (default), available, staged, fell-back.
+# FAKE_UPDATE picks the state: current (default), available, staged, fell-back,
+# beta (on the beta channel with automatic updates, a newer beta build out).
 state=${FAKE_UPDATE:-available}
 case "$1" in
 status) ;;
@@ -9,14 +10,15 @@ check|stage|unstage|channel|auto) exit 0 ;;
 rollback|use) [ "$2" = "--on-restart" ] || [ "$3" = "--on-restart" ] || { echo "LinuxCNC is running" >&2; exit 1; }; exit 0 ;;
 *) echo "unknown command $1" >&2; exit 2 ;;
 esac
-avail=null; staged=null; fell=null; trial=null
+avail=null; staged=null; fell=null; trial=null; channel=stable; auto=false; cur=0.4.2
 case "$state" in
 available) avail='"0.5.0"' ;;
 staged) avail='"0.5.0"'; staged='"0.5.0"' ;;
 fell-back) avail='"0.5.0"'; fell='"0.5.0 crashed on its first start."' ;;
+beta) channel=beta; auto=true; cur=0.4.2-beta.202611211315.fe22ccd; avail='"0.4.2-beta.202611220930.1a2b3c4"' ;;
 esac
 cat <<JSON
-{"installed_in":"/home/cnc/ferrum","current":"0.4.2","previous":"0.4.1","installed":["0.4.2","0.4.1","0.4.0"],
-"channel":"stable","auto":false,"available":$avail,"staged":$staged,"on_trial":$trial,"fell_back":$fell,
+{"installed_in":"/home/cnc/ferrum","current":"$cur","previous":"0.4.1","installed":["$cur","0.4.1","0.4.0"],
+"channel":"$channel","auto":$auto,"available":$avail,"staged":$staged,"on_trial":$trial,"fell_back":$fell,
 "skipped":null,"last_check":"2026-11-19T13:58:00Z","last_error":null,"running":true}
 JSON

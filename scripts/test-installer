@@ -423,8 +423,8 @@ t_gui_surface() {
   upd unstage >/dev/null 2>&1
   eq "$(json 'd["staged"]' < <(upd status --json))" None "unstaged" || { kill $pid; return; }
   upd use 1.1.0 --on-restart >/dev/null 2>&1 || { kill $pid; bad "use --on-restart"; return; }
-  upd auto on >/dev/null 2>&1; upd channel edge >/dev/null 2>&1
-  eq "$(json 'd["staged"], d["channel"], d["auto"]' < <(upd status --json))" "('1.1.0', 'edge', True)" "on-restart json" || { kill $pid; return; }
+  upd auto on >/dev/null 2>&1; upd channel beta >/dev/null 2>&1
+  eq "$(json 'd["staged"], d["channel"], d["auto"]' < <(upd status --json))" "('1.1.0', 'beta', True)" "on-restart json" || { kill $pid; return; }
   kill $pid; wait $pid 2>/dev/null
   eq "$(cur)" 1.0.0 "nothing switched while running" || return
   FERRUM_NO_AUTO_UPDATE=1 "$P/run" >/dev/null 2>&1
@@ -506,18 +506,61 @@ t_linuxcnc_version() {
   rm -rf "$WORK/fakebin"; ok
 }
 
-t_auto_is_stable_only() {
+t_auto_on_beta() {
   fresh; publish latest 1.0.0; upd >/dev/null 2>&1
-  if upd --edge auto on > "$WORK/out" 2>&1; then bad "auto on with edge"; return; fi
-  grep -q "stable releases only" "$WORK/out" || { bad "message: $(cat "$WORK/out")"; return; }
-  upd auto on >/dev/null 2>&1 || { bad "auto on"; return; }
-  upd channel edge > "$WORK/out" 2>&1
-  grep -q "pause while on edge" "$WORK/out" || { bad "channel message: $(cat "$WORK/out")"; return; }
-  publish edge 1.1.0-edge.1
+  upd --beta auto on > "$WORK/out" 2>&1 || { bad "auto on with beta: $(cat "$WORK/out")"; return; }
+  eq "$(sed -n 's/^channel=//p' "$P/.ferrum-install")" edge "stored under the old name for older updaters" || return
+  eq "$(json 'd["channel"], d["auto"]' < <(upd status --json))" "('beta', True)" "json" || return
+  # A beta build from before the 1.0.0 release is older than 1.0.0.
+  publish edge 0.9.0-beta.202611220900.abc1234
   upd stage --if-due >/dev/null 2>&1
-  [ ! -f "$P/.staged" ] || { bad "staged an edge build automatically"; return; }
-  upd stage >/dev/null 2>&1 || { bad "stage by hand"; return; }
-  eq "$(cat "$P/.staged")" 1.1.0-edge.1 "edge staged by hand" || return
+  [ ! -f "$P/.staged" ] || { bad "staged a beta build from before 1.0.0"; return; }
+  publish edge 1.0.0-beta.202611221000.def5678
+  sed -i '/^last_stage=/d' "$P/.ferrum-install"
+  upd stage --if-due >/dev/null 2>&1
+  eq "$(cat "$P/.staged" 2>/dev/null)" 1.0.0-beta.202611221000.def5678 "beta staged automatically" || return
+  "$P/run" >/dev/null 2>&1
+  eq "$(cur)" 1.0.0-beta.202611221000.def5678 "applied at start" || return
+  # Back to stable: the beta build is newer than 1.0.0, so nothing goes back.
+  upd channel stable >/dev/null 2>&1
+  sed -i '/^last_stage=/d' "$P/.ferrum-install"
+  upd stage --if-due >/dev/null 2>&1
+  [ ! -f "$P/.staged" ] || { bad "auto staged an older stable release"; return; }
+  upd > "$WORK/out" 2>&1
+  eq "$(cur)" 1.0.0-beta.202611221000.def5678 "plain update does not go back" || return
+  grep -q "is newer than stable's 1.0.0" "$WORK/out" || { bad "message: $(cat "$WORK/out")"; return; }
+  # The next release is newer than the beta build.
+  publish latest 1.1.0
+  sed -i '/^last_stage=/d' "$P/.ferrum-install"
+  upd stage --if-due >/dev/null 2>&1
+  eq "$(cat "$P/.staged" 2>/dev/null)" 1.1.0 "next release staged" || return
+  # Rollback still goes to the beta build.
+  "$P/run" >/dev/null 2>&1; eq "$(cur)" 1.1.0 "release in use" || return
+  upd rollback >/dev/null 2>&1; eq "$(cur)" 1.0.0-beta.202611221000.def5678 "rolled back" || return
+  ok
+}
+
+t_stage_named_beta() {
+  # SETUP's DOWNLOAD names the version it showed: a beta build is fetched
+  # from the beta prerelease, and refused if a newer one replaced it.
+  fresh; publish latest 1.0.0; upd >/dev/null 2>&1; upd channel beta >/dev/null 2>&1
+  publish edge 1.0.0-beta.202611221000.def5678
+  upd stage --version 1.0.0-beta.202611221000.def5678 > "$WORK/out" 2>&1 || { bad "stage named: $(cat "$WORK/out")"; return; }
+  eq "$(cat "$P/.staged")" 1.0.0-beta.202611221000.def5678 staged || return
+  upd unstage >/dev/null 2>&1
+  publish edge 1.0.0-beta.202611221100.0123456
+  if upd stage --version 1.0.0-beta.202611221000.abcdef0 > "$WORK/out" 2>&1; then bad "staged a replaced build"; return; fi
+  grep -q "the release holds 1.0.0-beta.202611221100.0123456" "$WORK/out" || { bad "message: $(cat "$WORK/out")"; return; }
+  ok
+}
+
+t_old_edge_state() {
+  # An install from before beta had a name: channel=edge in .ferrum-install.
+  fresh; publish latest 1.0.0; upd >/dev/null 2>&1
+  echo channel=edge >> "$P/.ferrum-install"
+  publish edge 1.0.0-edge.202611211315.fe22ccd
+  eq "$(json 'd["channel"]' < <(upd status --json))" "beta" "old edge reads as beta" || return
+  upd >/dev/null 2>&1; eq "$(cur)" 1.0.0-edge.202611211315.fe22ccd "follows the beta builds" || return
   ok
 }
 
@@ -526,7 +569,7 @@ TESTS=(t_install t_update_and_rollback t_up_to_date t_refuses_while_running t_ba
   t_crash_after_window t_shutdown_is_not_a_crash t_adopt_hand_copied_install t_prune
   t_edge_channel t_from_file t_piped_install t_bin_link t_auto_update t_stage_while_running
   t_no_restage_after_rollback t_no_switch_under_boot_screen t_gui_surface
-  t_signature t_architecture t_linuxcnc_version t_auto_is_stable_only)
+  t_signature t_architecture t_linuxcnc_version t_auto_on_beta t_stage_named_beta t_old_edge_state)
 
 for T in "${TESTS[@]}"; do
   if [ $# -gt 0 ]; then
