@@ -268,6 +268,16 @@ fn serve(stream: TcpStream, shared: Arc<Mutex<Shared>>, weak: slint::Weak<MainWi
     }
 }
 
+/// A websocket's Origin is this server's own page, or absent (a client
+/// that is not a browser: the harness, scripts).
+fn same_origin(origin: Option<&str>, host: Option<&str>) -> bool {
+    let Some(origin) = origin else { return true };
+    let Some(host) = host else { return false };
+    let o = origin.trim().to_ascii_lowercase();
+    let o = o.strip_prefix("http://").or_else(|| o.strip_prefix("https://")).unwrap_or(&o);
+    o.trim_end_matches('/') == host.trim().to_ascii_lowercase()
+}
+
 fn static_file(mut stream: TcpStream, root: &std::path::Path) -> std::io::Result<()> {
     let mut buf = [0u8; 4096];
     let n = stream.read(&mut buf)?;
@@ -300,7 +310,27 @@ fn static_file(mut stream: TcpStream, root: &std::path::Path) -> std::io::Result
 
 fn websocket(stream: TcpStream, shared: Arc<Mutex<Shared>>, weak: slint::Weak<MainWindow>) {
     let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_default();
-    let Ok(mut ws) = tungstenite::accept(stream) else { return };
+    // A web page from anywhere else, open in any browser on the network,
+    // could otherwise connect here and press buttons: only this screen's
+    // own page (same host and port) or a non-browser client (no Origin).
+    let foreign = std::cell::Cell::new(false);
+    let check = |req: &tungstenite::handshake::server::Request, resp| {
+        let header = |n: &str| req.headers().get(n).and_then(|v| v.to_str().ok()).map(str::to_string);
+        if same_origin(header("origin").as_deref(), header("host").as_deref()) {
+            Ok(resp)
+        } else {
+            let mut e = tungstenite::handshake::server::ErrorResponse::new(Some("cross-origin connection refused".into()));
+            *e.status_mut() = tungstenite::http::StatusCode::FORBIDDEN;
+            foreign.set(true);
+            Err(e)
+        }
+    };
+    let Ok(mut ws) = tungstenite::accept_hdr(stream, check) else {
+        if foreign.get() {
+            eprintln!("ferrum: remote screen refused: a page from another site ({peer})");
+        }
+        return;
+    };
     let _ = ws.get_mut().set_read_timeout(Some(Duration::from_millis(40)));
     let _ = ws.get_mut().set_nodelay(true);
     let client = Arc::new(Client { pending: Mutex::new(Pending::default()), fresh: Mutex::new(true) });
@@ -429,4 +459,20 @@ fn admit(ui: &MainWindow, name: &str, args: &[Value]) {
         return;
     }
     mirror::invoke_action(&ui.global::<Actions>(), name, args);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_origin;
+
+    #[test]
+    fn only_this_servers_own_page_may_connect() {
+        assert!(same_origin(None, Some("cncmill:8088")), "no Origin: not a browser");
+        assert!(same_origin(Some("http://cncmill:8088"), Some("cncmill:8088")));
+        assert!(same_origin(Some("http://CNCMill:8088/"), Some("cncmill:8088")));
+        assert!(!same_origin(Some("https://evil.example"), Some("cncmill:8088")));
+        assert!(!same_origin(Some("http://cncmill:9000"), Some("cncmill:8088")));
+        assert!(!same_origin(Some("null"), Some("cncmill:8088")), "a file:// or sandboxed page");
+        assert!(!same_origin(Some("http://cncmill:8088"), None));
+    }
 }
