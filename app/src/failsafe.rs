@@ -118,11 +118,22 @@ pub fn reset_max_gap() {
     STATE.with(|s| s.borrow_mut().max_gap = Duration::ZERO);
 }
 
-/// Input that acts on what is on screen.
+/// Input that acts on what is on screen. A let-go (pointer or touch
+/// released, a key up) is not: it ends what a fresh press started, and
+/// dropping it would leave that running. A continuous jog stops on the
+/// release, so a frame gap of 0.6-1 s (too short for the HAL watchdog)
+/// that swallowed the release would keep the axis moving after the finger
+/// came off.
 #[cfg(not(target_os = "wasi"))]
 fn is_input(ev: &slint::winit_030::winit::event::WindowEvent) -> bool {
-    use slint::winit_030::winit::event::WindowEvent as W;
-    matches!(ev, W::MouseInput { .. } | W::Touch(_) | W::MouseWheel { .. } | W::KeyboardInput { .. } | W::PinchGesture { .. } | W::PanGesture { .. })
+    use slint::winit_030::winit::event::{ElementState, TouchPhase, WindowEvent as W};
+    match ev {
+        W::MouseInput { state, .. } => *state == ElementState::Pressed,
+        W::Touch(t) => !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled),
+        W::KeyboardInput { event, .. } => event.state == ElementState::Pressed,
+        W::MouseWheel { .. } | W::PinchGesture { .. } | W::PanGesture { .. } => true,
+        _ => false,
+    }
 }
 
 /// Install the window's one winit event filter: frame marking for the

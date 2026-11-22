@@ -377,6 +377,16 @@ impl Session {
         }
     }
 
+    /// Run xdotool on the private display.
+    pub fn xdo(&self, args: &[&str]) -> Result<(), String> {
+        let out = Command::new("xdotool").env("DISPLAY", &self.display).args(args).output().map_err(|e| format!("xdotool: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+
     /// Press at `from`, move to `to` in small steps as a finger would, let go.
     pub fn drag(&self, from: (i32, i32), to: (i32, i32)) -> Result<(), String> {
         let mut args = vec!["mousemove".to_string(), from.0.to_string(), from.1.to_string(), "mousedown".into(), "1".into()];

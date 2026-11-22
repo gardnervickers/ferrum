@@ -78,6 +78,9 @@ pub enum Step {
     Signal(String),
     /// A real X pointer click at screen pixels.
     Click(i32, i32),
+    /// Press (and hold) the pointer at X Y; `release` lets go.
+    Press(i32, i32),
+    Release,
     /// From (x0, y0) to (x1, y1), pressed the whole way.
     Drag(i32, i32, i32, i32),
 }
@@ -293,6 +296,11 @@ impl Scenario {
                     let (x, y) = split_word(rest);
                     Step::Click(x.parse().map_err(|_| err("bad x"))?, y.parse().map_err(|_| err("bad y"))?)
                 }
+                "press" => {
+                    let (x, y) = split_word(rest);
+                    Step::Press(x.parse().map_err(|_| err("bad x"))?, y.parse().map_err(|_| err("bad y"))?)
+                }
+                "release" => Step::Release,
                 "drag" => {
                     let n: Vec<i32> = rest.split_whitespace().filter_map(|w| w.parse().ok()).collect();
                     match n[..] {

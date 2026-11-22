@@ -1,0 +1,23 @@
+title A continuous jog stops on a release that reaches a stalled screen
+# The finger comes off a held jog button while the screen has stopped
+# drawing for 0.75 s: too short for the HAL watchdog (1 s), long enough
+# for the stale-input guard (0.6 s), which drops presses, not releases.
+screen-may-stall
+include ../common/ready.scn
+screen run
+click 1807 124   # the JOG tab
+sleep 1
+do jog-step-set "CONT"
+# Past the probe defaults' quiet-time write, which a jog would refuse.
+sleep 4
+press 1691 424   # X+, held
+wait stat.current_vel > 0 within 3
+signal STOP
+release
+sleep 0.75
+signal CONT
+sleep 1
+# Not E-stopped: the gap was under the watchdog's second.
+expect stat.task_state == 4
+expect stat.current_vel == 0
+expect prop.failsafe-dropped == 0

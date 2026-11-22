@@ -80,7 +80,9 @@ see. So (app/src/failsafe.rs, the always-on `watchdog` module):
   The machine cannot be turned on before the screen draws. After a trip the
   status list says `SCREEN FROZE n S: E-STOP` until E-stop is reset.
 - **Stale input is dropped.** A tap, key or wheel event that arrives more
-  than 600 ms after the last drawn frame is ignored (not in `--sim`).
+  than 600 ms after the last drawn frame is ignored (not in `--sim`). A
+  release always goes through: it ends what a fresh press started (a
+  continuous jog stops on it).
 - **Tested on the real start path.** The harness starts Ferrum with
   `--boot` (the splash launcher, as `ferrum/boot` on the Pi), checks after
   every run that the watchdog is happy and no two frames were more than
