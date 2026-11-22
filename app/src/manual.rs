@@ -445,6 +445,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         let Some(target) = jog_target(axis) else { return };
         // A label that is not in the list never jogs (and never continuously).
         let Some(step) = m.steps.iter().find(|s| s.label == m.step) else { return };
+        crate::with_probe(|p| p.yield_restore());
         match step.size {
             // Steps are lengths; a rotary steps the same number in degrees.
             Some(incr) => mc.send(Command::JogIncr { target, vel: speed, incr: incr * dir as f64 }),

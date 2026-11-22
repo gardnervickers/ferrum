@@ -1580,15 +1580,23 @@ impl Probe {
     /// the next quiet time (still marked pending). A probe routine between
     /// its lines refuses the start.
     pub fn start_problem(&mut self) -> Option<String> {
-        if let Some(r) = &self.run {
-            if !r.kind.is_empty() {
-                return Some(format!("{} is still sending to LinuxCNC; start again in a moment", r.what));
-            }
+        if let Some(r) = self.run.as_ref().filter(|r| !r.kind.is_empty()) {
+            return Some(format!("{} is still sending to LinuxCNC; start again in a moment", r.what));
+        }
+        self.yield_restore();
+        None
+    }
+
+    /// A jog or a start is about to go to LinuxCNC: a quiet-time defaults
+    /// write under way stops (the rest waits for the next quiet time), and
+    /// the quiet time starts over. Its MDI would otherwise land in the jog
+    /// ("Ignoring task mode change while jogging").
+    pub fn yield_restore(&mut self) {
+        if self.run.as_ref().is_some_and(|r| r.kind.is_empty()) {
             self.run = None;
             self.mark_dirty(true);
         }
         self.hold_restore();
-        None
     }
 
     /// Something else is about to talk to LinuxCNC (a start, a file opened
@@ -1775,7 +1783,8 @@ impl Probe {
     /// it out of a burst of jogs.
     fn maybe_restore(&mut self, now: bool) {
         let Some(s) = &self.status else { return };
-        let quiet = s.power_on() && s.all_homed() && !s.busy() && s.inpos && !s.homing.iter().any(|h| *h);
+        // inpos stays set through a jog (jogs bypass the coordinated planner): the speed shows it.
+        let quiet = s.power_on() && s.all_homed() && !s.busy() && s.inpos && s.current_vel.abs() < 1e-6 && !s.homing.iter().any(|h| *h);
         if !quiet {
             self.quiet_since = None;
             return;
