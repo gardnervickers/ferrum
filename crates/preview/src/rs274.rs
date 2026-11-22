@@ -68,6 +68,7 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
     let machine_lines = source.as_ref().map(|t| crate::machine_lines(t)).unwrap_or_default();
     let find_lines = source.as_ref().map(|t| crate::find_lines(t)).unwrap_or_default();
     let axis_lines = source.as_ref().ok().map(|t| crate::axis_lines(t));
+    let original = program.to_path_buf();
     let program = match &source {
         Ok(text) if std::fs::write(&numbered, start_units(&number_lines(text), setup.inch)).is_ok() => numbered.as_path(),
         _ => program,
@@ -82,7 +83,9 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
             // rs274 prints "executing" and, on failure, the error and the line.
             let msg: Vec<&str> = err.lines().map(str::trim).filter(|l| !l.is_empty() && *l != "executing").collect();
             if !msg.is_empty() {
-                tp.error = Some(msg.join(" · "));
+                let name = original.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let shift = u32::from(setup.inch && program == numbered.as_path());
+                tp.error = Some(tidy_error(&msg.join(" · "), &numbered.to_string_lossy(), &name, shift));
             }
             tp.machine_lines = machine_lines;
             tp.find_lines = find_lines;
@@ -91,6 +94,35 @@ pub fn run(setup: &Setup, program: &Path) -> Toolpath {
         }
         Err(e) => Toolpath { error: Some(format!("rs274: {e}")), ..Default::default() },
     }
+}
+
+/// rs274's error as the operator can use it: the program's own name, not
+/// the numbered copy's path, and line numbers of the program itself (the
+/// copy may start with an added G20 line).
+fn tidy_error(msg: &str, copy: &str, name: &str, shift: u32) -> String {
+    let msg = msg.replace(&format!("file:{copy}"), name).replace(copy, name);
+    if shift == 0 {
+        return msg;
+    }
+    let mut out = String::new();
+    let mut rest = msg.as_str();
+    while let Some(i) = rest.find("line") {
+        let (head, tail) = rest.split_at(i + 4);
+        out.push_str(head);
+        let digits_at = tail.find(|c: char| c.is_ascii_digit());
+        match digits_at {
+            Some(d) if tail[..d].chars().all(|c| c == ':' || c == ' ') => {
+                let end = tail[d..].find(|c: char| !c.is_ascii_digit()).map_or(tail.len(), |e| d + e);
+                let n: u32 = tail[d..end].parse().unwrap_or(0);
+                out.push_str(&tail[..d]);
+                out.push_str(&n.saturating_sub(shift).to_string());
+                rest = &tail[end..];
+            }
+            _ => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Put `N<line number>` at the start of every block, replacing an N word
@@ -134,7 +166,15 @@ pub fn number_lines(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{number_lines, start_units};
+    use super::{number_lines, start_units, tidy_error};
+
+    #[test]
+    fn errors_name_the_program_and_its_own_lines() {
+        let m = "EOF in file:/tmp/x/program.ngc seeking o-word: o<s> from line: 6";
+        assert_eq!(tidy_error(m, "/tmp/x/program.ngc", "part.ngc", 1), "EOF in part.ngc seeking o-word: o<s> from line: 5");
+        assert_eq!(tidy_error(m, "/tmp/x/program.ngc", "part.ngc", 0), "EOF in part.ngc seeking o-word: o<s> from line: 6");
+        assert_eq!(tidy_error("near line 12 of /tmp/x/program.ngc", "/tmp/x/program.ngc", "p.ngc", 1), "near line 11 of p.ngc");
+    }
 
     #[test]
     fn inch_machines_start_in_g20() {
