@@ -1,0 +1,32 @@
+title A jog or MDI during a feed hold leaves the program paused, and it resumes
+# (The jog buttons are disabled while a program is held; the action does nothing.)
+allow-error Stop the program before
+include ../common/ready.scn
+include ../common/work-zero.scn
+screen files
+tap files name h_long.ngc files-tap
+do files-load
+wait stat.file contains h_long.ngc within 10
+screen run
+wait prop.plot-summary contains " h " within 120
+do cycle-start
+wait stat.current_vel > 0 within 10
+do feed-hold
+wait stat.interp_state == 3 within 5
+do jog-step-set "CONT"
+do jog-start 0 1
+sleep 1
+do jog-stop 0
+expect stat.interp_state == 3
+expect stat.task_mode == 2
+do mdi-send "G0 X0"
+sleep 1
+expect prop.message contains "before MDI"
+expect stat.interp_state == 3
+expect stat.task_mode == 2
+shot paused
+do cycle-start
+wait stat.current_vel > 0 within 5
+expect stat.interp_state != 1
+do stop
+wait stat.interp_state == 1 within 10

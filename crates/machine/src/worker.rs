@@ -675,6 +675,21 @@ fn execute(m: &mut dyn Machine, last: &Option<lcnc::Status>, cmd: Command, on_ev
             return None;
         }
     }
+    // A program running or held in AUTO: MDI and jogs are LinuxCNC's to
+    // refuse ("Must be in MDI mode", "can't do that (EMC_JOG_STOP)"); say
+    // it plainly instead, and send no jog stop for a jog that never began.
+    if let Some(s) = now.as_ref().filter(|s| s.mode == Mode::Auto && s.interp != Interp::Idle) {
+        let text = match &cmd {
+            Command::Mdi(_) => "Stop the program before MDI (a feed hold keeps it in AUTO)",
+            Command::JogCont { .. } | Command::JogIncr { .. } => "Stop the program before jogging (a feed hold keeps it in AUTO)",
+            Command::JogStop { .. } => return None,
+            _ => "",
+        };
+        if !text.is_empty() {
+            on_event(Event::Message(Message { kind: MessageKind::Error, text: text.into() }));
+            return None;
+        }
+    }
     if let (Some(want), Some(s)) = (required_mode(&cmd), &now) {
         if s.mode != want && !s.busy() {
             if let Err(e) = m.send(&Command::SetMode(want)) {
