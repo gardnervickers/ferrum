@@ -1,0 +1,35 @@
+title E-stop with the tool change dialog open: it closes, and no tool is taken
+needs tc-dialog
+allow-error Motion enabled after reaching a coordinate soft limit
+include ../common/ready.scn
+do mdi-send "T2 M6"
+wait prop.tc-open == true within 60
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do estop-trip
+wait stat.task_state == 1 within 5
+wait prop.tc-open == false within 5
+expect stat.tool_in_spindle == 0
+# Back on: no dialog left over, and a RESUME from before does nothing.
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10
+sleep 1
+expect prop.tc-open == false
+do tc-resume false
+sleep 1
+expect stat.tool_in_spindle == 0
+# The next M6 asks again, from the start.
+do home-all
+wait prop.homed == true within 120
+idle 30
+do mdi-send "T3 M6"
+wait prop.tc-open == true within 60
+expect prop.tc-tool contains T3
+expect prop.tc-can-resume == false
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+idle 60
+expect stat.tool_in_spindle == 3
