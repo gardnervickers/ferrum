@@ -445,7 +445,7 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     live.set_optional_stop(s.optional_stop);
     live.set_block_delete(s.block_delete);
     let ready = s.power_on() && s.all_homed();
-    live.set_can_start(ready && (s.interp == Interp::Paused || (s.interp == Interp::Idle && !s.file.is_empty())));
+    live.set_can_start(ready && (s.interp == Interp::Paused || step_waits(s) || (s.interp == Interp::Idle && !s.file.is_empty())));
 
     // Cycle timer: runs while a program is running in auto mode.
     let running = s.mode == machine::Mode::Auto && s.busy();
@@ -627,6 +627,20 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
         match (s.interp, single) {
             (Interp::Paused, true) => m.send(Command::Step),
             (Interp::Paused, false) => m.send(Command::Resume),
+            // Between single steps task can wait in READING or WAITING (not
+            // PAUSED) with the motion queue held. A step or resume there only
+            // clears task's flags: the held move never runs, and a resume
+            // ends in "File ended with no percent sign". Pausing first puts
+            // it in PAUSED, where a step runs the held move and a resume
+            // goes on properly.
+            (Interp::Reading | Interp::Waiting, true) if step_waits(&s) => {
+                m.send(Command::Pause);
+                m.send(Command::Step);
+            }
+            (Interp::Reading | Interp::Waiting, false) if step_waits(&s) => {
+                m.send(Command::Pause);
+                m.send(Command::Resume);
+            }
             // The worker switches to AUTO first (and says so if it can't).
             (Interp::Idle, true) => m.send(Command::Step),
             (Interp::Idle, false) => m.send(Command::ProgramRun(0)),
@@ -1373,8 +1387,9 @@ async fn run(
             }
             let Some(ui) = weak.upgrade() else { return };
             let actions = ui.global::<Actions>();
-            match s.map(|s| (s.interp, s.busy())) {
-                Some((Interp::Paused, _)) | Some((Interp::Idle, false)) => {
+            match s.as_ref().map(|s| (s.interp, s.busy() && !step_waits(s))) {
+                // A single-stepped program between steps counts as paused.
+                Some((Interp::Paused, _)) | Some((Interp::Idle, false)) | Some((Interp::Reading | Interp::Waiting, false)) => {
                     toast(&ui, "Pendant START".to_string());
                     actions.invoke_cycle_start();
                 }
@@ -2053,6 +2068,13 @@ fn wire_job_probing(ui: &MainWindow, j: &Rc<RefCell<job::Job>>) {
 fn gcode_lines(ui: &MainWindow) -> Vec<SharedString> {
     use slint::Model;
     ui.global::<Live>().get_gcode_lines().iter().collect()
+}
+
+/// A single-stepped program waiting for its next step. After the first
+/// step LinuxCNC puts the interpreter back to READING or WAITING with the
+/// task paused, not to PAUSED; CYCLE START must still step (or resume).
+fn step_waits(s: &Status) -> bool {
+    s.mode == machine::Mode::Auto && s.paused && matches!(s.interp, Interp::Reading | Interp::Waiting)
 }
 
 thread_local! {

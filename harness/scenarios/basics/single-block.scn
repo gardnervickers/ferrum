@@ -1,0 +1,63 @@
+title SINGLE BLOCK steps line by line; M01 STOP stops at M1 only when on
+include ../common/ready.scn
+include ../common/work-zero.scn
+screen files
+tap files name h_square.ngc files-tap
+do files-load
+wait stat.file contains h_square.ngc within 10
+screen run
+wait prop.plot-summary contains " OP" within 30
+do single-block
+expect prop.single-block == true
+do cycle-start
+wait stat.interp_state == 3 within 10
+sleep 1.5
+expect stat.motion_line < 5
+do cycle-start
+sleep 1
+# After the first step LinuxCNC waits in READING/WAITING, not PAUSED:
+# CYCLE START must still be live and step on.
+expect prop.can-start == true
+do cycle-start
+sleep 1
+wait stat.current_vel == 0 within 20
+expect prop.can-start == true
+do cycle-start
+sleep 1
+wait stat.current_vel == 0 within 20
+shot stepped
+# One line per step: four steps did G90.., G0 X0 Y0, G1 X, G1 Y, no more.
+expect prop.dro-pos[0].work ~= ${dist}
+expect prop.dro-pos[1].work ~= ${dist}
+expect stat.interp_state != 1
+expect stat.motion_line < 6
+expect prop.message !contains "File ended"
+# Off again: CYCLE START runs the rest.
+do single-block
+do cycle-start
+wait stat.interp_state == 1 within 30
+sleep 1
+expect prop.message !contains "File ended"
+# M1 with M01 STOP on (LinuxCNC starts with it on): a pause there.
+expect stat.optional_stop == true
+expect prop.optional-stop == true
+screen files
+tap files name h_m1.ngc files-tap
+do files-load
+wait stat.file contains h_m1.ngc within 10
+screen run
+wait prop.plot-summary contains " OP" within 30
+do cycle-start
+wait stat.interp_state == 3 within 20
+expect prop.dro-pos[0].work ~= ${dist}
+expect prop.dro-pos[1].work ~= 0
+expect prop.can-start == true
+do cycle-start
+wait stat.interp_state == 1 within 30
+expect prop.dro-pos[1].work ~= 0
+# M01 STOP off: straight through.
+do optional-stop
+wait stat.optional_stop == false within 5
+do cycle-start
+wait stat.interp_state != 1 within 10
+wait stat.interp_state == 1 within 30
