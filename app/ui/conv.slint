@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Layout } from "theme.slint";
 import { Live, Actions, ConvField } from "state.slint";
 import { Btn, EqBtn, Seg, Card, Label, Caption, FieldTile, Chevron, H3, Note } from "widgets.slint";
 import { ListView } from "std-widgets.slint";
@@ -126,6 +126,120 @@ component DepthView inherits Rectangle {
     }
 }
 
+component ConvSee inherits VerticalLayout {
+    spacing: Theme.row;
+    Rectangle {
+        vertical-stretch: 1;
+        background: Theme.well;
+        border-radius: Theme.radius-ctl;
+        clip: true;
+        if Live.conv-section != "depth": PlanView { }
+        if Live.conv-section == "depth": DepthView { }
+        Caption {
+            x: 16px; y: 12px;
+            text: Live.conv-section == "depth" ? "SIDE VIEW  ·  NOT TO SCALE" : "TOP VIEW";
+        }
+    }
+    Rectangle {
+        height: 4 * 48px + 12px;
+        background: Theme.panel2;
+        border-radius: Theme.radius-ctl;
+        VerticalLayout {
+            padding: 6px;
+            for r in Live.conv-recap: RecapRow { r: r; }
+        }
+    }
+    // What the generator will do, or why it cannot.
+    Rectangle {
+        height: 64px;
+        border-radius: Theme.radius-ctl;
+        background: Live.conv-error ? Theme.bad-soft : transparent;
+        animate background { duration: Theme.settle; }
+        Text {
+            x: 14px; y: 6px;
+            width: parent.width - 28px;
+            height: parent.height - 12px;
+            vertical-alignment: top;
+            text: Live.conv-summary;
+            wrap: word-wrap;
+            overflow: elide;
+            font-family: Theme.body;
+            font-size: Theme.t-body;
+            color: Live.conv-error ? Theme.bad : Theme.muted;
+        }
+    }
+}
+
+component ConvSet inherits VerticalLayout {
+    in property <string> hint;
+    // Under the sketch (portrait): no spacer, the sketch takes the height.
+    in property <bool> stack;
+    property <bool> locked: Live.manual-locked;
+    spacing: Theme.row;
+    HorizontalLayout {
+        spacing: 0px;
+        for s[i] in Live.conv-sections: Seg {
+            text: s.label;
+            on: s.on;
+            first: i == 0;
+            last: i == Live.conv-sections.length - 1;
+            clicked => { Actions.conv-section(s.id); }
+        }
+    }
+    Note { height: 26px; text: root.hint; wrap: no-wrap; overflow: elide; }
+    for row in (Live.conv-fields.length + 1) / 2: HorizontalLayout {
+        spacing: 10px;
+        for col in 2: FieldTile {
+            property <ConvField> f: Live.conv-fields[row * 2 + col];
+            label: f.label;
+            value: f.value;
+            unit: f.unit;
+            choice: f.choice;
+            // "—": not used by this operation.
+            enabled: f.value != "—";
+            empty: row * 2 + col >= Live.conv-fields.length;
+            edit => { Actions.conv-field(f.key); }
+        }
+    }
+    if Live.conv-show-holes: HorizontalLayout {
+        spacing: 10px;
+        EqBtn { text: "ADD HOLE"; clicked => { Actions.conv-hole-add(); } }
+        EqBtn { text: "DELETE"; hold: true; enabled: Live.conv-hole-sel >= 0; clicked => { Actions.conv-hole-del(); } }
+    }
+    if Live.conv-show-holes: Rectangle {
+        vertical-stretch: 1;
+        background: Theme.well;
+        border-radius: Theme.radius-ctl;
+        clip: true;
+        ListView {
+            y: 6px;
+            height: floor((parent.height - 12px) / 48px) * 48px;
+            for h[i] in Live.conv-holes: Rectangle {
+                height: 48px;
+                Rectangle {
+                    x: 6px; y: 2px; width: parent.width - 12px; height: parent.height - 4px;
+                    border-radius: Theme.radius-sm;
+                    background: i == Live.conv-hole-sel ? Theme.sel-soft : ht.pressed ? Theme.raised : transparent;
+                    border-width: i == Live.conv-hole-sel ? 2px : 0;
+                    border-color: Theme.sel;
+                    animate background { duration: Theme.quick; }
+                }
+                ht := TouchArea { clicked => { Actions.conv-hole-select(i); } }
+                Text { x: 18px; vertical-alignment: center; text: h; font-family: Theme.body; font-weight: 500; font-size: Theme.t-ctl; color: Theme.ink; }
+            }
+        }
+    }
+    if !Live.conv-show-holes && !root.stack: Rectangle { vertical-stretch: 1; }
+    // 4: use it.
+    Note { height: 26px; text: "Open the G-code on RUN, or keep it as a job op."; wrap: no-wrap; overflow: elide; }
+    HorizontalLayout {
+        height: Theme.h-choice;
+        spacing: 10px;
+        EqBtn { text: "LOAD AS PROGRAM"; enabled: !Live.conv-error && !locked; clicked => { Actions.conv-load(); } }
+        EqBtn { text: "ADD TO JOB"; enabled: !Live.conv-error && !Live.job-running; clicked => { Actions.conv-add(); } }
+    }
+}
+
 export component ConvScreen inherits Rectangle {
     property <bool> locked: Live.manual-locked;
     property <string> hint: Live.conv-section == "shape" ? "Where the cut is, in work coordinates."
@@ -156,121 +270,18 @@ export component ConvScreen inherits Rectangle {
                     H3 { vertical-alignment: center; text: Live.conv-title; }
                     Label { horizontal-stretch: 1; horizontal-alignment: right; vertical-alignment: center; text: Live.conv-tool; overflow: elide; }
                 }
-                HorizontalLayout {
+                // 2: see it, 3: set it. Side by side; in portrait the inputs go under the sketch.
+                if !Layout.portrait: HorizontalLayout {
                     vertical-stretch: 1;
                     spacing: 16px;
-                    // 2: see it. The sketch, then the whole operation in four lines.
-                    VerticalLayout {
-                        horizontal-stretch: 1;
-                        spacing: Theme.row;
-                        Rectangle {
-                            vertical-stretch: 1;
-                            background: Theme.well;
-                            border-radius: Theme.radius-ctl;
-                            clip: true;
-                            if Live.conv-section != "depth": PlanView { }
-                            if Live.conv-section == "depth": DepthView { }
-                            Caption {
-                                x: 16px; y: 12px;
-                                text: Live.conv-section == "depth" ? "SIDE VIEW  ·  NOT TO SCALE" : "TOP VIEW";
-                            }
-                        }
-                        Rectangle {
-                            height: 4 * 48px + 12px;
-                            background: Theme.panel2;
-                            border-radius: Theme.radius-ctl;
-                            VerticalLayout {
-                                padding: 6px;
-                                for r in Live.conv-recap: RecapRow { r: r; }
-                            }
-                        }
-                        // What the generator will do, or why it cannot.
-                        Rectangle {
-                            height: 64px;
-                            border-radius: Theme.radius-ctl;
-                            background: Live.conv-error ? Theme.bad-soft : transparent;
-                            animate background { duration: Theme.settle; }
-                            Text {
-                                x: 14px; y: 6px;
-                                width: parent.width - 28px;
-                                height: parent.height - 12px;
-                                vertical-alignment: top;
-                                text: Live.conv-summary;
-                                wrap: word-wrap;
-                                overflow: elide;
-                                font-family: Theme.body;
-                                font-size: Theme.t-body;
-                                color: Live.conv-error ? Theme.bad : Theme.muted;
-                            }
-                        }
-                    }
-                    // 3: set it. One section of inputs at a time.
-                    VerticalLayout {
-                        width: 500px;
-                        spacing: Theme.row;
-                        HorizontalLayout {
-                            spacing: 0px;
-                            for s[i] in Live.conv-sections: Seg {
-                                text: s.label;
-                                on: s.on;
-                                first: i == 0;
-                                last: i == Live.conv-sections.length - 1;
-                                clicked => { Actions.conv-section(s.id); }
-                            }
-                        }
-                        Note { height: 26px; text: root.hint; wrap: no-wrap; overflow: elide; }
-                        for row in (Live.conv-fields.length + 1) / 2: HorizontalLayout {
-                            spacing: 10px;
-                            for col in 2: FieldTile {
-                                property <ConvField> f: Live.conv-fields[row * 2 + col];
-                                label: f.label;
-                                value: f.value;
-                                unit: f.unit;
-                                choice: f.choice;
-                                // "—": not used by this operation.
-                                enabled: f.value != "—";
-                                empty: row * 2 + col >= Live.conv-fields.length;
-                                edit => { Actions.conv-field(f.key); }
-                            }
-                        }
-                        if Live.conv-show-holes: HorizontalLayout {
-                            spacing: 10px;
-                            EqBtn { text: "ADD HOLE"; clicked => { Actions.conv-hole-add(); } }
-                            EqBtn { text: "DELETE"; hold: true; enabled: Live.conv-hole-sel >= 0; clicked => { Actions.conv-hole-del(); } }
-                        }
-                        if Live.conv-show-holes: Rectangle {
-                            vertical-stretch: 1;
-                            background: Theme.well;
-                            border-radius: Theme.radius-ctl;
-                            clip: true;
-                            ListView {
-                                y: 6px;
-                                height: floor((parent.height - 12px) / 48px) * 48px;
-                                for h[i] in Live.conv-holes: Rectangle {
-                                    height: 48px;
-                                    Rectangle {
-                                        x: 6px; y: 2px; width: parent.width - 12px; height: parent.height - 4px;
-                                        border-radius: Theme.radius-sm;
-                                        background: i == Live.conv-hole-sel ? Theme.sel-soft : ht.pressed ? Theme.raised : transparent;
-                                        border-width: i == Live.conv-hole-sel ? 2px : 0;
-                                        border-color: Theme.sel;
-                                        animate background { duration: Theme.quick; }
-                                    }
-                                    ht := TouchArea { clicked => { Actions.conv-hole-select(i); } }
-                                    Text { x: 18px; vertical-alignment: center; text: h; font-family: Theme.body; font-weight: 500; font-size: Theme.t-ctl; color: Theme.ink; }
-                                }
-                            }
-                        }
-                        if !Live.conv-show-holes: Rectangle { vertical-stretch: 1; }
-                        // 4: use it.
-                        Note { height: 26px; text: "Open the G-code on RUN, or keep it as a job op."; wrap: no-wrap; overflow: elide; }
-                        HorizontalLayout {
-                            height: Theme.h-choice;
-                            spacing: 10px;
-                            EqBtn { text: "LOAD AS PROGRAM"; enabled: !Live.conv-error && !locked; clicked => { Actions.conv-load(); } }
-                            EqBtn { text: "ADD TO JOB"; enabled: !Live.conv-error && !Live.job-running; clicked => { Actions.conv-add(); } }
-                        }
-                    }
+                    ConvSee { horizontal-stretch: 1; }
+                    ConvSet { width: 500px; hint: root.hint; }
+                }
+                if Layout.portrait: VerticalLayout {
+                    vertical-stretch: 1;
+                    spacing: 16px;
+                    ConvSee { vertical-stretch: 2; }
+                    ConvSet { vertical-stretch: Live.conv-show-holes ? 1 : 0; hint: root.hint; stack: true; }
                 }
             }
         }

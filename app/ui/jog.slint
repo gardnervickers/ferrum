@@ -319,92 +319,115 @@ component GotoPanel inherits VerticalLayout {
 }
 
 // The right column: three cards, each with its own heading.
-component SideColumn inherits VerticalLayout {
-    spacing: Theme.gap;
+// The spindle, work zero and the returns beside (landscape) or under
+// (portrait) the power feed card.
+component SpindleCard inherits Card {
+    VerticalLayout {
+        padding: Theme.pad;
+        spacing: Theme.row;
+        H3 { text: "SPINDLE"; }
+        HorizontalLayout {
+            spacing: 10px;
+            Label { vertical-alignment: center; text: "SPEED"; horizontal-stretch: 1; }
+            NumField { width: 210px; value: Live.spindle-rpm; unit: "rpm"; enabled: !Live.manual-locked; edit => { Actions.edit("spindle-rpm"); } }
+        }
+        // STOP stands apart from the starts on either side.
+        HorizontalLayout {
+            spacing: 32px;
+            EqBtn { height: Theme.h-choice; text: "CW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(1); } }
+            EqBtn { height: Theme.h-choice; text: "STOP"; kind: "stop"; enabled: Live.power; clicked => { Actions.spindle(0); } }
+            if Live.spindle-reverse: EqBtn { height: Theme.h-choice; text: "CCW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(-1); } }
+        }
+    }
+}
+
+component ZeroCard inherits Card {
     property <bool> ready: Live.power && Live.homed && !Live.manual-locked;
-    Card {
-        VerticalLayout {
-            padding: Theme.pad;
-            spacing: Theme.row;
-            H3 { text: "SPINDLE"; }
-            HorizontalLayout {
-                spacing: 10px;
-                Label { vertical-alignment: center; text: "SPEED"; horizontal-stretch: 1; }
-                NumField { width: 210px; value: Live.spindle-rpm; unit: "rpm"; enabled: !Live.manual-locked; edit => { Actions.edit("spindle-rpm"); } }
-            }
-            // STOP stands apart from the starts on either side.
-            HorizontalLayout {
-                spacing: 32px;
-                EqBtn { height: Theme.h-choice; text: "CW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(1); } }
-                EqBtn { height: Theme.h-choice; text: "STOP"; kind: "stop"; enabled: Live.power; clicked => { Actions.spindle(0); } }
-                if Live.spindle-reverse: EqBtn { height: Theme.h-choice; text: "CCW"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.spindle(-1); } }
-            }
+    VerticalLayout {
+        padding: Theme.pad;
+        spacing: Theme.row;
+        H3 { text: "WORK ZERO"; }
+        Note { text: "Sets the active WCS so the tool tip is 0 on every axis. Tap ZERO beside an axis on the DRO to zero just that one."; }
+        Btn {
+            height: Theme.h-big;
+            text: "ZERO XYZ HERE";
+            enabled: root.ready;
+            clicked => { Actions.zero-xyz(); }
         }
     }
-    Card {
-        VerticalLayout {
-            padding: Theme.pad;
-            spacing: Theme.row;
-            H3 { text: "WORK ZERO"; }
-            Note { text: "Sets the active WCS so the tool tip is 0 on every axis. Tap ZERO beside an axis on the DRO to zero just that one."; }
-            Btn {
-                height: Theme.h-big;
-                text: "ZERO XYZ HERE";
-                enabled: root.ready;
-                clicked => { Actions.zero-xyz(); }
-            }
+}
+
+component ReturnCard inherits Card {
+    property <bool> ready: Live.power && Live.homed && !Live.manual-locked;
+    VerticalLayout {
+        padding: Theme.pad;
+        spacing: Theme.row;
+        alignment: start;
+        H3 { text: "RETURN"; }
+        Note { text: "Each is a move: hold the button until it starts."; }
+        Btn {
+            height: Theme.h-choice;
+            text: "Z TO WORK Z0"; hold: true; font-size: Layout.compact ? Theme.t-body : Theme.t-btn;
+            enabled: root.ready;
+            clicked => { Actions.z-to-work-zero(); }
         }
-    }
-    Card {
-        vertical-stretch: 1;
-        VerticalLayout {
-            padding: Theme.pad;
-            spacing: Theme.row;
-            alignment: start;
-            H3 { text: "RETURN"; }
-            Note { text: "Each is a move: hold the button until it starts."; }
-            Btn {
-                height: Theme.h-choice;
-                text: "Z TO WORK Z0"; hold: true; font-size: Layout.compact ? Theme.t-body : Theme.t-btn;
-                enabled: root.ready;
-                clicked => { Actions.z-to-work-zero(); }
-            }
-            Btn {
-                height: Theme.h-choice;
-                text: "RETRACT " + (Live.unit == "in" ? "0.4" : "10") + ", XY TO WORK 0"; hold: true; font-size: Layout.compact ? Theme.t-body : Theme.t-btn;
-                enabled: root.ready;
-                clicked => { Actions.retract-xy-to-zero(); }
-            }
-            Btn {
-                height: Theme.h-choice;
-                text: "PARK AT MACHINE HOME"; hold: true; font-size: Layout.compact ? Theme.t-body : Theme.t-btn;
-                enabled: root.ready;
-                clicked => { Actions.park(); }
-            }
+        Btn {
+            height: Theme.h-choice;
+            text: "RETRACT " + (Live.unit == "in" ? "0.4" : "10") + ", XY TO WORK 0"; hold: true; font-size: Layout.compact ? Theme.t-body : Theme.t-btn;
+            enabled: root.ready;
+            clicked => { Actions.retract-xy-to-zero(); }
+        }
+        Btn {
+            height: Theme.h-choice;
+            text: "PARK AT MACHINE HOME"; hold: true; font-size: Layout.compact ? Theme.t-body : Theme.t-btn;
+            enabled: root.ready;
+            clicked => { Actions.park(); }
         }
     }
 }
 
 // MANUAL: power feed and go to, with spindle, zero and the returns. The
 // tabs head the left card, as the Run screen's tabs head its panel.
+component FeedCard inherits Card {
+    VerticalLayout {
+        padding: Theme.pad;
+        spacing: Theme.row;
+        HorizontalLayout {
+            spacing: 0px;
+            Seg { first: true; text: "POWER FEED"; on: Live.jog-tab != "goto"; clicked => { Live.jog-tab = "feed"; } }
+            Seg { last: true; text: "GO TO"; on: Live.jog-tab == "goto"; clicked => { Live.jog-tab = "goto"; } }
+        }
+        if Live.jog-tab != "goto": PowerFeedPanel { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
+        if Live.jog-tab == "goto": GotoPanel { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
+    }
+}
+
 export component ManualScreen inherits Rectangle {
-    HorizontalLayout {
+    if !Layout.portrait: HorizontalLayout {
         padding: Theme.gap;
         spacing: Theme.gap;
-        Card {
-            width: Layout.compact ? 640px : 800px;
-            VerticalLayout {
-                padding: Theme.pad;
-                spacing: Theme.row;
-                HorizontalLayout {
-                    spacing: 0px;
-                    Seg { first: true; text: "POWER FEED"; on: Live.jog-tab != "goto"; clicked => { Live.jog-tab = "feed"; } }
-                    Seg { last: true; text: "GO TO"; on: Live.jog-tab == "goto"; clicked => { Live.jog-tab = "goto"; } }
-                }
-                if Live.jog-tab != "goto": PowerFeedPanel { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
-                if Live.jog-tab == "goto": GotoPanel { vertical-stretch: 1; opacity: 0; init => { self.opacity = 1; } animate opacity { duration: Theme.quick; } }
-            }
+        FeedCard { width: Layout.compact ? 640px : 800px; }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: Theme.gap;
+            SpindleCard {}
+            ZeroCard {}
+            ReturnCard { vertical-stretch: 1; }
         }
-        SideColumn { horizontal-stretch: 1; }
+    }
+    if Layout.portrait: VerticalLayout {
+        padding: Theme.gap;
+        spacing: Theme.gap;
+        FeedCard { vertical-stretch: 1; }
+        HorizontalLayout {
+            spacing: Theme.gap;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: Theme.gap;
+                SpindleCard {}
+                ZeroCard { vertical-stretch: 1; }
+            }
+            ReturnCard { horizontal-stretch: 1; }
+        }
     }
 }

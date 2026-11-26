@@ -14,87 +14,107 @@ component Cell inherits Kv {
 }
 
 export component UtilScreen inherits Rectangle {
+    // A narrow landscape window leaves the status card too narrow for three.
+    property <int> cols: Layout.compact && !Layout.portrait ? 2 : 3;
     HorizontalLayout {
         padding: Theme.gap;
         spacing: Theme.gap;
-        Card {
+        VerticalLayout {
             width: Layout.compact ? 560px : 680px;
-            VerticalLayout {
-                padding: Theme.pad;
-                spacing: Theme.row;
-                H3 { text: "SPINDLE WARM-UP"; }
-                Note { text: Live.wu-note; }
-                Btn {
-                    text: "TOOL HOLDER SECURE";
-                    sub: Live.wu-secure ? "CONFIRMED" : "TAP TO CONFIRM";
-                    on: Live.wu-secure;
-                    enabled: !Live.wu-running;
-                    clicked => { Actions.wu-secure(); }
-                }
-                // Same widths as the rows below (the card is 680 px, 560 compact), so
-                // every row splits at the same x.
-                HorizontalLayout {
-                    spacing: 10px;
-                    for st[i] in Live.wu-stages: Rectangle {
-                        max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1;
-                        height: 146px;
-                        border-radius: Theme.radius-ctl;
-                        background: st.state == "run" ? Theme.good-soft : Theme.panel2;
-                        border-width: st.state == "run" ? 2px : 0;
-                        border-color: Theme.go-border;
-                        VerticalLayout {
-                            padding: 8px;
-                            spacing: 4px;
-                            Caption { height: 20px; vertical-alignment: center; text: "STAGE " + (i + 1) + (st.state == "done" ? "  ·  DONE" : st.state == "run" ? "  ·  NOW" : ""); color: st.state == "run" ? Theme.good : Theme.dim; }
-                            // The shared number field: value right, unit small after it.
-                            NumField { height: Theme.h-sm; value: st.rpm; unit: "rpm"; enabled: !Live.wu-running; edit => { Actions.edit("wu-rpm-" + i); } }
-                            NumField { height: Theme.h-sm; value: st.minutes; unit: "min"; enabled: !Live.wu-running; edit => { Actions.edit("wu-min-" + i); } }
+            spacing: Theme.gap;
+            Card {
+                VerticalLayout {
+                    padding: Theme.pad;
+                    spacing: Theme.row;
+                    H3 { text: "SPINDLE WARM-UP"; }
+                    Note { text: Live.wu-note; }
+                    Btn {
+                        text: "TOOL HOLDER SECURE";
+                        sub: Live.wu-secure ? "CONFIRMED" : "TAP TO CONFIRM";
+                        on: Live.wu-secure;
+                        enabled: !Live.wu-running;
+                        clicked => { Actions.wu-secure(); }
+                    }
+                    // Same widths as the rows below (the card is 680 px, 560 compact), so
+                    // every row splits at the same x.
+                    HorizontalLayout {
+                        spacing: 10px;
+                        for st[i] in Live.wu-stages: Rectangle {
+                            max-width: 154px; preferred-width: 154px; min-width: 92px; horizontal-stretch: 1;
+                            height: 146px;
+                            border-radius: Theme.radius-ctl;
+                            background: st.state == "run" ? Theme.good-soft : Theme.panel2;
+                            border-width: st.state == "run" ? 2px : 0;
+                            border-color: Theme.go-border;
+                            VerticalLayout {
+                                padding: 8px;
+                                spacing: 4px;
+                                Caption { height: 20px; vertical-alignment: center; text: "STAGE " + (i + 1) + (st.state == "done" ? "  ·  DONE" : st.state == "run" ? "  ·  NOW" : ""); color: st.state == "run" ? Theme.good : Theme.dim; }
+                                // The shared number field: value right, unit small after it.
+                                NumField { height: Theme.h-sm; value: st.rpm; unit: "rpm"; enabled: !Live.wu-running; edit => { Actions.edit("wu-rpm-" + i); } }
+                                NumField { height: Theme.h-sm; value: st.minutes; unit: "min"; enabled: !Live.wu-running; edit => { Actions.edit("wu-min-" + i); } }
+                            }
                         }
                     }
-                }
-                Rectangle {
-                    height: 8px;
-                    border-radius: 4px;
-                    background: Theme.well;
-                    Rectangle { x: 0; width: parent.width * Live.wu-progress; border-radius: 4px; background: Theme.sel; }
-                }
-                Note { height: 26px; wrap: no-wrap; overflow: elide; vertical-alignment: center; text: Live.wu-text; }
-                // Fixed slot so START/STOP never move.
-                Text { height: 26px; overflow: elide; font-family: Theme.body; font-size: Theme.t-body; color: Theme.warn; text: !Live.wu-running ? Live.wu-ready : ""; }
-                // A wide gap between the stop and its start, on purpose.
-                HorizontalLayout {
-                    height: Theme.h-choice;
-                    spacing: 32px;
-                    EqBtn { kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
-                    EqBtn { kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
-                }
-                H3 { text: "SPINDLE AND TOOL SETTER"; }
-                // Gone when empty, or it takes a share of the free height.
-                if Live.ut-has-blast || Live.ut-has-nose: HorizontalLayout {
-                    spacing: 10px;
-                    if Live.ut-has-blast: Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
-                    if Live.ut-has-nose: Btn {
-                        max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1;
-                        text: "PROBE SPINDLE NOSE";
-                        clicked => {
-                            Actions.probe-mode("cal");
-                            Actions.probe-shape("nose");
-                            Actions.navigate("probe");
-                        }
+                    Rectangle {
+                        height: 8px;
+                        border-radius: 4px;
+                        background: Theme.well;
+                        Rectangle { x: 0; width: parent.width * Live.wu-progress; border-radius: 4px; background: Theme.sel; }
+                    }
+                    Note { height: 26px; wrap: no-wrap; overflow: elide; vertical-alignment: center; text: Live.wu-text; }
+                    // Fixed slot so START/STOP never move.
+                    Text { height: 26px; overflow: elide; font-family: Theme.body; font-size: Theme.t-body; color: Theme.warn; text: !Live.wu-running ? Live.wu-ready : ""; }
+                    // A wide gap between the stop and its start, on purpose.
+                    HorizontalLayout {
+                        height: Theme.h-choice;
+                        spacing: 32px;
+                        EqBtn { kind: "stop"; text: "STOP"; enabled: Live.wu-running; clicked => { Actions.wu-stop(); } }
+                        EqBtn { kind: "go"; text: "START WARM-UP"; enabled: !Live.wu-running && Live.wu-ready == ""; clicked => { Actions.wu-start(); } }
                     }
                 }
-                HorizontalLayout {
-                    spacing: 10px;
-                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "GO TO G30"; sub: "TOOL SETTER"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-go-g30(); } }
-                    Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "SET G30 HERE"; hold: true; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-set-g30(); } }
+            }
+            // The setter and spindle nose, a card of their own under the warm-up.
+            Card {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding: Theme.pad;
+                    spacing: Theme.row;
+                    H3 { text: "SPINDLE AND TOOL SETTER"; }
+                    // Gone when empty, or it takes a share of the free height.
+                    if Live.ut-has-blast || Live.ut-has-nose: HorizontalLayout {
+                        spacing: 10px;
+                        if Live.ut-has-blast: Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "TOOLSETTER BLAST"; hold: true; enabled: Live.ut-has-blast; on: Live.ut-blast; clicked => { Actions.ut-blast(); } }
+                        if Live.ut-has-nose: Btn {
+                            max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1;
+                            text: "PROBE SPINDLE NOSE";
+                            clicked => {
+                                Actions.probe-mode("cal");
+                                Actions.probe-shape("nose");
+                                Actions.navigate("probe");
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "GO TO G30"; sub: "TOOL SETTER"; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-go-g30(); } }
+                        Btn { max-width: 320px; preferred-width: 320px; min-width: 192px; horizontal-stretch: 1; text: "SET G30 HERE"; hold: true; enabled: Live.power && !Live.manual-locked; clicked => { Actions.ut-set-g30(); } }
+                    }
+                    if !Layout.compact: HorizontalLayout {
+                        spacing: 10px;
+                        if Live.ut-has-nose: Cell { width: 180px; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
+                        Cell { width: 150px; key: "SETTER"; value: Live.ut-setter; }
+                        Cell { horizontal-stretch: 1; key: "G30 POSITION"; value: Live.ut-g30; }
+                    }
+                    // Narrower: the position gets a line of its own, so nothing is cut.
+                    if Layout.compact: HorizontalLayout {
+                        spacing: 10px;
+                        if Live.ut-has-nose: Cell { horizontal-stretch: 1; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
+                        Cell { horizontal-stretch: 1; key: "SETTER"; value: Live.ut-setter; }
+                    }
+                    if Layout.compact: Cell { key: "G30 POSITION"; value: Live.ut-g30; }
+                    Rectangle { vertical-stretch: 1; }
                 }
-                HorizontalLayout {
-                    spacing: 10px;
-                    if Live.ut-has-nose: Cell { width: Layout.compact ? 150px : 180px; key: "NOSE REF"; value: Live.ut-nose; kind: Live.ut-nose-kind; }
-                    Cell { width: Layout.compact ? 120px : 150px; key: "SETTER"; value: Live.ut-setter; }
-                    Cell { horizontal-stretch: 1; key: "G30 POSITION"; value: Live.ut-g30; }
-                }
-                Rectangle { vertical-stretch: 1; }
             }
         }
         Card {
@@ -105,7 +125,7 @@ export component UtilScreen inherits Rectangle {
                 H3 { text: "MACHINE STATUS"; }
                 GridLayout {
                     spacing: 10px;
-                    for r[i] in Live.ut-status: Cell { col: mod(i, 3); row: floor(i / 3); key: r.key; value: r.value; kind: r.kind; }
+                    for r[i] in Live.ut-status: Cell { col: mod(i, root.cols); row: floor(i / root.cols); key: r.key; value: r.value; kind: r.kind; }
                 }
                 Note { text: "From LinuxCNC status and the machine's HAL signals."; }
                 Rectangle { vertical-stretch: 1; }
