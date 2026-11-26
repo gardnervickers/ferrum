@@ -22,11 +22,13 @@ mod loadlog;
 mod machine_info;
 mod checks;
 mod halmap;
+mod halpins;
 mod machine_cfg;
 mod manual;
 mod mdi;
 mod modules;
 mod picker;
+mod postgui;
 mod plot;
 mod powerfeed;
 mod program;
@@ -77,10 +79,12 @@ struct Args {
     write_ini: bool,
     /// `--boot [INI]`: start LinuxCNC under the splash (boot.rs).
     boot: bool,
+    /// `--convert-postgui [INI]`: convert [HAL]POSTGUI_HALFILE once (postgui.rs).
+    convert: bool,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new(), open: None, size: None, check: false, write_ini: false, boot: false };
+    let mut a = Args { ini: std::env::var_os("INI_FILE_NAME").map(PathBuf::from), sim: false, windowed: false, screenshot: None, screen: None, show: Vec::new(), open: None, size: None, check: false, write_ini: false, boot: false, convert: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -101,6 +105,16 @@ fn parse_args() -> Args {
                 a.write_ini = true;
             }
             "--boot" => a.boot = true,
+            "--convert-postgui" => {
+                a.check = true;
+                a.convert = true;
+            }
+            "--hal-pins" => {
+                // The HAL contract (halpins.rs), for the machine's axes when an INI is named.
+                let axes = it.next().and_then(|p| Config::load(Path::new(&p)).ok()).map_or("XYZABC".to_string(), |c| c.coordinates());
+                print!("{}", halpins::table(&axes));
+                std::process::exit(0);
+            }
             other if (a.check || a.boot) && !other.starts_with('-') => a.ini = Some(PathBuf::from(other)),
             _ => {}
         }
@@ -149,10 +163,14 @@ fn connect_machine(sim: bool, open: Option<PathBuf>, nml: Option<String>) -> Res
     }
 }
 
-/// Create module pins, mark the component ready, then net them with each
-/// enabled module's `ferrum/hal/<id>.hal` and the optional
-/// [FERRUM]POSTGUI_HALFILE. Returns the component, which must live as long
-/// as the GUI (dropping it calls hal_exit).
+/// Create module pins and the rest of the HAL contract (crate::halpins),
+/// mark the component ready, then connect each running module's pins
+/// through `[hal]` in ferrum.toml or their default targets, and run the
+/// `[display]postgui` files. Returns the component, which must live as
+/// long as the GUI (dropping it calls hal_exit).
+///
+/// Without a `[hal]` table (an older profile), a module's own
+/// `ferrum/hal/<id>.hal` beside the INI is run instead of its links.
 fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<String>) -> Option<lcnc::hal::Component> {
     let comp = match lcnc::hal::Component::new("ferrum") {
         Ok(c) => c,
@@ -166,43 +184,70 @@ fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<Stri
             notes.push(format!("{}: {e}", m.id()));
         }
     }
+    // Every pin of the contract exists, whatever modules run, so the
+    // machine's own HAL files can always net them.
+    for d in halpins::for_axes(&cfg.coordinates()) {
+        if !comp.has_pin(d.pin) {
+            if let Err(e) = spare_pin(&comp, d) {
+                notes.push(format!("ferrum.{}: {e}", d.pin));
+            }
+        }
+    }
     if let Err(e) = comp.ready() {
         notes.push(e.to_string());
         return Some(comp);
     }
     let Some(ini) = cfg.path.as_ref() else { return Some(comp) };
-    // A module's own ferrum/hal/<id>.hal (the mymill profile), else its
-    // pins connect through [hal] in ferrum.toml or their default targets.
     let mc = machine_cfg::get();
+    let legacy = !mc.has_hal_table();
+    let has_file = |id: &str| legacy && cfg.dir().join(format!("ferrum/hal/{id}.hal")).is_file();
     let mut files: Vec<PathBuf> = Vec::new();
-    let mut known: Vec<&str> = Vec::new();
+    let mut done: Vec<&str> = Vec::new();
     for m in modules.iter_mut() {
-        let file = PathBuf::from(format!("ferrum/hal/{}.hal", m.id()));
-        let has_file = cfg.dir().join(&file).is_file();
-        if has_file {
-            files.push(file);
+        let id = m.id();
+        if has_file(id) {
+            files.push(PathBuf::from(format!("ferrum/hal/{id}.hal")));
+        } else {
+            m.before_links();
         }
-        for l in m.hal_links() {
-            known.push(l.name);
-            let target = mc.hal.get(l.name).map(String::as_str).or(if has_file { None } else { l.auto });
-            match target {
-                Some(t) => match halmap::link(l.pin, l.input, t) {
-                    Ok(done) => {
-                        eprintln!("ferrum: HAL {done}");
-                        m.linked(l.name);
-                    }
-                    Err(e) => notes.push(format!("[hal]{}: {e}", l.name)),
+        for d in halpins::links(id) {
+            let name = d.name.unwrap_or_default();
+            if done.contains(&d.pin) {
+                m.linked(name);
+                continue;
+            }
+            let (target, named) = match mc.hal.get(name) {
+                Some(t) => (t.clone(), true),
+                None if has_file(id) => {
+                    m.linked(name);
+                    continue;
+                }
+                None => match d.auto {
+                    Some(a) => (machine_cfg::HalTarget::named(a), false),
+                    None => continue,
                 },
-                None if has_file => m.linked(l.name),
-                None => {}
+            };
+            match halmap::link(d, &target, named) {
+                Ok(halmap::Linked::Yes(how)) => {
+                    eprintln!("ferrum: HAL {how}");
+                    done.push(d.pin);
+                    m.linked(name);
+                }
+                Ok(halmap::Linked::Nothing(why)) => eprintln!("ferrum: HAL {why}"),
+                Err(e) => notes.push(format!("[hal]{name}: {e}")),
             }
         }
     }
-    // Read by the screen watchdog's built-in wiring (modules.rs).
-    known.push("screen_watchdog_trip");
+    if legacy && !files.is_empty() {
+        eprintln!("ferrum: running the old per-module HAL files; a [hal] table in ferrum.toml replaces them (docs/hal.md)");
+    }
+    let running: Vec<&str> = modules.iter().map(|m| m.id()).collect();
     for k in mc.hal.keys() {
-        if !known.contains(&k.as_str()) {
-            notes.push(format!("[hal]{k}: no enabled module uses this name"));
+        if !halpins::known(k) {
+            notes.push(format!("[hal]{k}: not a name ferrum knows (ferrum --hal-pins lists them)"));
+        } else if k != halpins::WATCHDOG_TRIP && !halpins::by_name(k).any(|d| d.modules.iter().any(|m| running.contains(m))) {
+            let m = halpins::by_name(k).next().map_or("", |d| d.modules[0]);
+            notes.push(format!("[hal]{k}: the {m} module is off, so it is not connected"));
         }
     }
     files.extend(mc.postgui(cfg).into_iter().map(PathBuf::from));
@@ -212,10 +257,25 @@ fn setup_hal(cfg: &Config, modules: &mut [Box<dyn Module>], notes: &mut Vec<Stri
         }
     }
     for m in modules.iter_mut() {
-        let has_file = cfg.dir().join(format!("ferrum/hal/{}.hal", m.id())).is_file();
-        notes.extend(m.after_hal(has_file));
+        let has = has_file(m.id());
+        notes.extend(m.after_hal(has));
     }
     Some(comp)
+}
+
+/// Make one pin of the contract that no running module made.
+fn spare_pin(comp: &lcnc::hal::Component, d: &halpins::Def) -> Result<(), String> {
+    use halpins::Ty;
+    use lcnc::hal::{In, Out};
+    let r = match (d.ty, d.input) {
+        (Ty::Bit, true) => comp.pin::<bool, _>(d.pin).map(|_: In<bool>| ()),
+        (Ty::Bit, false) => comp.pin::<bool, _>(d.pin).map(|_: Out<bool>| ()),
+        (Ty::Float, true) => comp.pin::<f64, _>(d.pin).map(|_: In<f64>| ()),
+        (Ty::Float, false) => comp.pin::<f64, _>(d.pin).map(|_: Out<f64>| ()),
+        (Ty::S32, true) => comp.pin::<i32, _>(d.pin).map(|_: In<i32>| ()),
+        (Ty::S32, false) => comp.pin::<i32, _>(d.pin).map(|_: Out<i32>| ()),
+    };
+    r.map_err(|e| e.to_string())
 }
 
 fn halcmd_file(dir: &Path, ini: &Path, file: &Path) -> Result<(), String> {
@@ -286,6 +346,19 @@ fn axis_indices() -> Vec<usize> {
     machine_info::get().axes.iter().map(|a| a.index).collect()
 }
 
+/// The joints on a hard limit switch, as "X-", "Y+" ("J3+" for a joint no
+/// axis owns).
+fn on_limits(s: &Status) -> Vec<String> {
+    let mi = machine_info::get();
+    (0..s.joints.min(s.min_hard_limit.len()))
+        .filter_map(|j| {
+            let side = if s.min_hard_limit[j] { "-" } else if s.max_hard_limit[j] { "+" } else { return None };
+            let name = mi.axes.iter().find(|a| a.joints.contains(&j)).map_or(format!("J{j}"), |a| a.letter.to_string());
+            Some(format!("{name}{side}"))
+        })
+        .collect()
+}
+
 /// Mode and homing pills. A rotary without a home switch is "referenced"
 /// where it stands, so its pill says REF rather than implying it is homed.
 fn core_pills_front(s: &Status, axes: &[usize], out: &mut Vec<Pill>) {
@@ -303,6 +376,13 @@ fn core_pills_front(s: &Status, axes: &[usize], out: &mut Vec<Pill>) {
         }
     });
     let mi = machine_info::get();
+    let limits = on_limits(s);
+    if !limits.is_empty() {
+        out.push(
+            Pill::new(format!("ON LIMIT {}", limits.join(" ")), "bad")
+                .hint("A limit switch is closed. Power on, hold OVERRIDE LIMITS in the top bar, then jog off the switch."),
+        );
+    }
     let homed = |i: usize| mi.axis_homed(s, i);
     // Axes homed against a switch, and rotaries referenced where they stand.
     let switched = |i: usize| mi.axis(i).is_none_or(|a| a.home_switch || !a.rotary);
@@ -381,6 +461,68 @@ fn status_summary(rows: &[Pill]) -> (String, &'static str, bool) {
     }
 }
 
+/// Spindle feedback from HAL beside the commanded speed: the actual rpm,
+/// and its colour from at-speed (amber while the spindle comes up).
+fn spindle_feedback(ui: &MainWindow, fb: Option<(Option<f64>, Option<bool>)>, s: Option<&Status>) {
+    let live = ui.global::<Live>();
+    let (act, at) = fb.unwrap_or((None, None));
+    let act: SharedString = act.map_or(String::new(), |r| format!("{r:.0}")).into();
+    if live.get_rpm_act() != act {
+        live.set_rpm_act(act);
+    }
+    let on = s.is_some_and(|s| s.spindle_enabled && s.spindle_speed != 0.0);
+    let tone: SharedString = match at {
+        Some(true) if on => "good",
+        Some(false) if on => "warn",
+        _ => "",
+    }
+    .into();
+    if live.get_rpm_tone() != tone {
+        live.set_rpm_tone(tone);
+    }
+}
+
+/// A hardware button, knob or alarm (modules::Event), as the screen's own
+/// controls: the same checks as a tap.
+fn panel_event(ui: &MainWindow, s: Option<&Status>, e: modules::Event) {
+    let actions = ui.global::<Actions>();
+    match e {
+        modules::Event::CycleStart => {
+            toast(ui, "Panel CYCLE START".to_string());
+            actions.invoke_cycle_start();
+        }
+        modules::Event::FeedHold => {
+            if s.is_some_and(|s| s.busy() && s.interp != Interp::Paused) {
+                toast(ui, "Panel FEED HOLD".to_string());
+                actions.invoke_feed_hold();
+            }
+        }
+        modules::Event::Stop => {
+            toast(ui, "Panel STOP".to_string());
+            actions.invoke_stop();
+        }
+        modules::Event::SingleBlock => actions.invoke_single_block(),
+        modules::Event::Override(which, d) => {
+            let Some(s) = s else { return };
+            let now = match which {
+                "feed" => s.feed_scale,
+                "spindle" => s.spindle_scale,
+                _ => s.rapid_scale,
+            };
+            actions.invoke_override_set(which.into(), ((now * 100.0).round() as i32 + d).max(0));
+        }
+        modules::Event::AlarmStop(text) => {
+            if s.is_some_and(|s| s.busy() && s.interp != Interp::Paused) {
+                actions.invoke_feed_hold();
+            }
+            toast(ui, format!("{text}: feed hold"));
+            let live = ui.global::<Live>();
+            live.set_message(format!("Alarm: {text}. Feed hold; CYCLE START waits until it clears.").into());
+            live.set_message_error(true);
+        }
+    }
+}
+
 /// The tool tip in work coordinates, the frame the interpreter preview uses.
 /// The backplot's table and tool: the loaded tool's diameter and length
 /// from the tool table (the applied G43 length if the table has none), and
@@ -417,6 +559,7 @@ fn apply_status(ui: &MainWindow, st: &mut UiState, s: &Status, axes: &[usize]) {
     live.set_estop(s.estop());
     live.set_power(s.power_on());
     live.set_homed(axes.iter().all(|&i| mi.axis_homed(s, i)));
+    live.set_on_limit(!on_limits(s).is_empty());
     live.set_wcs(s.wcs.name().into());
     live.set_tool(format!("T{}", s.tool_in_spindle).into());
     live.set_tc_from(format!("T{}", s.tool_in_spindle).into());
@@ -486,8 +629,9 @@ fn detent_step(scale: f64, delta: i32) -> i32 {
 fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>, cfg: &Config) {
     let actions = ui.global::<Actions>();
     let feed_max = cfg.get_f64("DISPLAY", "MAX_FEED_OVERRIDE").unwrap_or(2.0);
-    let spindle_max = cfg.get_f64("DISPLAY", "MAX_SPINDLE_OVERRIDE").unwrap_or(2.0);
-    let spindle_min = cfg.get_f64("DISPLAY", "MIN_SPINDLE_OVERRIDE").unwrap_or(0.5);
+    // LinuxCNC 2.8+ names them per spindle (MAX_SPINDLE_0_OVERRIDE); older INIs don't.
+    let spindle_max = cfg.get_f64("DISPLAY", "MAX_SPINDLE_0_OVERRIDE").or(cfg.get_f64("DISPLAY", "MAX_SPINDLE_OVERRIDE")).unwrap_or(2.0);
+    let spindle_min = cfg.get_f64("DISPLAY", "MIN_SPINDLE_0_OVERRIDE").or(cfg.get_f64("DISPLAY", "MIN_SPINDLE_OVERRIDE")).unwrap_or(0.5);
     let live = ui.global::<Live>();
     live.set_feed_max((feed_max * 100.0).round() as i32);
     live.set_spindle_max((spindle_max * 100.0).round() as i32);
@@ -499,6 +643,8 @@ fn wire_actions(ui: &MainWindow, machine: &Handle, state: &Rc<RefCell<UiState>>,
     actions.on_estop_reset(move || m.send(Command::SetState(TaskState::EstopReset)));
     let m = machine.clone();
     actions.on_home_all(move || m.send(Command::Home(JointSel::All)));
+    let m = machine.clone();
+    actions.on_override_limits(move || m.send(Command::OverrideLimits));
     // Every joint behind the axis (both sides of a gantry), one at a time:
     // LinuxCNC drops a home command that comes while another joint homes.
     let (m, st, timer) = (machine.clone(), state.clone(), Rc::new(slint::Timer::default()));
@@ -834,6 +980,22 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
 
+    if args.convert {
+        let path = mc.path.clone().unwrap_or_else(|| cfg.dir().join(machine_cfg::FILE));
+        match postgui::convert(&cfg, &path, None) {
+            Ok(r) => {
+                for (l, why) in &r.dropped {
+                    println!("left out ({why}): {}", l.trim());
+                }
+                println!("{}", r.summary());
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("ferrum: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
     if args.check {
         let ids: Vec<String> = modules.iter().map(|m| m.id().to_string()).collect();
         let rows = checks::run(&checks::Inputs { cfg: &cfg, mc, mi, notes: &notes, modules: &ids, hal: hal.as_ref() });
@@ -885,11 +1047,11 @@ fn window_main(args: Args, cfg: Config, modules: Vec<Box<dyn Module>>, notes: Ve
     if !args.windowed && !args.sim {
         ui.window().set_fullscreen(true);
     }
-    // A desktop window may be any size: scale the 1920x1080 layout to fit.
-    // The same (single) winit filter marks drawn frames for the screen
+    // A window or screen may be any size: scale the 1920x1080 layout (or the
+    // 1080x1920 portrait one) to fit. The same (single) winit filter marks drawn frames for the screen
     // watchdog and drops taps on a stale screen (failsafe.rs). The desktop
     // simulator keeps every click: a hidden window there draws nothing.
-    let fit = (args.windowed || args.sim).then(|| fit_desktop_window());
+    let fit = Some(fit_desktop_window(args.windowed || args.sim));
     failsafe::install_filter(&ui, !args.sim, fit);
     let _keepalive = failsafe::start_keepalive(&ui);
     boot::init_brand(&ui);
@@ -1192,7 +1354,7 @@ async fn run(
     // The sim browses its own folder (where CONV and JOB write in the sim),
     // seeded with the sample programs; PROGRAM_PREFIX is on the Pi.
     let files_root = if args.sim { sim_nc_dir() } else { files::root(&cfg) };
-    files::wire(&ui, &handle, files_root);
+    let _drive_watch = files::wire(&ui, &handle, files_root, files::Filters::from_cfg(&cfg));
     program::wire(&ui);
     let mut mdi_notes = Vec::new();
     let machine_cfg = machine_cfg::get();
@@ -1349,6 +1511,7 @@ async fn run(
             }
             let load = modules.iter().find_map(|m| m.load(st.status.as_ref()));
             plot::with(|p| plot::set_load(&ui, p, load));
+            spindle_feedback(&ui, modules.iter().find_map(|m| m.spindle_feedback()), st.status.as_ref());
             LOADS.with(|l| {
                 let op = || JOB.with(|j| j.borrow().clone()).and_then(|j| j.borrow().current_op());
                 l.borrow_mut().tick(&ui, st.status.as_ref(), &plot::file(), load, op);
@@ -1369,35 +1532,54 @@ async fn run(
         });
     }
 
-    // The pendant's START/PAUSE, as the cycle buttons: start (with CYCLE
-    // START's checks) or resume when idle or paused, feed hold when running.
-    // The same tick passes its mode requests on (modules.rs, Pendant).
+    // Every 50 ms: the pendant's START/PAUSE, as the cycle buttons (start
+    // with CYCLE START's checks, or resume, when idle or paused; feed hold
+    // when running), its mode requests (modules.rs, Pendant); the panel's
+    // buttons, knobs and alarms; and the HAL outputs (stack light, MPG).
     let pendant_tick = slint::Timer::default();
-    if modules.iter().any(|m| m.id() == "pendant") {
+    {
         let weak = ui.as_weak();
         let state = state.clone();
         let modules = modules.clone();
         pendant_tick.start(slint::TimerMode::Repeated, Duration::from_millis(50), move || {
             let s = state.borrow().status.clone();
+            let Some(ui) = weak.upgrade() else { return };
+            let actions = ui.global::<Actions>();
             // Every module ticks (no short-circuit): the pendant also passes
             // its mode requests on here.
             let pressed = modules.iter().fold(false, |any, m| m.tick(s.as_ref()) | any);
-            if !pressed {
-                return;
+            if pressed {
+                match s.as_ref().map(|s| (s.interp, s.busy() && !step_waits(s))) {
+                    // A single-stepped program between steps counts as paused.
+                    Some((Interp::Paused, _)) | Some((Interp::Idle, false)) | Some((Interp::Reading | Interp::Waiting, false)) => {
+                        toast(&ui, "Pendant START".to_string());
+                        actions.invoke_cycle_start();
+                    }
+                    Some((_, true)) => {
+                        toast(&ui, "Pendant PAUSE: feed hold".to_string());
+                        actions.invoke_feed_hold();
+                    }
+                    _ => {}
+                }
             }
-            let Some(ui) = weak.upgrade() else { return };
-            let actions = ui.global::<Actions>();
-            match s.as_ref().map(|s| (s.interp, s.busy() && !step_waits(s))) {
-                // A single-stepped program between steps counts as paused.
-                Some((Interp::Paused, _)) | Some((Interp::Idle, false)) | Some((Interp::Reading | Interp::Waiting, false)) => {
-                    toast(&ui, "Pendant START".to_string());
-                    actions.invoke_cycle_start();
-                }
-                Some((_, true)) => {
-                    toast(&ui, "Pendant PAUSE: feed hold".to_string());
-                    actions.invoke_feed_hold();
-                }
-                _ => {}
+            for e in modules.iter().flat_map(|m| m.events(s.as_ref())) {
+                panel_event(&ui, s.as_ref(), e);
+            }
+            let live = ui.global::<Live>();
+            let (mpg_axis, mpg_increment) = manual::mpg_follow();
+            let out = modules::Outputs {
+                error: s.as_ref().is_none_or(|s| s.estop()) || live.get_status_kind() == "bad",
+                waiting: s.as_ref().is_some_and(|s| s.interp == Interp::Paused) || live.get_tc_open(),
+                running: s.as_ref().is_some_and(|s| s.busy()),
+                mpg_axis,
+                mpg_increment,
+            };
+            for m in modules.iter() {
+                m.outputs(&out);
+            }
+            let locked = modules.iter().find_map(|m| m.locked()).unwrap_or(false);
+            if live.get_setup_locked() != locked {
+                live.set_setup_locked(locked);
             }
         });
     }
@@ -1516,12 +1698,17 @@ fn set_nav(ui: &MainWindow, modules: &[Box<dyn Module>], screen: Option<&str>) {
     crate::models::sync(live.get_nav(), nav, |m| live.set_nav(m));
 }
 
-/// Scale for a desktop window of `w` x `h` pixels. The layout is designed
-/// at 1920x1080. Height decides the scale, so text keeps its size: a wider
-/// window gets wider screens, a narrower one narrower screens (they
-/// rearrange down to `MIN_LAYOUT_WIDTH`), and only below that does the
-/// whole layout shrink.
+/// Scale for a window or screen of `w` x `h` pixels. The layout is designed
+/// at 1920x1080, and at 1080x1920 on a portrait screen. Height decides the
+/// scale, so text keeps its size: a wider window gets wider screens, a
+/// narrower one narrower screens (they rearrange down to
+/// `MIN_LAYOUT_WIDTH`), and only below that does the whole layout shrink.
+/// A portrait screen keeps the 1080 px width the portrait layout is drawn
+/// at and gets taller screens.
 fn layout_scale(w: u32, h: u32) -> f32 {
+    if h > w {
+        return (w as f32 / 1080.0).min(h as f32 / 1920.0);
+    }
     (w as f32 / MIN_LAYOUT_WIDTH).min(h as f32 / 1080.0)
 }
 
@@ -1535,11 +1722,12 @@ const MIN_LAYOUT_WIDTH: f32 = 1440.0;
 /// scale afterwards leaves the window item at its old logical size, and the
 /// winit backend then resizes the window to match it, which can feed back
 /// into a runaway resize.) The OS display scale is ignored: the window's
-/// size alone decides. At startup the window takes most of its screen.
+/// size alone decides. At startup a desktop window (`size_window`) takes
+/// most of its screen; a full-screen one is left as it is.
 #[cfg(not(target_os = "wasi"))]
-fn fit_desktop_window() -> Box<dyn FnMut(&slint::Window, &slint::winit_030::winit::event::WindowEvent) -> slint::winit_030::EventResult> {
+fn fit_desktop_window(size_window: bool) -> Box<dyn FnMut(&slint::Window, &slint::winit_030::winit::event::WindowEvent) -> slint::winit_030::EventResult> {
     use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
-    let mut sized = false;
+    let mut sized = !size_window;
     Box::new(move |w, ev| {
         // The first event: size the window to most of its screen. The
         // resize that follows sets the scale.
@@ -1551,9 +1739,10 @@ fn fit_desktop_window() -> Box<dyn FnMut(&slint::Window, &slint::winit_030::wini
                     return;
                 };
                 let ms = m.size();
-                // 16:9 in 85% of the screen.
-                let k = (ms.width as f64 * 0.85 / 1920.0).min(ms.height as f64 * 0.85 / 1080.0);
-                let _ = ww.request_inner_size(winit::dpi::PhysicalSize::new((1920.0 * k) as u32, (1080.0 * k) as u32));
+                // 16:9 (9:16 on a portrait screen) in 85% of the screen.
+                let (bw, bh) = if ms.height > ms.width { (1080.0, 1920.0) } else { (1920.0, 1080.0) };
+                let k = (ms.width as f64 * 0.85 / bw).min(ms.height as f64 * 0.85 / bh);
+                let _ = ww.request_inner_size(winit::dpi::PhysicalSize::new((bw * k) as u32, (bh * k) as u32));
             });
         }
         match ev {
@@ -1613,7 +1802,7 @@ fn screenshot(args: &Args, cfg: &Config, modules: &[Box<dyn Module>], out: &Path
     let manual = manual::wire(&ui, &handle, cfg, settings::Settings::memory(), axis_indices().contains(&3));
     textentry::wire(&ui);
     mdi::wire(&ui, &handle, cfg, &mut Vec::new());
-    files::wire(&ui, &handle, sample_dir());
+    let _drive_watch = files::wire(&ui, &handle, sample_dir(), files::Filters::default());
     program::wire(&ui);
     program::sync(&ui, &s.file, false);
     let machine_cfg = machine_cfg::get();

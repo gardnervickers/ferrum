@@ -110,7 +110,7 @@ component RowView inherits Rectangle {
             }
             // The control, in a fixed column so the rows line up.
             if control: VerticalLayout {
-                width: r.kind == "hal" ? 470px : 340px;
+                width: Layout.portrait ? (r.kind == "hal" ? 360px : 300px) : r.kind == "hal" ? 470px : 340px;
                 alignment: center;
                 if r.kind == "number": NumField { value: r.value; enabled: !r.off; edit => { Actions.edit("setup-" + r.key); } }
                 if r.kind == "choice": Btn { height: Theme.h-ctl; menu: true; enabled: !r.off; family: Theme.body; font-size: Theme.t-ctl; text: r.value; clicked => { Actions.setup-tap(r.key); } }

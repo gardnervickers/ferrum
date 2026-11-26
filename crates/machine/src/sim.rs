@@ -405,6 +405,11 @@ impl Machine for Sim {
                     }
                 }
             }
+            // The simulator has no switches: overriding clears what a test set.
+            Command::OverrideLimits => {
+                self.s.min_hard_limit = Default::default();
+                self.s.max_hard_limit = Default::default();
+            }
             Command::Unhome(j) => {
                 for i in 0..self.s.joints {
                     if j.includes(i) {

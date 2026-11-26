@@ -113,6 +113,85 @@ pub struct MachineSec {
     /// Machine Z to retract to; default from `[AXIS_Z]MAX_LIMIT`.
     pub z_top: Option<f64>,
     pub park: Park,
+    /// E-stop when the screen stops drawing for a second (recommended;
+    /// default on).
+    pub screen_watchdog: Option<bool>,
+}
+
+/// One `[hal]` entry: a signal or pin of the machine, `"!name"` to invert a
+/// bit, `"none"` for a part the machine does not have, or a table
+/// `{ target = "name", invert = true, scale = 0.5, offset = 0 }`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HalTarget {
+    /// None: `"none"`, the machine has no such signal.
+    pub target: Option<String>,
+    pub invert: bool,
+    pub scale: f64,
+    pub offset: f64,
+}
+
+impl HalTarget {
+    pub fn named(t: &str) -> Self {
+        HalTarget::parse_text(t)
+    }
+
+    fn parse_text(t: &str) -> Self {
+        let t = t.trim();
+        let (invert, name) = match t.strip_prefix('!') {
+            Some(n) => (true, n.trim()),
+            None => (false, t),
+        };
+        let target = (!name.eq_ignore_ascii_case("none") && !name.is_empty()).then(|| name.to_string());
+        HalTarget { target, invert, scale: 1.0, offset: 0.0 }
+    }
+
+    /// Scaled or offset (a float).
+    pub fn scaled(&self) -> bool {
+        self.scale != 1.0 || self.offset != 0.0
+    }
+
+    /// The entry as one line of text, as SETUP shows it.
+    pub fn text(&self) -> String {
+        let Some(t) = &self.target else { return "none".into() };
+        let mut s = format!("{}{t}", if self.invert { "!" } else { "" });
+        if self.scaled() {
+            s.push_str(&format!(" ×{}", self.scale));
+            if self.offset != 0.0 {
+                s.push_str(&format!(" {:+}", self.offset));
+            }
+        }
+        s
+    }
+}
+
+impl<'de> Deserialize<'de> for HalTarget {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Full {
+            target: String,
+            #[serde(default)]
+            invert: bool,
+            scale: Option<f64>,
+            offset: Option<f64>,
+        }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Text(String),
+            Full(Full),
+        }
+        Ok(match Raw::deserialize(d).map_err(|_| serde::de::Error::custom("expected a name, \"none\" or { target = ..., invert, scale, offset }"))? {
+            Raw::Text(t) => HalTarget::parse_text(&t),
+            Raw::Full(f) => {
+                let mut h = HalTarget::parse_text(&f.target);
+                h.invert ^= f.invert;
+                h.scale = f.scale.unwrap_or(1.0);
+                h.offset = f.offset.unwrap_or(0.0);
+                h
+            }
+        })
+    }
 }
 
 /// A list of words, written as a TOML list or one string.
@@ -238,6 +317,8 @@ pub struct DisplaySec {
     pub mdi_library: Option<String>,
     /// HAL files run after ferrum's pins exist (relative to the INI).
     pub postgui: Option<Words>,
+    /// The INI's `[HAL]POSTGUI_HALFILE`s already converted (postgui.rs).
+    pub postgui_converted: Option<Words>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -252,12 +333,26 @@ pub struct MachineCfg {
     pub toolchange: ToolChangeSec,
     pub probe: ProbeSec,
     pub toolsetter: ToolSetterSec,
-    /// Logical name -> HAL signal or pin.
-    pub hal: BTreeMap<String, String>,
+    /// Logical name -> HAL signal or pin (crate::halpins).
+    pub hal: BTreeMap<String, HalTarget>,
     pub remote: RemoteSec,
     pub display: DisplaySec,
     pub buttons: Buttons,
     pub model: Model,
+    /// `[[alarm]]`: HAL inputs shown as messages (modules.rs, MachineSignals).
+    pub alarm: Vec<AlarmSec>,
+}
+
+/// One `[[alarm]]`: a HAL bit that, when TRUE, shows `text`.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AlarmSec {
+    /// A signal or pin, as a `[hal]` entry ("!name" inverts).
+    pub pin: String,
+    pub text: String,
+    /// "info", "warn" (the default) or "stop" (feed hold, and no CYCLE START while on).
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 fn section<T: DeserializeOwned + Default>(t: &toml::Table, name: &str, problems: &mut Vec<String>) -> T {
@@ -271,7 +366,7 @@ fn section<T: DeserializeOwned + Default>(t: &toml::Table, name: &str, problems:
 }
 
 const SECTIONS: &[&str] =
-    &["machine", "modules", "spindle", "toolchange", "probe", "toolsetter", "hal", "remote", "display", "buttons", "model"];
+    &["machine", "modules", "spindle", "toolchange", "probe", "toolsetter", "hal", "remote", "display", "buttons", "model", "alarm"];
 
 impl MachineCfg {
     /// Parse a file's text. A table with a bad key or value falls back to
@@ -305,6 +400,7 @@ impl MachineCfg {
             display: section(&t, "display", &mut problems),
             buttons: section(&t, "buttons", &mut problems),
             model: section(&t, "model", &mut problems),
+            alarm: section(&t, "alarm", &mut problems),
         };
         (c, problems)
     }
@@ -370,6 +466,17 @@ impl MachineCfg {
             Some(w) => w.0.clone(),
             None => split_words(cfg.get("FERRUM", "MODULES").unwrap_or(default)),
         }
+    }
+
+    /// The screen watchdog is on (the default, and recommended).
+    pub fn screen_watchdog(&self) -> bool {
+        self.machine.screen_watchdog.unwrap_or(true)
+    }
+
+    /// The file has a `[hal]` table: the old per-module HAL files
+    /// (`ferrum/hal/<module>.hal`) are not run.
+    pub fn has_hal_table(&self) -> bool {
+        self.raw.contains_key("hal")
     }
 
     /// HAL files to run after the modules' own (relative to the INI).
@@ -517,6 +624,26 @@ pub fn get() -> &'static MachineCfg {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn hal_entries() {
+        let (c, p) = MachineCfg::parse(
+            "[hal]\nprobe_tripped = \"probe-in\"\nlube_ok = \"!lube-low\"\nspindle_at_speed = \"none\"\nload = { target = \"vfd-amps\", scale = 0.125 }\nspindle_fault = { target = \"vfd-ok\", invert = true }\n",
+        );
+        assert!(p.is_empty(), "{p:?}");
+        assert_eq!(c.hal["probe_tripped"].target.as_deref(), Some("probe-in"));
+        assert!(c.hal["lube_ok"].invert && c.hal["lube_ok"].target.as_deref() == Some("lube-low"));
+        assert_eq!(c.hal["spindle_at_speed"].target, None);
+        assert_eq!((c.hal["load"].scale, c.hal["load"].offset), (0.125, 0.0));
+        assert!(c.hal["spindle_fault"].invert);
+        assert_eq!(c.hal["lube_ok"].text(), "!lube-low");
+        assert_eq!(c.hal["load"].text(), "vfd-amps ×0.125");
+        assert!(c.has_hal_table() && c.screen_watchdog());
+        let (c, p) = MachineCfg::parse("[machine]\nscreen_watchdog = false\n[hal]\nload = { name = 1 }\n");
+        assert!(!c.screen_watchdog());
+        assert_eq!(p.len(), 1, "{p:?}");
+    }
+
     use super::*;
 
     fn parse(t: &str) -> MachineCfg {

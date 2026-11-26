@@ -419,7 +419,7 @@ export component ProbeScreen inherits Rectangle {
     }
     if more-open: Scrim {
         Dialog {
-            width: 1300px;
+            width: min(1300px, parent.width - 2 * Theme.gap);
             // Sized to the rows so no empty band is left below them.
             height: min(940px, 228px + ceil(Live.pr-more.length / 3) * 116px);
             VerticalLayout {
@@ -486,7 +486,7 @@ export component ProbeScreen inherits Rectangle {
     }
     if defaults-open: Scrim {
         Dialog {
-            width: 1300px;
+            width: min(1300px, parent.width - 2 * Theme.gap);
             height: 840px;
             VerticalLayout {
                 padding: Theme.dlg-pad;

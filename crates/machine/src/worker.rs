@@ -625,6 +625,7 @@ fn required_mode(cmd: &Command) -> Option<Mode> {
         | Command::JogIncr { .. }
         | Command::Home(_)
         | Command::Unhome(_)
+        | Command::OverrideLimits
         | Command::SpindleOn { .. }
         | Command::SpindleOff => {
             Some(Mode::Manual)

@@ -220,6 +220,8 @@ impl<T: PinType, D: Writable> Pin<T, D> {
 /// A userspace HAL component. Make its pins, then call [`ready`](Self::ready).
 pub struct Component {
     comp: Arc<Comp>,
+    /// Names of the pins made so far (without the prefix).
+    names: std::cell::RefCell<Vec<String>>,
 }
 
 impl Component {
@@ -231,7 +233,7 @@ impl Component {
         if id < 0 {
             return Err(Error::Hal(format!("hal_init({name}) failed: {id}")));
         }
-        Ok(Self { comp: Arc::new(Comp { id, prefix: name.to_string() }) })
+        Ok(Self { comp: Arc::new(Comp { id, prefix: name.to_string() }), names: Default::default() })
     }
 
     /// The component's name.
@@ -254,7 +256,13 @@ impl Component {
         if rc != 0 {
             return Err(Error::Hal(format!("cannot make pin {full}: {rc}")));
         }
+        self.names.borrow_mut().push(name.to_string());
         Ok(Pin { slot, _comp: self.comp.clone(), _d: PhantomData })
+    }
+
+    /// Whether pin `<component>.<name>` was made through this component.
+    pub fn has_pin(&self, name: &str) -> bool {
+        self.names.borrow().iter().any(|n| n == name)
     }
 
     /// `hal_ready`: the component is complete and can be netted.

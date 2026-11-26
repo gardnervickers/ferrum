@@ -114,6 +114,8 @@ def main():
     gui = re.sub(r"(?m)^PROGRAM_PREFIX = .*$", f"PROGRAM_PREFIX = {out / 'nc_files'}", gui)
     (out / "ferrum.ini").write_text(gui)
     shutil.copy(REPO / "ferrum.toml", out / "ferrum.toml")
+    if (REPO / "ferrum-outputs.hal").exists():
+        shutil.copy(REPO / "ferrum-outputs.hal", out / "ferrum-outputs.hal")
     disp = out / "display"
     disp.write_text('#!/bin/sh\nexport SLINT_SCALE_FACTOR="${SLINT_SCALE_FACTOR:-1}"\n'
                     f'exec "${{FERRUM_BIN:-{REPO}/ferrum/target/release/ferrum}}" "$@"\n')

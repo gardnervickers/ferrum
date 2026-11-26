@@ -1,3 +1,5 @@
+# DEPRECATED: an older profile without a [hal] table in ferrum.toml runs this
+# file. Ferrum ignores it once ferrum.toml has [hal] (docs/hal.md).
 # 7i76E field output drive modes, as Probe Basic's postgui file sets them
 # (probe_basic_postgui.hal). LinuxCNC leaves the POSTGUI file to the GUI, so
 # under ferrum these would otherwise stay at the card's defaults.

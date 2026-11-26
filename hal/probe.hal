@@ -1,3 +1,5 @@
+# DEPRECATED: an older profile without a [hal] table in ferrum.toml runs this
+# file. Ferrum ignores it once ferrum.toml has [hal] (docs/hal.md).
 # probe module: probe_manager state (mymill.hal).
 net wireless-probe-tool-active => ferrum.probe.wireless-selected
 net wireless-probe-fault => ferrum.probe.fault

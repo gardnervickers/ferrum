@@ -142,6 +142,20 @@ export component StatusBar inherits Rectangle {
                 clicked => { Actions.home-all(); }
             }
         }
+        // A joint is on a limit switch: LinuxCNC refuses to jog it until
+        // the limits are overridden, which lasts until it is off the switch.
+        if Live.connected && Live.on-limit: VerticalLayout {
+            alignment: center;
+            Btn {
+                height: Theme.h-ctl;
+                width: 230px;
+                font-size: Theme.t-ctl;
+                text: "OVERRIDE LIMITS";
+                hold: true;
+                enabled: Live.power;
+                clicked => { Actions.override-limits(); }
+            }
+        }
         Text {
             horizontal-stretch: 1;
             min-width: 0;
@@ -160,7 +174,8 @@ export component StatusBar inherits Rectangle {
         }
         Rectangle { width: 8px; }
         // The name only where the bar has room for it beside the message.
-        TopMark { name: !Layout.compact; }
+        // Portrait: the message needs the room more than the mark does.
+        if !Layout.portrait: TopMark { name: !Layout.compact; }
         Text {
             width: 84px;
             vertical-alignment: center;
@@ -414,6 +429,127 @@ component OverrideRow inherits HorizontalLayout {
     }
 }
 
+// The DRO, machine values, overrides and quick buttons: down the left
+// side in landscape, a band across the top in portrait.
+component DroCard inherits VerticalLayout {
+    Rectangle {
+        background: Theme.panel;
+        border-radius: Theme.radius;
+        VerticalLayout {
+            padding-left: 18px;
+            padding-right: 18px;
+            padding-top: 6px;
+            padding-bottom: 6px;
+            for r[i] in Live.dro: DroLine { data: r; pos: Live.dro-pos[i]; last: i == Live.dro.length - 1; }
+        }
+    }
+}
+
+component InfoGrid inherits VerticalLayout {
+    GridLayout {
+        spacing: 8px;
+        Row {
+            Kv { label: "WCS"; value: Live.wcs; }
+            Kv { label: "TOOL"; value: Live.tool; }
+            Kv { label: "TOOL DIA"; value: Live.tool-dia; }
+        }
+        Row {
+            Kv { label: "FEED " + Live.unit-up + "/MIN"; value: Live.feed; }
+            Kv {
+                label: Live.rpm-act != "" ? "SPINDLE RPM ACT / CMD" : "SPINDLE RPM";
+                value: Live.rpm-act != "" ? Live.rpm-act + " / " + Live.rpm : Live.rpm;
+                tone: Live.rpm-tone == "good" ? Theme.good : Live.rpm-tone == "warn" ? Theme.warn : Theme.ink;
+            }
+            Kv { label: "CYCLE TIME"; value: Live.cycle-time; }
+        }
+    }
+    // One line, always: a wrapped second line would push the quick
+    // buttons below the column.
+    Text {
+        text: Live.modal;
+        font-family: Theme.body;
+        font-size: Theme.t-small;
+        letter-spacing: 0.3px;
+        color: Theme.dim;
+        overflow: elide;
+    }
+}
+
+component Overrides inherits VerticalLayout {
+    Card {
+        VerticalLayout {
+            padding: 12px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 6px;
+            OverrideRow { label: "FEED"; which: "feed"; pct: Live.feed-pct; limit: Live.feed-max; }
+            OverrideRow { label: "RAPID"; which: "rapid"; pct: Live.rapid-pct; limit: 100; step: 25; }
+            OverrideRow { label: "SPINDLE"; which: "spindle"; pct: Live.spindle-pct; lo: Live.spindle-min; limit: Live.spindle-max; }
+        }
+    }
+}
+
+// The quick buttons, used all the time, so on every screen.
+component QuickMist inherits Btn {
+    height: Theme.h-ctl; font-size: Theme.t-ctl;
+    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+    text: "MIST"; on: Live.mist;
+    enabled: Live.connected && Live.power;
+    clicked => { Actions.mist-toggle(); }
+}
+
+component QuickFlood inherits Btn {
+    height: Theme.h-ctl; font-size: Theme.t-ctl;
+    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+    text: "FLOOD"; on: Live.flood;
+    enabled: Live.connected && Live.power;
+    clicked => { Actions.flood-toggle(); }
+}
+
+// Released: tap to clamp. Clamped: hold to release (spindle off, nothing
+// running); releasing also clears the tool.
+component QuickDrawbar inherits Btn {
+    height: Theme.h-ctl; font-size: Theme.t-ctl;
+    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+    text: Live.tools-drawbar == "EXTENDED" ? "CLAMP TOOL" : "RELEASE TOOL";
+    kind: Live.tools-drawbar == "EXTENDED" ? "hold" : "";
+    hold: Live.tools-drawbar != "EXTENDED";
+    enabled: Live.tools-drawbar == "EXTENDED" ? Live.tools-can-retract : Live.tools-can-extend;
+    clicked => { Actions.tools-drawbar(Live.tools-drawbar != "EXTENDED"); }
+}
+
+component QuickHome inherits Btn {
+    height: Theme.h-ctl; font-size: Theme.t-ctl;
+    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
+    text: "HOME ALL"; hold: true;
+    enabled: Live.connected && Live.power && !Live.running;
+    clicked => { Actions.home-all(); }
+}
+
+// Two by two, under the DRO column.
+component QuickButtons inherits VerticalLayout {
+    spacing: 8px;
+    HorizontalLayout {
+        spacing: 8px;
+        if Live.quick-mist: QuickMist {}
+        if Live.quick-flood: QuickFlood {}
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        if Live.quick-drawbar && Live.tools-drawbar != "NOT FITTED": QuickDrawbar {}
+        if Live.quick-home: QuickHome {}
+    }
+}
+
+// In one row, across the portrait band.
+component QuickRow inherits HorizontalLayout {
+    spacing: 8px;
+    if Live.quick-mist: QuickMist {}
+    if Live.quick-flood: QuickFlood {}
+    if Live.quick-drawbar && Live.tools-drawbar != "NOT FITTED": QuickDrawbar {}
+    if Live.quick-home: QuickHome {}
+}
+
 export component LeftColumn inherits Rectangle {
     Rectangle { x: parent.width - 1px; width: 1px; background: Theme.line; }
     VerticalLayout {
@@ -422,116 +558,130 @@ export component LeftColumn inherits Rectangle {
         padding-top: 12px;
         padding-bottom: 12px;
         spacing: 10px;
-        Rectangle {
-            background: Theme.panel;
-            border-radius: Theme.radius;
+        DroCard {}
+        InfoGrid {}
+        Overrides {}
+        Rectangle { vertical-stretch: 1; }
+        QuickButtons {}
+    }
+}
+
+// Portrait: the DRO on the left, the machine values and overrides beside
+// it, the quick buttons in a row under both.
+export component TopBand inherits Rectangle {
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+    VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 14px;
             VerticalLayout {
-                padding-left: 18px;
-                padding-right: 18px;
-                padding-top: 6px;
-                padding-bottom: 6px;
-                for r[i] in Live.dro: DroLine { data: r; pos: Live.dro-pos[i]; last: i == Live.dro.length - 1; }
+                width: 52%;
+                DroCard {}
+                Rectangle { vertical-stretch: 1; }
             }
-        }
-        GridLayout {
-            spacing: 8px;
-            Row {
-                Kv { label: "WCS"; value: Live.wcs; }
-                Kv { label: "TOOL"; value: Live.tool; }
-                Kv { label: "TOOL DIA"; value: Live.tool-dia; }
-            }
-            Row {
-                Kv { label: "FEED " + Live.unit-up + "/MIN"; value: Live.feed; }
-                Kv { label: "SPINDLE RPM"; value: Live.rpm; }
-                Kv { label: "CYCLE TIME"; value: Live.cycle-time; }
-            }
-        }
-        // One line, always: a wrapped second line would push the quick
-        // buttons below the column.
-        Text {
-            text: Live.modal;
-            font-family: Theme.body;
-            font-size: Theme.t-small;
-            letter-spacing: 0.3px;
-            color: Theme.dim;
-            overflow: elide;
-        }
-        Card {
             VerticalLayout {
-                padding: 12px;
-                padding-top: 8px;
-                padding-bottom: 8px;
-                spacing: 6px;
-                OverrideRow { label: "FEED"; which: "feed"; pct: Live.feed-pct; limit: Live.feed-max; }
-                OverrideRow { label: "RAPID"; which: "rapid"; pct: Live.rapid-pct; limit: 100; step: 25; }
-                OverrideRow { label: "SPINDLE"; which: "spindle"; pct: Live.spindle-pct; lo: Live.spindle-min; limit: Live.spindle-max; }
+                spacing: 10px;
+                InfoGrid {}
+                Overrides {}
+                Rectangle { vertical-stretch: 1; }
             }
         }
         Rectangle { vertical-stretch: 1; }
-        // Used all the time, so on every screen.
-        VerticalLayout {
-            spacing: 8px;
-            HorizontalLayout {
-                spacing: 8px;
-                if Live.quick-mist: Btn {
-                    height: Theme.h-ctl; font-size: Theme.t-ctl;
-                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
-                    text: "MIST"; on: Live.mist;
-                    enabled: Live.connected && Live.power;
-                    clicked => { Actions.mist-toggle(); }
-                }
-                if Live.quick-flood: Btn {
-                    height: Theme.h-ctl; font-size: Theme.t-ctl;
-                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
-                    text: "FLOOD"; on: Live.flood;
-                    enabled: Live.connected && Live.power;
-                    clicked => { Actions.flood-toggle(); }
-                }
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                // Released: tap to clamp. Clamped: hold to release (spindle
-                // off, nothing running); releasing also clears the tool.
-                if Live.quick-drawbar && Live.tools-drawbar != "NOT FITTED": Btn {
-                    height: Theme.h-ctl; font-size: Theme.t-ctl;
-                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
-                    text: Live.tools-drawbar == "EXTENDED" ? "CLAMP TOOL" : "RELEASE TOOL";
-                    kind: Live.tools-drawbar == "EXTENDED" ? "hold" : "";
-                    hold: Live.tools-drawbar != "EXTENDED";
-                    enabled: Live.tools-drawbar == "EXTENDED" ? Live.tools-can-retract : Live.tools-can-extend;
-                    clicked => { Actions.tools-drawbar(Live.tools-drawbar != "EXTENDED"); }
-                }
-                if Live.quick-home: Btn {
-                    height: Theme.h-ctl; font-size: Theme.t-ctl;
-                    preferred-width: 0; min-width: 0; horizontal-stretch: 1;
-                    text: "HOME ALL"; hold: true;
-                    enabled: Live.connected && Live.power && !Live.running;
-                    clicked => { Actions.home-all(); }
-                }
+        QuickRow {}
+    }
+}
+
+// SINGLE BLOCK and M01 STOP, then FEED HOLD, STOP and CYCLE START.
+component CycleButtons inherits HorizontalLayout {
+    in property <length> cycle-w;
+    in property <length> cycle-font;
+    in property <length> small-w;
+    in property <length> gap;
+    in property <length> font-small: Layout.compact ? Theme.t-small : Theme.t-body;
+    VerticalLayout {
+        alignment: center;
+        spacing: 8px;
+        Btn {
+            width: root.small-w; height: Theme.h-sm; font-size: root.font-small;
+            text: "SINGLE BLOCK"; on: Live.single-block;
+            clicked => { Actions.single-block(); }
+        }
+        Btn {
+            width: root.small-w; height: Theme.h-sm; font-size: root.font-small;
+            text: "M01 STOP"; on: Live.optional-stop;
+            enabled: Live.connected;
+            clicked => { Actions.optional-stop(); }
+        }
+    }
+    Rectangle { width: root.gap; }
+    VerticalLayout {
+        alignment: center;
+        Btn {
+            width: root.cycle-w; height: 100px; font-size: root.cycle-font; kind: "hold"; text: "FEED HOLD";
+            enabled: Live.running && !Live.paused;
+            clicked => { Actions.feed-hold(); }
+        }
+    }
+    Rectangle { width: root.gap; }
+    VerticalLayout {
+        alignment: center;
+        Btn {
+            width: root.cycle-w; height: 100px; font-size: root.cycle-font; kind: "stop"; text: "STOP";
+            enabled: Live.connected;
+            clicked => { Actions.stop(); }
+        }
+    }
+    Rectangle { width: root.gap * 0.75; }
+    VerticalLayout {
+        alignment: center;
+        // A static ring (no flashing) says CYCLE START will resume.
+        Rectangle {
+            width: root.cycle-w + 12px; height: 112px;
+            border-radius: Theme.radius-ctl + 5px;
+            border-width: 4px;
+            border-color: Live.paused ? Theme.good : transparent;
+            animate border-color { duration: Theme.settle; }
+            Btn {
+                x: 6px; y: 6px;
+                width: root.cycle-w; height: 100px; font-size: root.cycle-font; kind: "go";
+                text: Live.paused ? "RESUME" : "CYCLE START";
+                enabled: Live.can-start;
+                clicked => { Actions.cycle-start(); }
             }
         }
     }
 }
 
 export component BottomBar inherits Rectangle {
-    // The cycle buttons narrow in a compact window; their text shrinks to fit.
-    property <length> cycle-w: Layout.compact ? 150px : 180px;
-    property <length> cycle-font: Layout.compact ? 27px : 32px;
+    // Portrait: the nav tabs fill the first row, the cycle buttons the second.
+    property <bool> two-rows: Layout.portrait;
+    property <length> row-h: two-rows ? 112px : root.height;
+    // The cycle buttons narrow in a compact window; their text shrinks to
+    // fit. In portrait they have a row of their own and grow.
+    property <length> cycle-w: two-rows ? (self.width - 28px - 190px - 66px - 12px) / 3 : Layout.compact ? 150px : 180px;
+    property <length> cycle-font: Layout.compact && !two-rows ? 27px : 32px;
     // Nav tab geometry, shared by the tabs and the sliding plate.
     property <length> nav-pad: Layout.compact ? 8px : 14px;
     // Ten tabs (SETUP after nine screens) narrow to clear SINGLE BLOCK.
     property <bool> nav-many: Live.nav.length > 9;
-    property <length> nav-w: Layout.compact ? (nav-many ? 74px : 80px) : (nav-many ? 96px : 104px);
     property <length> nav-gap: Layout.compact ? 4px : (nav-many ? 6px : 8px);
+    // In portrait the tabs share the whole width.
+    property <length> nav-w: two-rows ? min(120px, (self.width - 2 * nav-pad - (Live.nav.length - 1) * nav-gap) / max(1, Live.nav.length))
+        : Layout.compact ? (nav-many ? 74px : 80px) : (nav-many ? 96px : 104px);
     // Which tab is chosen (-1: none). Kept by the tabs themselves.
     property <int> nav-index: -1;
     background: Theme.bar;
     Rectangle { y: 0; height: 1px; background: Theme.line; }
+    if root.two-rows: Rectangle { y: root.row-h; height: 1px; background: Theme.line; }
     // The chosen tab's plate glides to a newly chosen tab, so the eye
     // follows the move from one screen to the next. It moves only on a tap.
     Rectangle {
         x: root.nav-pad + max(0, root.nav-index) * (root.nav-w + root.nav-gap);
-        y: (parent.height - 96px) / 2;
+        y: (root.row-h - 96px) / 2;
         width: root.nav-w;
         height: 96px;
         visible: root.nav-index >= 0;
@@ -542,8 +692,10 @@ export component BottomBar inherits Rectangle {
         animate x { duration: Theme.glide; easing: ease-out; }
     }
     HorizontalLayout {
+        y: 0;
+        height: root.row-h;
         padding-left: root.nav-pad;
-        padding-right: 8px;
+        padding-right: root.two-rows ? root.nav-pad : 8px;
         spacing: root.nav-gap;
         for n[i] in Live.nav: VerticalLayout {
             alignment: center;
@@ -560,7 +712,7 @@ export component BottomBar inherits Rectangle {
                     width: parent.width;
                     height: parent.height;
                     // Ten tabs in a narrow window: a size down, so no label wraps.
-                    font-size: Layout.compact ? (root.nav-many ? Theme.t-small : Theme.t-body) : Theme.t-btn;
+                    font-size: Layout.compact && !root.two-rows ? (root.nav-many ? Theme.t-small : Theme.t-body) : Theme.t-btn;
                     flat: true;
                     icon: n.icon;
                     text: n.label;
@@ -590,57 +742,24 @@ export component BottomBar inherits Rectangle {
             }
         }
         Rectangle { horizontal-stretch: 1; }
-        VerticalLayout {
-            alignment: center;
-            spacing: 8px;
-            Btn {
-                width: Layout.compact ? 136px : 150px; height: Theme.h-sm; font-size: Layout.compact ? Theme.t-small : Theme.t-body;
-                text: "SINGLE BLOCK"; on: Live.single-block;
-                clicked => { Actions.single-block(); }
-            }
-            Btn {
-                width: Layout.compact ? 136px : 150px; height: Theme.h-sm; font-size: Layout.compact ? Theme.t-small : Theme.t-body;
-                text: "M01 STOP"; on: Live.optional-stop;
-                enabled: Live.connected;
-                clicked => { Actions.optional-stop(); }
-            }
+        if !root.two-rows: CycleButtons {
+            cycle-w: root.cycle-w;
+            cycle-font: root.cycle-font;
+            small-w: Layout.compact ? 136px : 150px;
+            gap: Layout.compact ? 12px : 24px;
         }
-        Rectangle { width: Layout.compact ? 12px : 24px; }
-        VerticalLayout {
-            alignment: center;
-            Btn {
-                width: cycle-w; height: 100px; font-size: cycle-font; kind: "hold"; text: "FEED HOLD";
-                enabled: Live.running && !Live.paused;
-                clicked => { Actions.feed-hold(); }
-            }
-        }
-        Rectangle { width: Layout.compact ? 12px : 24px; }
-        VerticalLayout {
-            alignment: center;
-            Btn {
-                width: cycle-w; height: 100px; font-size: cycle-font; kind: "stop"; text: "STOP";
-                enabled: Live.connected;
-                clicked => { Actions.stop(); }
-            }
-        }
-        Rectangle { width: Layout.compact ? 8px : 18px; }
-        VerticalLayout {
-            alignment: center;
-            // A static ring (no flashing) says CYCLE START will resume.
-            Rectangle {
-                width: cycle-w + 12px; height: 112px;
-                border-radius: Theme.radius-ctl + 5px;
-                border-width: 4px;
-                border-color: Live.paused ? Theme.good : transparent;
-                animate border-color { duration: Theme.settle; }
-                Btn {
-                    x: 6px; y: 6px;
-                    width: cycle-w; height: 100px; font-size: cycle-font; kind: "go";
-                    text: Live.paused ? "RESUME" : "CYCLE START";
-                    enabled: Live.can-start;
-                    clicked => { Actions.cycle-start(); }
-                }
-            }
+    }
+    if root.two-rows: HorizontalLayout {
+        y: root.row-h;
+        height: parent.height - root.row-h;
+        padding-left: 14px;
+        padding-right: 14px;
+        CycleButtons {
+            cycle-w: root.cycle-w;
+            cycle-font: root.cycle-font;
+            small-w: 190px;
+            gap: 24px;
+            font-small: Theme.t-body;
         }
     }
 }

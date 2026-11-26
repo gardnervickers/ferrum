@@ -99,7 +99,7 @@ impl Manual {
             steps,
             speed: settings.f64("jog.speed", f("DEFAULT_LINEAR_VELOCITY", (linear.max / 2.0).min(mi.units.pick(50.0, 2.0)))),
             speed_a: settings.f64("jog.speed-a", f("DEFAULT_ANGULAR_VELOCITY", 180.0)),
-            rpm: settings.f64("powerfeed.spindle-rpm", 300.0),
+            rpm: settings.f64("powerfeed.spindle-rpm", f("DEFAULT_SPINDLE_0_SPEED", f("DEFAULT_SPINDLE_SPEED", 300.0))),
             pf: PowerFeed::new(cfg, &settings),
             settings,
             pf_note: None,
@@ -443,6 +443,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         let rotary = mi.axis(axis as usize).is_some_and(|a| a.rotary);
         let speed = if rotary { m.speed_a } else { m.speed };
         let Some(target) = jog_target(axis) else { return };
+        LAST_AXIS.with(|a| a.set(crate::AXIS_LETTERS.get(axis as usize).copied()));
         // A label that is not in the list never jogs (and never continuously).
         let Some(step) = m.steps.iter().find(|s| s.label == m.step) else { return };
         crate::with_probe(|p| p.yield_restore());
@@ -459,6 +460,8 @@ pub fn wire(ui: &MainWindow, machine: &Handle, cfg: &Config, settings: Settings,
         }
     });
 
+    let mm = manual.clone();
+    MPG.with(|g| *g.borrow_mut() = Some(Box::new(move || mm.borrow().steps.iter().find(|s| s.label == mm.borrow().step).and_then(|s| s.size).unwrap_or(0.0))));
     let (mm, weak) = (manual.clone(), ui.as_weak());
     actions.on_jog_step_set(move |step| {
         let mut m = mm.borrow_mut();
@@ -713,6 +716,22 @@ fn wire_powerfeed(ui: &MainWindow, machine: &Handle, manual: &Rc<RefCell<Manual>
         m.pf.delete_goto();
         m.pf_note = Some(("Deleted the selected target".into(), false));
     })));
+}
+
+
+thread_local! {
+    /// The axis last jogged on MANUAL (an MPG follows it).
+    static LAST_AXIS: std::cell::Cell<Option<char>> = const { std::cell::Cell::new(None) };
+    /// The jog step's size now (0 for continuous).
+    static MPG: std::cell::RefCell<Option<Box<dyn Fn() -> f64>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// What an MPG follows: the axis last jogged on MANUAL (X before any jog)
+/// and the jog step in machine units (0 for continuous).
+pub fn mpg_follow() -> (Option<char>, f64) {
+    let axis = LAST_AXIS.with(|a| a.get()).or(Some('X'));
+    let step = MPG.with(|g| g.borrow().as_ref().map_or(0.0, |f| f()));
+    (axis, step)
 }
 
 #[cfg(test)]

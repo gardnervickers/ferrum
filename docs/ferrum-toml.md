@@ -113,6 +113,7 @@ root = "ferrum/web/dist"
 renderer = "auto"         # "gpu" | "software" | "auto"
 mdi_library = "ferrum/mdi.toml"
 postgui = ["ferrum/hal/outputs.hal"]   # HAL files run after Ferrum's pins exist
+postgui_converted = ["custom_postgui.hal"]   # set by the one-time conversion of [HAL]POSTGUI_HALFILE (hal.md)
 
 [buttons]                 # quick buttons under the overrides
 mist = true
@@ -168,33 +169,28 @@ module, then what HAL drives `iocontrol.0.tool-changed`.
 
 ## HAL names
 
-Modules connect their pins themselves. Each pin has a logical name; `[hal]`
-maps it to a signal or pin of your machine, and some have a default. A
-target that is a signal is joined; a pin on a signal joins that signal; a
-pin on no signal gets a new `ferrum-...` signal. A module with its own
-`ferrum/hal/<module>.hal` beside the INI uses that file instead, and only
-the names listed in `[hal]` are connected on top.
+`[hal]` maps Ferrum's HAL pins to your machine's signals and pins, and
+`[[alarm]]` adds alarm inputs. Both are described, with every pin, in
+[hal.md](hal.md); `ferrum --hal-pins` lists the pins.
 
-| module | name | default | what |
-| --- | --- | --- | --- |
-| probe | `probe_tripped` | `motion.probe-input` | the probe input |
-| probe | `probe_loaded` | none: the probe tool number in the spindle | a wireless probe is selected |
-| probe | `probe_fault` | none | the probe reports a fault |
-| probe | `toolsetter_tripped` | none | the tool setter input |
-| probe | `setter_blast`, `setter_blast_active` | none | tool setter air blast request and state |
-| toolchange | `tool_change`, `tool_number`, `tool_changed` | `iocontrol.0.tool-change`, `iocontrol.0.tool-prep-number`, `iocontrol.0.tool-changed` | the M6 handshake |
-| toolchange | `spindle_on` | `spindle.0.on` | RESUME waits for the spindle to be off |
-| interlock | `motion_held` | `motion.feed-inhibit` | why motion is held |
-| interlock | `probe_fault`, `drives_not_ready` | none | the reasons |
-| load | `load` | none | cutting load, 0 to 1: colours the backplot trail, and each run's load is recorded (see below) |
-| watchdog | `screen_watchdog_trip` | none: gate `iocontrol.0.emc-enable-in` | an unconnected bit input driven TRUE when the screen has not drawn for 1 s (e.g. `estop-latch.0.fault-in`); it must latch |
+```toml
+[machine]
+screen_watchdog = true          # recommended; false turns the screen watchdog off
 
-The watchdog module is always on (see ARCHITECTURE.md, "A frozen screen
-stops the machine"). Without `ferrum/hal/watchdog.hal` or
-`screen_watchdog_trip`, Ferrum loads a `oneshot`, an `estop_latch` reset by
-`iocontrol.0.user-request-enable`, and an `and2` in front of
-`iocontrol.0.emc-enable-in`, so a frozen, hung or crashed screen E-stops the
-machine until the operator resets E-stop.
+[hal]
+screen_watchdog_trip = "estop-latch.0.fault-in"
+toolsetter_tripped = "tool-setter-in"
+spindle_fault = "!vfd-ok"
+spindle_at_speed = "none"
+
+[[alarm]]
+pin = "air-pressure-low"
+text = "Air pressure low"
+kind = "warn"
+```
+
+A profile without a `[hal]` table runs the older per-module files
+`ferrum/hal/<module>.hal` instead.
 
 ## Cutting load records
 

@@ -120,9 +120,18 @@ export global Theme {
 // Layouts go down to 1440 wide; below that the whole UI shrinks.
 export global Layout {
     in-out property <length> width: 1920px;
+    in-out property <length> height: 1080px;
+    // A portrait screen: the DRO goes in a band across the top, the nav
+    // and cycle buttons in two rows at the bottom, and screens stack what
+    // sits side by side in landscape.
+    out property <bool> portrait: height > width;
     // Narrower than the design: side columns and fixed controls tighten.
-    out property <bool> compact: width < 1800px;
-    // The DRO column and the Run screen's side panel.
-    out property <length> left: compact ? 420px : 520px;
+    out property <bool> compact: portrait || width < 1800px;
+    // The DRO column (none in portrait) and the Run screen's side panel.
+    out property <length> left: portrait ? 0px : compact ? 420px : 520px;
     out property <length> side: compact ? 440px : 545px;
+    // The portrait DRO band, and where the screen area starts and ends.
+    out property <length> band: portrait ? 460px : 0px;
+    out property <length> top: 64px + band;
+    out property <length> bottom: portrait ? 236px : 128px;
 }

@@ -135,6 +135,13 @@ fn settings(cfg: &Config) -> Vec<Setting> {
     vec![
         set("machine.z_top", Step::Machine, "Retract height (machine Z)", "Every retract and PARK goes up to it first.", Kind::Number { min: zmin, max: zmax, whole: false }),
         set("machine.park", Step::Machine, "PARK goes to", "After Z is up.", Kind::Choice(PARK)),
+        set(
+            "machine.screen_watchdog",
+            Step::Machine,
+            "Screen watchdog (recommended)",
+            "E-stops the machine when this screen stops drawing for a second: a frozen or crashed screen cannot leave the machine running.",
+            Kind::Bool,
+        ),
         set("spindle.max_rpm", Step::Spindle, "Top speed (rpm)", "Faster speeds are refused.", Kind::Number { min: 1.0, max: 100_000.0, whole: true }),
         set("spindle.reverse", Step::Spindle, "The spindle runs in reverse (M4)", "Shows CCW on MANUAL.", Kind::Bool),
         set("toolchange.style", Step::ToolChange, "M6 is answered by", "", Kind::Choice(STYLE)),
@@ -213,26 +220,40 @@ const HARDWARE: &[(&str, &str, &str, bool)] = &[
     ("pendant", "Pendant", "A pendant's start button and mode requests.", true),
 ];
 
-/// What each HAL name is, for its row: (name, title, HAL type).
-const HAL_NAMES: &[(&str, &str, &str)] = &[
-    ("probe_tripped", "Probe input", "bit"),
-    ("probe_loaded", "Wireless probe is selected", "bit"),
-    ("probe_fault", "Probe fault", "bit"),
-    ("toolsetter_tripped", "Tool setter input", "bit"),
-    ("setter_blast", "Tool setter air blast", "bit"),
-    ("setter_blast_active", "Tool setter air blast is on", "bit"),
-    ("tool_change", "M6 asks for a tool change", "bit"),
-    ("tool_number", "M6 tool number", "s32"),
-    ("tool_changed", "Tool change done", "bit"),
-    ("spindle_on", "Spindle is on", "bit"),
-    ("motion_held", "Motion is held", "bit"),
-    ("drives_not_ready", "Drives not ready", "bit"),
-    ("load", "Cutting load, 0 to 1", "float"),
-    ("screen_watchdog_trip", "Frozen screen trips E-stop", "bit"),
-];
+/// One `[hal]` name as HAL WIRING lists it.
+#[derive(Clone, Copy, Debug)]
+struct HalName {
+    module: &'static str,
+    name: &'static str,
+    pin: &'static str,
+    ty: &'static str,
+    input: bool,
+    auto: Option<&'static str>,
+    title: &'static str,
+}
+
+/// The screen watchdog's trip: no ferrum pin of its own.
+const WATCHDOG_NAME: HalName =
+    HalName { module: "watchdog", name: crate::halpins::WATCHDOG_TRIP, pin: "watchdog.ok", ty: "bit", input: false, auto: None, title: "Frozen screen trips E-stop" };
+
+fn hal_name(d: &crate::halpins::Def, module: &'static str) -> HalName {
+    HalName { module, name: d.name.unwrap_or(""), pin: d.pin, ty: d.ty.as_str(), input: d.input, auto: d.auto, title: d.title }
+}
+
+/// Every `[hal]` name, with the first module that uses it.
+fn all_hal_names() -> Vec<HalName> {
+    let mut v: Vec<HalName> = Vec::new();
+    for d in crate::halpins::ALL.iter().filter(|d| d.name.is_some()) {
+        if !v.iter().any(|h| Some(h.name) == d.name) {
+            v.push(hal_name(d, d.modules[0]));
+        }
+    }
+    v.push(WATCHDOG_NAME);
+    v
+}
 
 fn hal_meta(name: &str) -> (&'static str, &'static str) {
-    HAL_NAMES.iter().find(|h| h.0 == name).map_or(("", "bit"), |h| (h.1, h.2))
+    all_hal_names().into_iter().find(|h| h.name == name).map_or(("", "bit"), |h| (h.title, h.ty))
 }
 
 fn yes(b: bool) -> String {
@@ -342,6 +363,7 @@ impl Setup {
             },
             "spindle.max_rpm" => mi.max_rpm.map_or("NOT SET".into(), |v| format!("{v:.0}")),
             "spindle.reverse" => yes(mi.reverse),
+            "machine.screen_watchdog" => yes(mc.screen_watchdog()),
             "buttons.mist" => yes(live.as_ref().map_or(mc.buttons.mist, |l| l.get_quick_mist())),
             "buttons.flood" => yes(live.as_ref().map_or(mc.buttons.flood, |l| l.get_quick_flood())),
             "buttons.drawbar" => yes(live.as_ref().map_or(mc.buttons.drawbar, |l| l.get_quick_drawbar())),
@@ -592,25 +614,24 @@ impl Setup {
 
     /// The module whose pin a HAL name connects.
     fn hal_module(&self, name: &str) -> Option<&'static str> {
-        if name == "screen_watchdog_trip" {
-            return Some("watchdog");
-        }
-        crate::modules::LINKED.iter().find(|(_, links)| links.iter().any(|l| l.name == name)).map(|(m, _)| *m)
+        all_hal_names().into_iter().find(|h| h.name == name).map(|h| h.module)
     }
 
-    fn hal_link(&self, name: &str) -> Option<crate::halmap::Link> {
-        crate::modules::LINKED.iter().flat_map(|(_, l)| l.iter()).find(|l| l.name == name).copied()
+    fn hal_link(&self, name: &str) -> Option<HalName> {
+        all_hal_names().into_iter().find(|h| h.name == name)
     }
 
+    /// The old per-module HAL file runs: there is one and ferrum.toml has
+    /// no `[hal]` table.
     fn has_hal_file(&self, module: &str) -> bool {
-        self.cfg.dir().join(format!("ferrum/hal/{module}.hal")).is_file()
+        !self.mc().has_hal_table() && self.cfg.dir().join(format!("ferrum/hal/{module}.hal")).is_file()
     }
 
     /// What the name connects to as ferrum runs: `[hal]`, the module's HAL
     /// file, the default, or nothing.
     fn hal_target_running(&self, name: &str) -> String {
         match self.mc().hal.get(name) {
-            Some(t) => t.clone(),
+            Some(t) => t.text(),
             None => self.hal_fallback(name),
         }
     }
@@ -623,13 +644,17 @@ impl Setup {
         }
         match self.hal_link(name).and_then(|l| l.auto) {
             Some(a) => format!("{a} (default)"),
-            None if name == "screen_watchdog_trip" => "E-STOP INPUT (default)".into(),
+            None if name == crate::halpins::WATCHDOG_TRIP => "E-STOP INPUT (default)".into(),
             None => "NOT CONNECTED".into(),
         }
     }
 
     fn set_hal(&mut self, name: &str, target: Option<&str>) -> Result<(), String> {
         let key = format!("hal.{name}");
+        // A name picked for an inverted entry stays inverted.
+        let inverted = self.mc().hal.get(name).is_some_and(|t| t.invert);
+        let picked = target.map(|t| if inverted && !t.starts_with('!') { format!("!{t}") } else { t.to_string() });
+        let target = picked.as_deref();
         machine_cfg::write_key(&self.path, self.seed.as_deref(), &key, target.map(toml_edit::value))?;
         let shown = match target {
             Some(t) => t.to_string(),
@@ -639,20 +664,28 @@ impl Setup {
         Ok(())
     }
 
-    /// The names HAL WIRING lists: those of the modules that run, and the
-    /// screen watchdog's.
-    fn hal_names(&self) -> Vec<(&'static str, crate::halmap::Link)> {
-        let mut v = Vec::new();
-        for (m, links) in crate::modules::LINKED.iter() {
-            if self.has(m) {
-                for l in links.iter() {
-                    if !v.iter().any(|(_, x): &(&str, crate::halmap::Link)| x.name == l.name) {
-                        v.push((*m, *l));
-                    }
-                }
+    /// The names HAL WIRING lists: those of the modules that run (the
+    /// machine signals always), and the screen watchdog's.
+    fn hal_names(&self) -> Vec<(&'static str, HalName)> {
+        let mut v: Vec<(&'static str, HalName)> = Vec::new();
+        for d in crate::halpins::ALL.iter().filter(|d| d.name.is_some()) {
+            let Some(m) = d.modules.iter().find(|m| crate::halpins::ALWAYS_ON.contains(m) || self.has(m)) else { continue };
+            if d.axis.is_some_and(|a| !self.cfg.coordinates().contains(a)) {
+                continue;
+            }
+            if !v.iter().any(|(_, x)| Some(x.name) == d.name) {
+                v.push((m, hal_name(d, m)));
             }
         }
-        v.push(("watchdog", crate::halmap::Link { name: "screen_watchdog_trip", pin: "watchdog.ok", input: false, auto: None }));
+        // Grouped by module, in the order modules first appear.
+        let order: Vec<&str> = v.iter().map(|(m, _)| *m).fold(Vec::new(), |mut o, m| {
+            if !o.contains(&m) {
+                o.push(m);
+            }
+            o
+        });
+        v.sort_by_key(|(m, _)| order.iter().position(|x| x == m));
+        v.push(("watchdog", WATCHDOG_NAME));
         v
     }
 
@@ -661,7 +694,7 @@ impl Setup {
         let (title, typ) = hal_meta(name);
         let first = match link.auto {
             Some(a) => format!("DEFAULT: {a}"),
-            None if name == "screen_watchdog_trip" => "DEFAULT: GATE THE E-STOP INPUT".into(),
+            None if name == crate::halpins::WATCHDOG_TRIP => "DEFAULT: GATE THE E-STOP INPUT".into(),
             None => "NOT CONNECTED".into(),
         };
         let targets: Vec<String> = self
@@ -697,6 +730,19 @@ impl Setup {
 
     fn staged(&self) -> Option<String> {
         self.upd.as_ref().and_then(|r| r.as_ref().ok()).and_then(|s| s.staged.clone())
+    }
+
+    /// The one-time conversion of the INI's postgui files (postgui.rs).
+    fn convert_postgui(&mut self) -> Result<(), String> {
+        let r = crate::postgui::convert(&self.cfg, &self.path, self.seed.as_deref())?;
+        self.checks.retain(|c| c.id != "hal.postgui");
+        self.pending.insert("display.postgui".into(), r.summary());
+        if let Some(ui) = self.ui.upgrade() {
+            let live = ui.global::<Live>();
+            live.set_message(format!("{}. Applies when LinuxCNC next starts.", r.summary()).into());
+            live.set_message_error(false);
+        }
+        Ok(())
     }
 
     /// FINISH: make sure ferrum.toml exists, so SETUP stops opening first.
@@ -952,6 +998,19 @@ impl Setup {
                 _ => (String::new(), ""),
             };
             let detail = [c.detail.as_str(), how].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" ");
+            if c.fix == Fix::ConvertPostgui {
+                rows.push(SetupRow {
+                    kind: "action".into(),
+                    key: "convert-postgui".into(),
+                    level: level(&c.level).into(),
+                    title: c.title.clone().into(),
+                    detail: detail.into(),
+                    value: "CONVERT".into(),
+                    free: true,
+                    ..Default::default()
+                });
+                continue;
+            }
             let action = ini && self.can_restart;
             rows.push(SetupRow {
                 kind: if action { "action" } else { "check" }.into(),
@@ -1373,6 +1432,7 @@ fn key_static(key: &str) -> &'static str {
     const KEYS: &[&str] = &[
         "machine.z_top",
         "machine.park",
+        "machine.screen_watchdog",
         "spindle.max_rpm",
         "spindle.reverse",
         "buttons.mist",
@@ -1545,6 +1605,14 @@ pub fn wire(
     actions.on_setup_tap(move |key| {
         let Some(ui) = weak.upgrade() else { return };
         let key = key.as_str();
+        // A key switch ([hal]unlock) locks every change here; the live
+        // tests and SOFTWARE's refresh still work.
+        if ui.global::<Live>().get_setup_locked() && !matches!(key, "upd-refresh") && !key.starts_with("test") {
+            let live = ui.global::<Live>();
+            live.set_message("SETUP is locked by the key switch. Turn the key to change settings.".into());
+            live.set_message_error(true);
+            return;
+        }
         match key {
             "set-g30" => return ui.global::<Actions>().invoke_ut_set_g30(),
             "go-g30" => return ui.global::<Actions>().invoke_ut_go_g30(),
@@ -1561,6 +1629,8 @@ pub fn wire(
             st.move_screen(id, 1)
         } else if key == "screens-default" {
             st.reset_order()
+        } else if key == "convert-postgui" {
+            st.convert_postgui()
         } else if let Some(id) = key.strip_prefix("ini:") {
             if let Some(c) = st.checks.iter().find(|c| c.id == id).map(|c| c.id) {
                 if !st.ini_queue.remove(c) {
@@ -1776,10 +1846,8 @@ mod tests {
 
     #[test]
     fn every_hal_name_has_a_title() {
-        for (_, links) in crate::modules::LINKED.iter() {
-            for l in links.iter() {
-                assert!(!hal_meta(l.name).0.is_empty(), "{}", l.name);
-            }
+        for h in all_hal_names() {
+            assert!(!hal_meta(h.name).0.is_empty(), "{}", h.name);
         }
     }
 

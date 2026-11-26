@@ -51,7 +51,7 @@ pub trait Io {
     fn set_touch_off_reset(&self, on: bool);
 }
 
-/// Pins on `ferrum.drawbar.*`, netted by ferrum/hal/drawbar.hal.
+/// The M6 handshake (`ferrum.toolchange.*`) and the drawbar pins (`ferrum.drawbar.*`).
 pub struct HalIo {
     change: In<bool>,
     number: In<i32>,
@@ -70,10 +70,10 @@ pub struct HalIo {
 impl HalIo {
     pub fn create(comp: &Component, extended: In<bool>, rearm_required: In<bool>) -> Result<Self, String> {
         Ok(Self {
-            change: comp.pin("drawbar.tool-change")?,
-            number: comp.pin("drawbar.tool-number")?,
-            changed: comp.pin("drawbar.tool-changed")?,
-            spindle_request: comp.pin("drawbar.spindle-request")?,
+            change: comp.pin("toolchange.tool-change")?,
+            number: comp.pin("toolchange.tool-number")?,
+            changed: comp.pin("toolchange.tool-changed")?,
+            spindle_request: comp.pin("toolchange.spindle-on")?,
             extended,
             rearm_required,
             nose_reference: comp.pin("drawbar.nose-reference-valid")?,

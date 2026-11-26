@@ -15,8 +15,23 @@ export component FilesScreen inherits Rectangle {
                 padding: Theme.pad;
                 spacing: Theme.row;
                 HorizontalLayout {
-                    H3 { horizontal-stretch: 1; text: "PROGRAMS"; }
-                    Label { vertical-alignment: center; text: Live.files-path; }
+                    spacing: 12px;
+                    H3 { horizontal-stretch: 1; text: Live.files-place > 0 ? "USB DRIVE" : "PROGRAMS"; }
+                    Label { vertical-alignment: center; text: Live.files-path; overflow: elide; }
+                }
+                // A USB drive plugged in adds a place; its programs are
+                // copied to the program folder when loaded.
+                if Live.files-places.length > 1: HorizontalLayout {
+                    height: Theme.h-sm;
+                    spacing: 0;
+                    for p[i] in Live.files-places: Seg {
+                        first: i == 0;
+                        last: i == Live.files-places.length - 1;
+                        text: p;
+                        font-size: Theme.t-body;
+                        on: i == Live.files-place;
+                        clicked => { Actions.files-place(i); }
+                    }
                 }
                 HorizontalLayout {
                     padding-left: 12px;

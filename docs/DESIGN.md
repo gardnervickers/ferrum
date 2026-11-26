@@ -94,6 +94,24 @@ widgets in `app/ui/widgets.slint`.
   routine twice on the PROBE picture (green, so it is never read as a
   control or an arrow), and it stops while a probe runs.
 
+## Screen sizes and orientation
+
+The layout is drawn at 1920x1080 landscape and 1080x1920 portrait, and
+scaled to the screen (`layout_scale` in `main.rs`): height keeps text at
+its size, so a wider landscape screen gets wider screens down to 1440
+layout pixels (`Layout.compact` below 1800), and only below that does
+everything shrink. A portrait screen (`Layout.portrait`) keeps 1080
+layout pixels across and gets taller screens.
+
+In portrait the frame rearranges: the DRO column becomes a band across
+the top (`TopBand`: DRO on the left, machine values and overrides beside
+it, quick buttons in one row under both), and the bottom bar has two
+rows (nav tabs sharing the width, then SINGLE BLOCK, M01, FEED HOLD,
+STOP and CYCLE START). The screens get the whole width and are laid out
+as in a compact landscape window, so a screen that works at 1440x1080
+works in portrait; check new screens with
+`ferrum --screenshot out.png --screen <id> --size 1080x1920`.
+
 ## Widgets
 
 - `Btn`: plate button; `on` for toggles, `kind` for go/hold/stop, `hold`

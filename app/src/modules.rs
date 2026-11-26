@@ -44,19 +44,37 @@ pub trait Module {
     }
 
     /// Create the HAL pins this module owns, before hal_ready. Pins are named
-    /// `ferrum.<id>.<pin>` and netted by `ferrum/hal/<id>.hal`.
+    /// as crate::halpins lists them.
     fn create_pins(&mut self, _comp: &Component) -> Result<(), String> {
         Ok(())
     }
 
-    /// Pins that connect without a HAL file: `[hal]<name>` or the default
-    /// target (crate::halmap). Ignored when `ferrum/hal/<id>.hal` exists.
-    fn hal_links(&self) -> &'static [crate::halmap::Link] {
-        &[]
+    /// Before this module's pins are connected (crate::halpins), with its
+    /// own HAL file not run: take pins away from what drove them.
+    fn before_links(&mut self) {}
+
+    /// A pin of this module's `[hal]` name was connected (or the module's
+    /// old HAL file ran).
+    fn linked(&mut self, _name: &str) {}
+
+    /// Hardware buttons, knobs and alarms since the last call (every 50 ms).
+    fn events(&self, _status: Option<&Status>) -> Vec<Event> {
+        Vec::new()
     }
 
-    /// A pin of `hal_links` was connected (or the module's HAL file ran).
-    fn linked(&mut self, _name: &str) {}
+    /// What the screen shows, for the stack light and an MPG.
+    fn outputs(&self, _o: &Outputs) {}
+
+    /// A key switch says SETUP may not change settings (None: no switch).
+    fn locked(&self) -> Option<bool> {
+        None
+    }
+
+    /// Spindle feedback from HAL: (actual rpm, at speed), each None when
+    /// the machine does not have it.
+    fn spindle_feedback(&self) -> Option<(Option<f64>, Option<bool>)> {
+        None
+    }
 
     /// Status bar pills, refreshed several times a second.
     fn pills(&self, _status: Option<&Status>, _out: &mut Vec<Pill>) {}
@@ -109,6 +127,32 @@ pub trait Module {
     }
 }
 
+/// Something a hardware panel or an alarm asks the screen for.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Event {
+    CycleStart,
+    FeedHold,
+    Stop,
+    SingleBlock,
+    /// An override knob turned: "feed", "spindle" or "rapid", by n %.
+    Override(&'static str, i32),
+    /// A `kind = "stop"` alarm came on: feed hold, and say why.
+    AlarmStop(String),
+}
+
+/// The screen's state for HAL outputs.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Outputs {
+    /// E-stop, or a fault in the status list.
+    pub error: bool,
+    /// Paused, or waiting for the operator (M0/M1, a tool change).
+    pub waiting: bool,
+    pub running: bool,
+    /// The axis last jogged on MANUAL, and the jog step (0 for continuous).
+    pub mpg_axis: Option<char>,
+    pub mpg_increment: f64,
+}
+
 /// Tool setter pins (ferrum/hal/probe.hal).
 pub struct SetterHal {
     pub blast_request: Out<bool>,
@@ -154,33 +198,6 @@ impl Module for Screen {
     }
 }
 
-use crate::halmap::Link;
-
-const PROBE_LINKS: &[Link] = &[
-    Link { name: "probe_tripped", pin: "probe.tripped", input: true, auto: Some("motion.probe-input") },
-    Link { name: "probe_loaded", pin: "probe.wireless-selected", input: true, auto: None },
-    Link { name: "probe_fault", pin: "probe.fault", input: true, auto: None },
-    Link { name: "toolsetter_tripped", pin: "probe.toolsetter", input: true, auto: None },
-    Link { name: "setter_blast", pin: "probe.blast-request", input: false, auto: None },
-    Link { name: "setter_blast_active", pin: "probe.blast-active", input: true, auto: None },
-];
-
-const TOOLCHANGE_LINKS: &[Link] = &[
-            Link { name: "tool_change", pin: "toolchange.tool-change", input: true, auto: Some("iocontrol.0.tool-change") },
-            Link { name: "tool_number", pin: "toolchange.tool-number", input: true, auto: Some("iocontrol.0.tool-prep-number") },
-            Link { name: "tool_changed", pin: "toolchange.tool-changed", input: false, auto: Some("iocontrol.0.tool-changed") },
-            Link { name: "spindle_on", pin: "toolchange.spindle-on", input: true, auto: Some("spindle.0.on") },
-        ];
-const INTERLOCK_LINKS: &[Link] = &[
-            Link { name: "motion_held", pin: "interlock.held", input: true, auto: Some("motion.feed-inhibit") },
-            Link { name: "probe_fault", pin: "interlock.probe-fault", input: true, auto: None },
-            Link { name: "drives_not_ready", pin: "interlock.drives-not-ready", input: true, auto: None },
-        ];
-const LOAD_LINKS: &[Link] = &[Link { name: "load", pin: "load.value", input: true, auto: None }];
-
-/// Each module's HAL names (its `hal_links`), for SETUP › HAL WIRING.
-pub const LINKED: &[(&str, &[Link])] = &[("probe", PROBE_LINKS), ("toolchange", TOOLCHANGE_LINKS), ("interlock", INTERLOCK_LINKS), ("load", LOAD_LINKS)];
-
 /// Probe screen plus the probe status pill: from probe_manager on mymill
 /// (`probe_loaded`, `probe_fault`), else from the tool number.
 #[derive(Default)]
@@ -214,9 +231,6 @@ impl Module for Probe {
             blast_wired: Cell::new(false),
         }));
         Ok(())
-    }
-    fn hal_links(&self) -> &'static [Link] {
-        PROBE_LINKS
     }
     fn linked(&mut self, name: &str) {
         match name {
@@ -362,9 +376,6 @@ impl Module for ToolChange {
         self.io = Some(Rc::new(crate::toolchange::DialogIo::create(comp)?));
         Ok(())
     }
-    fn hal_links(&self) -> &'static [Link] {
-        TOOLCHANGE_LINKS
-    }
     fn toolchange(&self) -> Option<Rc<dyn crate::toolchange::Io>> {
         self.io.clone().map(|io| io as Rc<dyn crate::toolchange::Io>)
     }
@@ -382,9 +393,6 @@ struct Interlock {
 impl Module for Interlock {
     fn id(&self) -> &'static str {
         "interlock"
-    }
-    fn hal_links(&self) -> &'static [Link] {
-        INTERLOCK_LINKS
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
         self.held = Some(comp.pin("interlock.held")?);
@@ -427,9 +435,6 @@ struct Load {
 impl Module for Load {
     fn id(&self) -> &'static str {
         "load"
-    }
-    fn hal_links(&self) -> &'static [Link] {
-        LOAD_LINKS
     }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
         self.real = true;
@@ -498,6 +503,20 @@ impl Module for Pendant {
     fn id(&self) -> &'static str {
         "pendant"
     }
+    /// The pendant's START/PAUSE and mode requests come to ferrum instead
+    /// of halui (see the struct): take halui's mode and run inputs off the
+    /// driver's signals before ferrum's pins join them.
+    fn before_links(&mut self) {
+        let mapped = crate::machine_cfg::get().hal.keys().any(|k| k.starts_with("pendant_"));
+        if !mapped && crate::halmap::pin_info("whb.halui.mode.auto").is_none() {
+            return;
+        }
+        for p in ["halui.mode.auto", "halui.program.run", "halui.mode.manual", "halui.mode.teleop", "halui.mode.joint", "halui.mode.mdi"] {
+            if let Err(e) = crate::halmap::halcmd(&["unlinkp", p]) {
+                eprintln!("ferrum: pendant: unlinkp {p}: {e}");
+            }
+        }
+    }
     fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
         self.connected = Some(comp.pin("pendant.connected")?);
         self.asleep = Some(comp.pin("pendant.asleep")?);
@@ -528,6 +547,210 @@ impl Module for Pendant {
     }
 }
 
+/// Machine signals every config can have (crate::halpins, always on):
+/// spindle feedback, spindle inhibit and fault, lube level. Each shows only
+/// when connected to something that drives it.
+#[derive(Default)]
+struct MachineSignals {
+    speed: Option<In<f64>>,
+    at_speed: Option<In<bool>>,
+    inhibited: Option<In<bool>>,
+    fault: Option<In<bool>>,
+    lube_ok: Option<In<bool>>,
+    wired: Vec<&'static str>,
+    /// `[[alarm]]`s: (pin `alarm.<n>`, text, kind, connected, was on).
+    alarms: Vec<(In<bool>, String, &'static str, Cell<bool>, Cell<bool>)>,
+}
+
+impl MachineSignals {
+    fn has(&self, name: &str) -> bool {
+        self.wired.contains(&name)
+    }
+}
+
+impl Module for MachineSignals {
+    fn id(&self) -> &'static str {
+        "machine"
+    }
+    fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
+        self.speed = Some(comp.pin("spindle.speed-actual")?);
+        self.at_speed = Some(comp.pin("spindle.at-speed")?);
+        self.inhibited = Some(comp.pin("spindle.inhibited")?);
+        self.fault = Some(comp.pin("spindle.fault")?);
+        self.lube_ok = Some(comp.pin("machine.lube-ok")?);
+        for (n, a) in crate::machine_cfg::get().alarm.iter().enumerate() {
+            let kind = match a.kind.as_deref() {
+                Some("info") => "info",
+                Some("stop") => "stop",
+                _ => "warn",
+            };
+            self.alarms.push((comp.pin(&format!("alarm.{}", n + 1))?, a.text.clone(), kind, Cell::new(false), Cell::new(false)));
+        }
+        Ok(())
+    }
+    fn after_hal(&mut self, _has_file: bool) -> Vec<String> {
+        let mut notes = Vec::new();
+        for (n, a) in crate::machine_cfg::get().alarm.iter().enumerate() {
+            let t = crate::machine_cfg::HalTarget::named(&a.pin);
+            match crate::halmap::link_pin(&format!("alarm.{}", n + 1), crate::halpins::Ty::Bit, true, &t, true) {
+                Ok(crate::halmap::Linked::Yes(how)) => {
+                    eprintln!("ferrum: HAL {how}");
+                    if let Some(x) = self.alarms.get(n) {
+                        x.3.set(true);
+                    }
+                }
+                Ok(crate::halmap::Linked::Nothing(why)) => notes.push(format!("[[alarm]] {}: {why}", a.text)),
+                Err(e) => notes.push(format!("[[alarm]] {}: {e}", a.text)),
+            }
+        }
+        notes
+    }
+    fn events(&self, _s: Option<&Status>) -> Vec<Event> {
+        let mut v = Vec::new();
+        for (pin, text, kind, wired, was) in &self.alarms {
+            let on = wired.get() && pin.get();
+            if on && !was.get() && *kind == "stop" {
+                v.push(Event::AlarmStop(text.clone()));
+            }
+            was.set(on);
+        }
+        v
+    }
+    fn motion_block(&self) -> Option<String> {
+        self.alarms.iter().find(|(p, _, k, w, _)| *k == "stop" && w.get() && p.get()).map(|(_, t, ..)| t.clone())
+    }
+    fn linked(&mut self, name: &str) {
+        if let Some(d) = crate::halpins::by_name(name).find(|d| d.modules.contains(&"machine")) {
+            self.wired.push(d.name.unwrap_or(""));
+        }
+    }
+    fn pills(&self, s: Option<&Status>, out: &mut Vec<Pill>) {
+        let on = |p: &Option<In<bool>>, n: &str| self.has(n) && p.as_ref().is_some_and(|p| p.get());
+        if self.has("spindle_fault") {
+            out.push(if on(&self.fault, "spindle_fault") {
+                Pill::new("SPINDLE FAULT", "bad").hint("The spindle drive reports a fault. Check the VFD.")
+            } else {
+                Pill::new("SPINDLE DRIVE OK", "good")
+            });
+        }
+        if on(&self.inhibited, "spindle_inhibited") && s.is_some_and(|s| s.power_on()) {
+            out.push(Pill::new("SPINDLE INHIBITED", "warn").hint("HAL holds the spindle off (spindle.0.inhibit)."));
+        }
+        for (pin, text, kind, wired, _) in &self.alarms {
+            if wired.get() && pin.get() {
+                let k = if *kind == "stop" { "bad" } else { kind };
+                out.push(Pill::new(text.to_uppercase(), k).hint("An alarm input of the machine ([[alarm]] in ferrum.toml)."));
+            }
+        }
+        if self.has("lube_ok") {
+            let ok = self.lube_ok.as_ref().is_some_and(|p| p.get());
+            out.push(if ok { Pill::new("LUBE OK", "good") } else { Pill::new("LUBE LOW", "warn").hint("The lube level input says low. Fill the lube tank.") });
+        }
+    }
+    fn spindle_block(&self) -> Option<String> {
+        if self.has("spindle_fault") && self.fault.as_ref().is_some_and(|p| p.get()) {
+            return Some("The spindle drive reports a fault".into());
+        }
+        None
+    }
+    fn spindle_feedback(&self) -> Option<(Option<f64>, Option<bool>)> {
+        let rpm = self.speed.as_ref().filter(|_| self.has("spindle_speed_actual")).map(|p| (p.get() * 60.0).abs());
+        let at = self.at_speed.as_ref().filter(|_| self.has("spindle_at_speed")).map(|p| p.get());
+        (rpm.is_some() || at.is_some()).then_some((rpm, at))
+    }
+}
+
+/// Hardware buttons, override knobs, an MPG that follows MANUAL, a stack
+/// light and a settings key switch (crate::halpins, `panel.*`, `mpg.*`,
+/// `status.*`). Always on; each part works once `[hal]` names its signal.
+#[derive(Default)]
+struct Panel {
+    buttons: Vec<(&'static str, In<bool>, Cell<bool>)>,
+    knobs: Vec<(&'static str, In<i32>, Cell<Option<i32>>)>,
+    unlock: Option<In<bool>>,
+    mpg_axes: Vec<(char, Out<bool>)>,
+    mpg_increment: Option<Out<f64>>,
+    lights: Vec<Out<bool>>,
+    wired: Vec<&'static str>,
+}
+
+const PANEL_BUTTONS: [(&str, &str); 4] = [("cycle_start", "panel.cycle-start"), ("feed_hold", "panel.feed-hold"), ("stop", "panel.stop"), ("single_block", "panel.single-block")];
+const PANEL_KNOBS: [(&str, &str, &str); 3] =
+    [("feed", "feed_override_counts", "panel.feed-override-counts"), ("spindle", "spindle_override_counts", "panel.spindle-override-counts"), ("rapid", "rapid_override_counts", "panel.rapid-override-counts")];
+
+impl Module for Panel {
+    fn id(&self) -> &'static str {
+        "panel"
+    }
+    fn create_pins(&mut self, comp: &Component) -> Result<(), String> {
+        for (name, pin) in PANEL_BUTTONS {
+            self.buttons.push((name, comp.pin(pin)?, Cell::new(false)));
+        }
+        for (which, _, pin) in PANEL_KNOBS {
+            self.knobs.push((which, comp.pin(pin)?, Cell::new(None)));
+        }
+        self.unlock = Some(comp.pin("panel.unlock")?);
+        for a in "XYZABC".chars() {
+            self.mpg_axes.push((a, comp.pin(&format!("mpg.axis-{}", a.to_ascii_lowercase()))?));
+        }
+        self.mpg_increment = Some(comp.pin("mpg.increment")?);
+        for p in ["status.error", "status.waiting", "status.running"] {
+            self.lights.push(comp.pin(p)?);
+        }
+        Ok(())
+    }
+    fn linked(&mut self, name: &str) {
+        if let Some(d) = crate::halpins::by_name(name).find(|d| d.modules.contains(&"panel")) {
+            self.wired.push(d.name.unwrap_or(""));
+        }
+    }
+    fn events(&self, _s: Option<&Status>) -> Vec<Event> {
+        let mut v = Vec::new();
+        for (name, pin, was) in &self.buttons {
+            let down = pin.get();
+            if down && !was.get() && self.wired.contains(name) {
+                v.push(match *name {
+                    "cycle_start" => Event::CycleStart,
+                    "feed_hold" => Event::FeedHold,
+                    "stop" => Event::Stop,
+                    _ => Event::SingleBlock,
+                });
+            }
+            was.set(down);
+        }
+        for ((which, name, _), (_, pin, last)) in PANEL_KNOBS.iter().zip(&self.knobs) {
+            let now = pin.get();
+            if let Some(before) = last.get() {
+                let d = now.wrapping_sub(before);
+                if d != 0 && self.wired.contains(name) {
+                    v.push(Event::Override(which, d.clamp(-100, 100)));
+                }
+            }
+            last.set(Some(now));
+        }
+        v
+    }
+    fn outputs(&self, o: &Outputs) {
+        for (a, pin) in &self.mpg_axes {
+            pin.set(o.mpg_axis == Some(*a));
+        }
+        if let Some(p) = &self.mpg_increment {
+            p.set(o.mpg_increment);
+        }
+        for (pin, on) in self.lights.iter().zip([o.error, o.waiting && !o.error, o.running && !o.waiting && !o.error]) {
+            pin.set(on);
+        }
+    }
+    fn locked(&self) -> Option<bool> {
+        self.wired.contains(&"unlock").then(|| !self.unlock.as_ref().is_some_and(|p| p.get()))
+    }
+    fn pills(&self, _s: Option<&Status>, out: &mut Vec<Pill>) {
+        if self.locked() == Some(true) {
+            out.push(Pill::new("SETUP LOCKED", "").hint("The key switch locks SETUP. Turn the key to change settings."));
+        }
+    }
+}
+
 fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
     let screen = |id, label, icon| Some(Box::new(Screen { id, label, icon }) as Box<dyn Module>);
     match id {
@@ -549,6 +772,8 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
         "load" => Some(Box::new(Load::default())),
         "pendant" => Some(Box::new(Pendant::default())),
         "watchdog" => Some(Box::new(Watchdog::default())),
+        "machine" => Some(Box::new(MachineSignals::default())),
+        "panel" => Some(Box::new(Panel::default())),
         _ => None,
     }
 }
@@ -564,6 +789,8 @@ fn make(id: &str, cfg: &Config) -> Option<Box<dyn Module>> {
 struct Watchdog {
     ok: Option<In<bool>>,
     wired: Cell<bool>,
+    /// Turned off in ferrum.toml.
+    off: Cell<bool>,
 }
 
 /// The HAL instances the built-in wiring loads.
@@ -587,6 +814,11 @@ impl Module for Watchdog {
         if self.ok.is_none() {
             return Vec::new();
         }
+        if !crate::machine_cfg::get().screen_watchdog() {
+            eprintln!("ferrum: screen watchdog off ([machine]screen_watchdog = false)");
+            self.off.set(true);
+            return Vec::new();
+        }
         let r = if has_file { check_watchdog_file() } else { wire_watchdog() };
         match r {
             Ok(how) => {
@@ -599,6 +831,10 @@ impl Module for Watchdog {
     }
     fn pills(&self, s: Option<&Status>, out: &mut Vec<Pill>) {
         let Some(ok) = &self.ok else { return };
+        if self.off.get() {
+            out.push(Pill::new("SCREEN WATCHDOG OFF", "").hint("Turned off in SETUP › MACHINE. Recommended on: it E-stops the machine if this screen freezes."));
+            return;
+        }
         if ok.get() {
             crate::failsafe::arm();
         }
@@ -673,8 +909,8 @@ fn wire_watchdog() -> Result<String, String> {
     ] {
         halcmd(&cmd).map_err(|e| format!("halcmd {}: {e}", cmd.join(" ")))?;
     }
-    if let Some(t) = crate::machine_cfg::get().hal.get("screen_watchdog_trip") {
-        halcmd(&["net", "ferrum-screen-stale", &format!("{o}.out-not"), t]).map_err(|e| format!("[hal]screen_watchdog_trip: {e}"))?;
+    if let Some(t) = crate::machine_cfg::get().hal.get(crate::halpins::WATCHDOG_TRIP).and_then(|t| t.target.clone()) {
+        halcmd(&["net", "ferrum-screen-stale", &format!("{o}.out-not"), &t]).map_err(|e| format!("[hal]screen_watchdog_trip: {e}"))?;
         return Ok(format!("trips {t}"));
     }
     // Gate LinuxCNC's E-stop input: enable = (what drove it) AND screen ok,
@@ -723,10 +959,13 @@ pub fn build(cfg: &Config, hal: &dyn crate::checks::Hal) -> (Vec<Box<dyn Module>
     {
         list.push("toolchange".into());
     }
-    // SETUP is always there, last. The screen watchdog is always there.
-    list.retain(|m| m != "setup" && m != "watchdog");
+    // SETUP is always there, last. The screen watchdog and the machine
+    // signals are always there.
+    list.retain(|m| !crate::halpins::ALWAYS_ON.contains(&m.as_str()));
     list.push("setup".into());
     list.push("watchdog".into());
+    list.push("machine".into());
+    list.push("panel".into());
     let mut modules: Vec<Box<dyn Module>> = Vec::new();
     let mut problems = Vec::new();
     for id in list.iter().map(String::as_str) {
@@ -780,7 +1019,7 @@ mod tests {
         let ids: Vec<_> = mods.iter().map(|m| m.id()).collect();
         // Nothing answers M6, so the tool change dialog comes too; the
         // screen watchdog is always there.
-        assert_eq!(ids, ["run", "manual", "toolchange", "setup", "watchdog"]);
+        assert_eq!(ids, ["run", "manual", "toolchange", "setup", "watchdog", "machine", "panel"]);
         assert_eq!(problems.len(), 1);
         std::fs::remove_dir_all(d).ok();
     }

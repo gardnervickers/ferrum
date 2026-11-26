@@ -118,6 +118,7 @@ extern "C" {
     fn lcnc_set_block_delete(c: *mut Lcnc, on: c_int) -> c_int;
     fn lcnc_home(c: *mut Lcnc, joint: c_int) -> c_int;
     fn lcnc_unhome(c: *mut Lcnc, joint: c_int) -> c_int;
+    fn lcnc_override_limits(c: *mut Lcnc) -> c_int;
     fn lcnc_teleop(c: *mut Lcnc, on: c_int) -> c_int;
     fn lcnc_jog_cont(c: *mut Lcnc, jm: c_int, i: c_int, vel: f64) -> c_int;
     fn lcnc_jog_incr(c: *mut Lcnc, jm: c_int, i: c_int, vel: f64, incr: f64) -> c_int;
@@ -217,6 +218,7 @@ impl Connection {
                 Command::BlockDelete(on) => lcnc_set_block_delete(c, *on as c_int),
                 Command::Home(j) => lcnc_home(c, j.raw()),
                 Command::Unhome(j) => lcnc_unhome(c, j.raw()),
+                Command::OverrideLimits => lcnc_override_limits(c),
                 Command::Teleop(on) => lcnc_teleop(c, *on as c_int),
                 Command::JogCont { target, vel } => {
                     let (jm, i) = jog(*target);

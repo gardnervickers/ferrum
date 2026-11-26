@@ -7,16 +7,6 @@
 
 use std::process::Command;
 
-/// A pin a module can connect: `ferrum.<pin>`, `[hal]<name>`, default target.
-#[derive(Clone, Copy, Debug)]
-pub struct Link {
-    pub name: &'static str,
-    pub pin: &'static str,
-    /// ferrum reads the pin (an IN pin).
-    pub input: bool,
-    pub auto: Option<&'static str>,
-}
-
 pub(crate) fn halcmd(args: &[&str]) -> Result<String, String> {
     let out = Command::new("halcmd").args(args).output().map_err(|e| format!("halcmd: {e}"))?;
     if out.status.success() {
@@ -29,19 +19,40 @@ pub(crate) fn halcmd(args: &[&str]) -> Result<String, String> {
 
 /// What `halcmd -s show pin` says about a pin: (direction, signal).
 pub(crate) fn pin_info(pin: &str) -> Option<(String, String)> {
+    pin_full(pin).map(|(_, d, s)| (d, s))
+}
+
+/// (type, direction, signal) of a pin.
+pub(crate) fn pin_full(pin: &str) -> Option<(String, String, String)> {
     let out = halcmd(&["-s", "show", "pin", pin]).ok()?;
     out.lines().find_map(|l| {
         let w: Vec<&str> = l.split_whitespace().collect();
         let at = w.iter().position(|x| *x == pin)?;
+        let typ = w.get(1)?.to_string();
         let dir = w.get(2)?.to_string();
-        let sig = w.get(at + 2).filter(|_| w.get(at + 1).is_some_and(|a| a.contains("=="))).map_or(String::new(), |s| s.to_string());
-        Some((dir, sig))
+        let sig = w.get(at + 2).filter(|_| w.get(at + 1).is_some_and(|a| a.contains("==") || *a == "<=>")).map_or(String::new(), |s| s.to_string());
+        Some((typ, dir, sig))
     })
 }
 
-pub(crate) fn is_signal(name: &str) -> bool {
-    halcmd(&["-s", "show", "sig", name]).is_ok_and(|o| o.lines().any(|l| l.split_whitespace().nth(2) == Some(name)))
+/// (type, has a writer) of a signal.
+pub(crate) fn sig_info(name: &str) -> Option<(String, bool)> {
+    let out = halcmd(&["-s", "show", "sig", name]).ok()?;
+    let mut found = None;
+    let mut written = false;
+    for l in out.lines() {
+        let w: Vec<&str> = l.split_whitespace().collect();
+        if w.get(2) == Some(&name) {
+            found = Some(w[0].to_string());
+            written |= w.iter().any(|x| *x == "<==" || *x == "<=>");
+        } else if found.is_some() && (w.first() == Some(&"<==") || w.first() == Some(&"<=>")) {
+            // halcmd may list the pins on the lines after the signal.
+            written = true;
+        }
+    }
+    found.map(|t| (t, written))
 }
+
 
 /// What a link should do, from what HAL has.
 #[derive(Debug, PartialEq)]
@@ -66,21 +77,134 @@ pub fn plan(ours: &str, ours_in: bool, their: Option<(String, String)>, theirs: 
     }
 }
 
-/// Connect `ferrum.<pin>` to `theirs` (a signal or a pin). Returns what
-/// was done, for the log.
-pub fn link(pin: &str, ours_in: bool, theirs: &str) -> Result<String, String> {
-    let ours = format!("ferrum.{pin}");
-    let their = if is_signal(theirs) {
-        None
-    } else {
-        Some(pin_info(theirs).ok_or_else(|| format!("HAL has no pin or signal named {theirs}"))?)
+/// What a target is, as HAL has it now.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Found {
+    /// A signal: its type and whether something writes it.
+    Signal { typ: String, written: bool },
+    /// A pin: type, direction, and the signal it is on ("" for none).
+    Pin { typ: String, dir: String, sig: String },
+    Missing,
+}
+
+fn find(theirs: &str) -> Found {
+    if let Some((typ, written)) = sig_info(theirs) {
+        return Found::Signal { typ, written };
+    }
+    match pin_full(theirs) {
+        Some((typ, dir, sig)) => Found::Pin { typ, dir, sig },
+        None => Found::Missing,
+    }
+}
+
+/// The outcome of connecting one pin.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Linked {
+    /// Connected; the text says how, for the log.
+    Yes(String),
+    /// Nothing there to read: a default target that nothing drives. The
+    /// part counts as not fitted.
+    Nothing(String),
+}
+
+/// Check that `ours` (type `ty`, ferrum reads it: `ours_in`) can connect to
+/// what `theirs` is. `named`: the user named it in `[hal]` (a default that
+/// is missing or undriven is quietly skipped instead).
+pub fn check(ty: &str, ours_in: bool, theirs: &str, found: &Found, named: bool) -> Result<Option<String>, String> {
+    match found {
+        Found::Missing if named => Err(format!("HAL has no pin or signal named {theirs}")),
+        Found::Missing => Ok(Some(format!("{theirs} is not in this machine's HAL"))),
+        Found::Signal { typ, .. } | Found::Pin { typ, .. } if typ != ty => Err(format!("{theirs} is {typ}, the ferrum pin is {ty}")),
+        Found::Signal { written, .. } if ours_in && !written && !named => Ok(Some(format!("nothing drives signal {theirs}"))),
+        Found::Signal { written: true, .. } if !ours_in => Err(format!("signal {theirs} already has a writer; ferrum would be a second one")),
+        Found::Pin { dir, sig, .. } if ours_in && dir == "IN" && sig.is_empty() && !named => Ok(Some(format!("{theirs} is not connected"))),
+        Found::Pin { dir, sig, .. } if ours_in && dir == "IN" && !named => match sig_info(sig) {
+            Some((_, false)) => Ok(Some(format!("nothing drives {theirs} (signal {sig})"))),
+            _ => Ok(None),
+        },
+        Found::Pin { dir, .. } if !ours_in && dir == "OUT" => Err(format!("{theirs} is an output pin; ferrum's output cannot drive it")),
+        Found::Pin { sig, .. } if !ours_in && !sig.is_empty() => match sig_info(sig) {
+            Some((_, true)) => Err(format!("{theirs} is on signal {sig}, which already has a writer")),
+            _ => Ok(None),
+        },
+        _ => Ok(None),
+    }
+}
+
+/// Connect `ours` (a full pin name) to `theirs` (a signal or a pin).
+fn connect(ours: &str, ours_in: bool, theirs: &str, found: &Found) -> Result<String, String> {
+    let their = match found {
+        Found::Signal { .. } => None,
+        Found::Pin { dir, sig, .. } => Some((dir.clone(), sig.clone())),
+        Found::Missing => return Err(format!("HAL has no pin or signal named {theirs}")),
     };
-    match plan(&ours, ours_in, their, theirs) {
-        Plan::Join(sig) => halcmd(&["net", &sig, &ours]).map(|_| format!("{ours} on signal {sig}")),
-        Plan::New(sig) => halcmd(&["net", &sig, theirs, &ours]).map(|_| format!("{ours} to {theirs} (signal {sig})")),
+    match plan(ours, ours_in, their, theirs) {
+        Plan::Join(sig) => halcmd(&["net", &sig, ours]).map(|_| format!("{ours} on signal {sig}")),
+        Plan::New(sig) => halcmd(&["net", &sig, theirs, ours]).map(|_| format!("{ours} to {theirs} (signal {sig})")),
         Plan::Skip => Ok(format!("{ours}: {theirs} is not connected")),
     }
     .map_err(|e| format!("{ours} to {theirs}: {e}"))
+}
+
+struct Dyn<'a> {
+    pin: &'a str,
+    input: bool,
+}
+
+/// Load one realtime component instance on the servo thread.
+fn load_instance(comp: &str, inst: &str) -> Result<(), String> {
+    halcmd(&["loadrt", comp, &format!("names={inst}")]).map_err(|e| format!("loadrt {comp}: {e}"))?;
+    halcmd(&["addf", inst, "servo-thread"]).map_err(|e| format!("addf {inst}: {e}"))?;
+    Ok(())
+}
+
+/// Connect `ferrum.<pin>` per a `[hal]` entry or a default target, with
+/// the entry's invert or scale done by a `not` or `scale` instance ferrum
+/// loads itself (`ferrum-not-<pin>`, `ferrum-scale-<pin>`).
+pub fn link(def: &crate::halpins::Def, t: &crate::machine_cfg::HalTarget, named: bool) -> Result<Linked, String> {
+    link_pin(def.pin, def.ty, def.input, t, named)
+}
+
+/// As `link`, for a pin made at run time (an alarm's).
+pub fn link_pin(pin: &str, ty: crate::halpins::Ty, input: bool, t: &crate::machine_cfg::HalTarget, named: bool) -> Result<Linked, String> {
+    let def = Dyn { pin, input };
+    let ours = format!("ferrum.{}", def.pin);
+    let Some(theirs) = t.target.as_deref() else { return Ok(Linked::Nothing(format!("{ours}: none on this machine"))) };
+    let ty = ty.as_str();
+    if t.invert && ty != "bit" {
+        return Err(format!("{theirs}: only a bit can be inverted (\"!\")"));
+    }
+    if t.scaled() && ty != "float" {
+        return Err(format!("{theirs}: only a float can be scaled"));
+    }
+    let found = find(theirs);
+    if let Some(why) = check(ty, def.input, theirs, &found, named)? {
+        return Ok(Linked::Nothing(format!("{ours}: {why}")));
+    }
+    let tag = def.pin.replace('.', "-");
+    let (via, comp, a, b) = if t.invert {
+        (format!("ferrum-not-{tag}"), "not", "in", "out")
+    } else if t.scaled() {
+        (format!("ferrum-scale-{tag}"), "scale", "in", "out")
+    } else {
+        return connect(&ours, def.input, theirs, &found).map(Linked::Yes);
+    };
+    load_instance(comp, &via)?;
+    if comp == "scale" {
+        halcmd(&["setp", &format!("{via}.gain"), &t.scale.to_string()])?;
+        halcmd(&["setp", &format!("{via}.offset"), &t.offset.to_string()])?;
+    }
+    let inner = format!("ferrum-{tag}");
+    if def.input {
+        // theirs -> via.in, via.out -> ours
+        connect(&format!("{via}.{a}"), true, theirs, &found)?;
+        halcmd(&["net", &inner, &format!("{via}.{b}"), &ours]).map_err(|e| format!("{ours}: {e}"))?;
+    } else {
+        // ours -> via.in, via.out -> theirs
+        halcmd(&["net", &inner, &ours, &format!("{via}.{a}")]).map_err(|e| format!("{ours}: {e}"))?;
+        connect(&format!("{via}.{b}"), false, theirs, &found)?;
+    }
+    Ok(Linked::Yes(format!("{ours} to {theirs} through {via}")))
 }
 
 /// One pin or signal, as `halcmd -s show pin` / `show sig` list them.
@@ -172,6 +296,29 @@ mod tests {
             Plan::New("ferrum-toolchange-tool-changed".into())
         );
         assert_eq!(plan("ferrum.toolchange.tool-change", true, pin("OUT", ""), "iocontrol.0.tool-change"), Plan::New("ferrum-toolchange-tool-change".into()));
+    }
+
+    #[test]
+    fn checks_direction_and_type() {
+        let sig = |t: &str, w: bool| Found::Signal { typ: t.into(), written: w };
+        let pin = |t: &str, d: &str, s: &str| Found::Pin { typ: t.into(), dir: d.into(), sig: s.into() };
+        // Reading a driven signal, or an output pin: connect.
+        assert_eq!(check("bit", true, "probe-in", &sig("bit", true), true), Ok(None));
+        assert_eq!(check("bit", true, "x.out", &pin("bit", "OUT", ""), true), Ok(None));
+        // Nothing drives it: not fitted, quietly.
+        assert!(check("bit", true, "spindle-at-speed", &sig("bit", false), false).unwrap().unwrap().contains("nothing drives"));
+        assert!(check("bit", true, "spindle.0.at-speed", &pin("bit", "IN", ""), false).unwrap().is_some());
+        // Wrong type, a second writer, a missing name the user typed.
+        assert!(check("bit", true, "vfd-amps", &sig("float", true), true).unwrap_err().contains("is float"));
+        assert!(check("bit", false, "estop", &sig("bit", true), true).unwrap_err().contains("already has a writer"));
+        assert!(check("bit", false, "x.out", &pin("bit", "OUT", ""), true).unwrap_err().contains("output pin"));
+        assert!(check("bit", true, "nope", &Found::Missing, true).is_err());
+        assert!(check("bit", true, "whb.pendant.is-connected", &Found::Missing, false).unwrap().is_some());
+        // The user named it: connect even when nothing drives it yet (sets, a later file).
+        assert_eq!(check("bit", true, "sim-probe", &sig("bit", false), true), Ok(None));
+        // Driving a free input pin or an unwritten signal: connect.
+        assert_eq!(check("bit", false, "estop-latch.0.fault-in", &pin("bit", "IN", ""), true), Ok(None));
+        assert_eq!(check("bit", false, "spare", &sig("bit", false), true), Ok(None));
     }
 
     #[test]

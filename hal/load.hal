@@ -1,3 +1,5 @@
+# DEPRECATED: an older profile without a [hal] table in ferrum.toml runs this
+# file. Ferrum ignores it once ferrum.toml has [hal] (docs/hal.md).
 # load module (opt-in: add "load" to [FERRUM]MODULES in ferrum.ini).
 # ferrum.load.value is a float input, 0 (idle) to 1 (full load). The
 # backplot colours the tool's trail by it: green, amber, red, and each

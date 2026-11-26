@@ -3,7 +3,8 @@
 # (scripts/ferrum-update): its own version folder, an atomic switch, the
 # old build kept for `ferrum-update rollback`, and the crash fallback in
 # `run`. It refuses while LinuxCNC runs. mymill.ini and the Probe Basic
-# setup are not touched; ../ferrum.ini (the mymill profile) is copied.
+# setup are not touched; ../ferrum.ini and ../ferrum.toml (the mymill
+# profile) are copied, the Pi's ferrum.toml kept as ferrum.toml.bak.
 #
 #   FERRUM_PI=user@host FERRUM_DEST=linuxcnc/configs/mymill scripts/deploy
 #   FERRUM_DEPLOY_BINARY=path skips the build (tests).
@@ -32,6 +33,11 @@ scp -q "$OUT/ferrum-linux-aarch64.tar.gz" "$OUT/SHA256SUMS" scripts/ferrum-updat
 # The installer refuses while LinuxCNC runs and changes nothing then.
 ssh "$PI" "bash /tmp/ferrum-deploy/ferrum-update --prefix $DEST/ferrum --from /tmp/ferrum-deploy/ferrum-linux-aarch64.tar.gz && rm -rf /tmp/ferrum-deploy"
 scp -q ../ferrum.ini "$PI:$DEST/"
+if [ -f ../ferrum.toml ]; then
+  ssh "$PI" "cd $DEST && if [ -f ferrum.toml ]; then cp ferrum.toml ferrum.toml.bak; fi"
+  scp -q ../ferrum.toml "$PI:$DEST/"
+  if [ -f ../ferrum-outputs.hal ]; then scp -q ../ferrum-outputs.hal "$PI:$DEST/"; fi
+fi
 ssh "$PI" "cd $DEST && if [ -f millgui.ini ] && [ ! -L millgui.ini ]; then mv millgui.ini millgui.ini.pre-ferrum && ln -s ferrum.ini millgui.ini; fi"
 # The JOB page used to run ferrum/job_helper.py; it is built in now.
 ssh "$PI" "rm -f $DEST/ferrum/job_helper.py"

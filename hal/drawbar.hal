@@ -1,3 +1,5 @@
+# DEPRECATED: an older profile without a [hal] table in ferrum.toml runs this
+# file. Ferrum ignores it once ferrum.toml has [hal] (docs/hal.md).
 # drawbar module: power drawbar state from mymill.hal's drawbar interlock.
 # It is the command to the drawbar, not a sensor. mymill.hal has no spindle
 # re-arm latch, so ferrum.drawbar.spindle-rearm-required stays unlinked.
@@ -5,10 +7,10 @@ net drawbar-extended => ferrum.drawbar.extended
 
 # Manual tool change (M6 through iocontrol), as probe_basic_postgui.hal did
 # for qtpyvcp_manualtoolchange.
-net tool-change-request => ferrum.drawbar.tool-change
-net tool-change-confirmed <= ferrum.drawbar.tool-changed
-net tool-number => ferrum.drawbar.tool-number
-net spindle-request => ferrum.drawbar.spindle-request
+net tool-change-request => ferrum.toolchange.tool-change
+net tool-change-confirmed <= ferrum.toolchange.tool-changed
+net tool-number => ferrum.toolchange.tool-number
+net spindle-request => ferrum.toolchange.spindle-on
 # The dialog's controls: manual drawbar request and the touch-off latch.
 net ferrum-drawbar-manual ferrum.drawbar.manual-request => drawbar-manual-request-pin
 net ferrum-touch-off-set ferrum.drawbar.touch-off-set => tool-touch-off-request-latch.set

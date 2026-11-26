@@ -1,3 +1,5 @@
+# DEPRECATED: an older profile without a [hal] table in ferrum.toml runs this
+# file. Ferrum ignores it once ferrum.toml has [hal] (docs/hal.md).
 # pendant module: the WHB04B pendant from xhc-whb04b-6.hal, which must be
 # loaded first ([HAL]HALFILE). Leave "pendant" out of [FERRUM]MODULES when
 # the pendant HAL file is not loaded.

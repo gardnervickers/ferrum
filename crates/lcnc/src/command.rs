@@ -72,6 +72,8 @@ pub enum Command {
     BlockDelete(bool),
     Home(JointSel),
     Unhome(JointSel),
+    /// Let the joints on a limit switch jog off it (until they leave it).
+    OverrideLimits,
     /// Teleop on (axis jogs) or off (free mode, joint jogs, homing).
     Teleop(bool),
     /// Jog until [`Command::JogStop`]; `vel` in units per second, signed.
@@ -121,6 +123,7 @@ impl Command {
             Self::BlockDelete(_) => "BlockDelete",
             Self::Home(_) => "Home",
             Self::Unhome(_) => "Unhome",
+            Self::OverrideLimits => "OverrideLimits",
             Self::Teleop(_) => "Teleop",
             Self::JogCont { .. } => "JogCont",
             Self::JogIncr { .. } => "JogIncr",

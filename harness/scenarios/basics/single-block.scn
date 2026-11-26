@@ -7,6 +7,7 @@ do files-load
 wait stat.file contains h_square.ngc within 10
 screen run
 wait prop.plot-summary contains " OP" within 30
+wait prop.can-start == true within 10     # the travel check is done (the summary may still be the last program's)
 do single-block
 expect prop.single-block == true
 do cycle-start
@@ -47,6 +48,7 @@ do files-load
 wait stat.file contains h_m1.ngc within 10
 screen run
 wait prop.plot-summary contains " OP" within 30
+wait prop.can-start == true within 10     # the travel check is done (the summary may still be the last program's)
 do cycle-start
 wait stat.interp_state == 3 within 20
 expect prop.dro-pos[0].work ~= ${dist}

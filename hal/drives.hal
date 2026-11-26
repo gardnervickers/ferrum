@@ -1,3 +1,5 @@
+# DEPRECATED: an older profile without a [hal] table in ferrum.toml runs this
+# file. Ferrum ignores it once ferrum.toml has [hal] (docs/hal.md).
 # drives module: servo HLFB state from mymill.hal. Each axis is ready once
 # its HLFB has stayed good for [HLFB]ARM_DELAY while enabled (the signal
 # that arms the fault monitor), and faulted when HLFB drops after that.

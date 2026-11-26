@@ -68,6 +68,8 @@ pub enum Fix {
     IniLines { section: &'static str, lines: Vec<String> },
     /// What to add to the machine's HAL.
     Hal(String),
+    /// Convert the INI's postgui files once (postgui.rs).
+    ConvertPostgui,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -473,10 +475,18 @@ pub fn run(i: &Inputs) -> Vec<Check> {
     if let Some(Ok(port)) = mc.remote_port(cfg) {
         v.push(Check::new("display.remote", G::Display, L::Attention, format!("Remote screen on port {port}: anyone who can reach it can run the machine")));
     }
-    if let Some(f) = cfg.get("HAL", "POSTGUI_HALFILE") {
+    if let Some(files) = crate::postgui::pending(cfg, mc) {
         v.push(
-            Check::new("hal.postgui", G::Hal, L::Info, format!("[HAL]POSTGUI_HALFILE ({f}) is not run by ferrum"))
-                .detail("It was written for another screen's pins. List ferrum's own in [display]postgui."),
+            Check::new("hal.postgui", G::Hal, L::Attention, format!("{} is not run by ferrum: convert it once", files.join(", ")))
+                .detail("It was written for another screen's pins. CONVERT keeps its machine lines in ferrum-postgui.hal (run through [display]postgui) and leaves out what only another screen understands; the old file stays as it is and ferrum.toml is kept as ferrum.toml.bak. Or run ferrum --convert-postgui.")
+                .fix(Fix::ConvertPostgui),
+        );
+    }
+    if !mc.screen_watchdog() {
+        v.push(
+            Check::new("hal.watchdog", G::Hal, L::Info, "Screen watchdog off: a frozen screen does not stop the machine")
+                .detail("Recommended on (SETUP › MACHINE, [machine]screen_watchdog).")
+                .fix(Fix::Setting("machine.screen_watchdog")),
         );
     }
     if i.hal.pin_signal("motion.probe-input").is_none() {
@@ -683,6 +693,7 @@ pub fn report(checks: &[Check]) -> String {
                     s += &format!("         fix: in [{section}] add: {} (then restart LinuxCNC)\n", lines.join("; "));
                 }
                 Fix::Hal(h) => s += &format!("         fix: in your HAL: {h}\n"),
+                Fix::ConvertPostgui => s += "         fix: ferrum --convert-postgui, or CONVERT on SETUP › HAL WIRING\n",
                 Fix::Setting(_) | Fix::None => {}
             }
         }
@@ -727,8 +738,8 @@ mod tests {
         assert_eq!(parse_pin(pin, "motion.probe-input"), Some("probe-in".into()));
         assert_eq!(parse_pin("iocontrol bit   IN FALSE iocontrol.0.tool-prepared\n", "iocontrol.0.tool-prepared"), Some(String::new()));
         assert_eq!(parse_pin("", "x.y"), None);
-        let sig = "bit    FALSE  tool-change-confirmed ==> iocontrol.0.tool-changed <== ferrum.drawbar.tool-changed\n";
-        assert_eq!(parse_writer(sig, "tool-change-confirmed"), Some("ferrum.drawbar.tool-changed".into()));
+        let sig = "bit    FALSE  tool-change-confirmed ==> iocontrol.0.tool-changed <== ferrum.toolchange.tool-changed\n";
+        assert_eq!(parse_writer(sig, "tool-change-confirmed"), Some("ferrum.toolchange.tool-changed".into()));
         assert_eq!(parse_writer("bit FALSE probe-in ==> motion.probe-input\n", "probe-in"), None);
     }
 

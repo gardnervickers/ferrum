@@ -86,6 +86,10 @@ export global Live {
     in property <string> tool-dia: "-";
     in property <string> feed: "0";
     in property <string> rpm: "0";
+    // Spindle feedback from HAL ([hal]spindle_speed_actual), "" when the
+    // machine has none; its colour from at-speed: "", "good" or "warn".
+    in property <string> rpm-act;
+    in property <string> rpm-tone;
     in property <string> cycle-time: "00:00";
     in property <string> modal;
 
@@ -127,6 +131,10 @@ export global Live {
     // HOME beside each axis (trivkins); HOME ALL (every joint has a HOME_SEQUENCE).
     in property <bool> per-axis-home: true;
     in property <bool> home-all-ok: true;
+    // A key switch ([hal]unlock) locks SETUP.
+    in property <bool> setup-locked;
+    // A joint is on a hard limit switch.
+    in property <bool> on-limit;
     in property <[string]> jog-steps: ["CONT", "0.01", "0.1", "1", "10"];
     in property <string> jog-step: "CONT";
     in property <string> jog-speed: "50";
@@ -180,6 +188,9 @@ export global Live {
     in property <string> files-path;
     in property <int> files-selected: -1;
     in property <bool> files-can-up;
+    // PROGRAMS, then a USB drive per drive plugged in; which is open.
+    in property <[string]> files-places;
+    in property <int> files-place;
     in property <string> files-name;
     in property <string> files-preview;
     // The picture or the program text, on the selected file's card.
@@ -465,6 +476,8 @@ export global Actions {
     callback estop-reset();
     callback power();
     callback home-all();
+    // Let a joint on a limit switch jog off it.
+    callback override-limits();
     // One axis by its letter ("X"); A is referenced where it stands.
     callback home-axis(axis: string);
     // which: "feed" | "rapid" | "spindle"; delta in percent
@@ -516,6 +529,7 @@ export global Actions {
     callback mdi-send(text: string);
     callback files-tap(index: int);
     callback files-up();
+    callback files-place(index: int);
     callback files-refresh();
     callback files-load();
     callback files-op-tap(index: int);

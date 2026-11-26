@@ -159,9 +159,11 @@ export component ToolsScreen inherits Rectangle {
                     height: Theme.h-ctl;
                     spacing: 10px;
                     Label { width: Layout.compact ? 110px : 150px; vertical-alignment: center; text: "WEAR " + Live.tools-sel-label; }
-                    Btn { max-width: 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1; font-size: Layout.compact ? Theme.t-body : Theme.t-ctl; text: Layout.compact ? "ADJ LENGTH" : "ADJUST LENGTH"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-z"); } }
-                    Btn { max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; font-size: Layout.compact ? Theme.t-body : Theme.t-ctl; text: Layout.compact ? "ADJ DIA" : "ADJUST DIA"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-d"); } }
+                    Btn { max-width: Layout.portrait ? 1000px : 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1; font-size: Layout.compact ? Theme.t-body : Theme.t-ctl; text: Layout.compact ? "ADJ LENGTH" : "ADJUST LENGTH"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-z"); } }
+                    Btn { max-width: Layout.portrait ? 1000px : 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1; font-size: Layout.compact ? Theme.t-body : Theme.t-ctl; text: Layout.compact ? "ADJ DIA" : "ADJUST DIA"; enabled: Live.tools-sel-label != "" && !locked; clicked => { Actions.edit("tool-adj-d"); } }
                     if !Layout.compact: Note { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; vertical-alignment: center; font-size: Theme.t-small; text: "Adds to the table value. Length +: cuts shallower. Dia: G41/G42 only."; }
+                    // The same columns as the tool setter row below.
+                    if Layout.compact && !Layout.portrait: Rectangle { horizontal-stretch: 1; preferred-width: 0px; min-width: 0px; }
                 }
                 // Tool setter: measure the selected tool, check the loaded one.
                 if Live.tools-has-setter: HorizontalLayout {
@@ -169,7 +171,7 @@ export component ToolsScreen inherits Rectangle {
                     spacing: 10px;
                     Label { width: Layout.compact ? 110px : 150px; vertical-alignment: center; text: "TOOL SETTER"; }
                     Btn {
-                        max-width: 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1;
+                        max-width: Layout.portrait ? 1000px : 220px; preferred-width: 220px; min-width: 132px; horizontal-stretch: 1;
                         kind: "go";
                         font-size: Layout.compact ? Theme.t-body : Theme.t-ctl;
                         text: Live.tools-sel-label == "" ? "MEASURE" : "MEASURE " + Live.tools-sel-label;
@@ -177,13 +179,14 @@ export component ToolsScreen inherits Rectangle {
                         clicked => { Actions.tools-measure(); }
                     }
                     Btn {
-                        max-width: 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1;
+                        max-width: Layout.portrait ? 1000px : 200px; preferred-width: 200px; min-width: 120px; horizontal-stretch: 1;
                         font-size: Layout.compact ? Theme.t-body : Theme.t-ctl;
                         text: Live.tools-check-label;
                         enabled: Live.tools-can-check && !locked;
                         clicked => { Actions.tools-check(); }
                     }
-                    Text {
+                    // Portrait has no room beside the buttons: the note goes under them.
+                    if !Layout.portrait: Text {
                         horizontal-stretch: 1; preferred-width: 0px; min-width: 0px;
                         vertical-alignment: center;
                         font-family: Theme.body;
@@ -193,6 +196,13 @@ export component ToolsScreen inherits Rectangle {
                         text: Live.tools-setter-note != "" ? Live.tools-setter-note : "MEASURE loads the tool if needed and sets its length. CHECK looks for a broken tool.";
                         color: Live.tools-setter-tone == "good" ? Theme.good : Live.tools-setter-tone == "bad" ? Theme.bad : Theme.muted;
                     }
+                }
+                if Live.tools-has-setter && Layout.portrait: Text {
+                    font-family: Theme.body;
+                    font-size: Theme.t-small;
+                    wrap: word-wrap;
+                    text: Live.tools-setter-note != "" ? Live.tools-setter-note : "MEASURE loads the tool if needed and sets its length. CHECK looks for a broken tool.";
+                    color: Live.tools-setter-tone == "good" ? Theme.good : Live.tools-setter-tone == "bad" ? Theme.bad : Theme.muted;
                 }
                 HorizontalLayout {
                     height: Theme.h-ctl;
@@ -205,7 +215,7 @@ export component ToolsScreen inherits Rectangle {
                         enabled: Live.tools-sel-label != "" && !locked && Live.power;
                         clicked => { Actions.tools-m6(); }
                     }
-                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? Theme.t-small : Theme.t-ctl; text: "UNLOAD SPINDLE"; hold: true; enabled: !locked && Live.power && Live.tool != "T0"; clicked => { Actions.tools-unload(); } }
+                    Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? Theme.t-small : Theme.t-ctl; text: Layout.compact ? "UNLOAD" : "UNLOAD SPINDLE"; hold: true; enabled: !locked && Live.power && Live.tool != "T0"; clicked => { Actions.tools-unload(); } }
                     Rectangle { width: Layout.compact ? 4px : 16px; }
                     Btn { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? Theme.t-small : Theme.t-ctl; text: "NEW"; enabled: !locked; clicked => { Actions.edit("tool-new"); } }
                     if Live.has-scratch: Btn { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; font-size: Layout.compact ? Theme.t-small : Theme.t-ctl; text: "NEW SCRATCH"; enabled: !locked; clicked => { Actions.tools-add-scratch(); } }

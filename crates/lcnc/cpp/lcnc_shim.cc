@@ -226,6 +226,8 @@ extern "C" int lcnc_set_block_delete(lcnc_t *c, int on) {
 }
 extern "C" int lcnc_home(lcnc_t *c, int joint) { EMC_JOINT_HOME m; m.joint = joint; return send(c, m); }
 extern "C" int lcnc_unhome(lcnc_t *c, int joint) { EMC_JOINT_UNHOME m; m.joint = joint; return send(c, m); }
+// As linuxcnc.command().override_limits(): jog a joint off a limit switch.
+extern "C" int lcnc_override_limits(lcnc_t *c) { EMC_JOINT_OVERRIDE_LIMITS m; m.joint = 0; return send(c, m); }
 extern "C" int lcnc_teleop(lcnc_t *c, int on) {
     EMC_TRAJ_SET_TELEOP_ENABLE m; m.enable = on; return send(c, m);
 }

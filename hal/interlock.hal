@@ -1,3 +1,5 @@
+# DEPRECATED: an older profile without a [hal] table in ferrum.toml runs this
+# file. Ferrum ignores it once ferrum.toml has [hal] (docs/hal.md).
 # interlock module: why motion.feed-inhibit is set. In mymill.hal only the
 # probe manager's fault drives it.
 net wireless-probe-fault => ferrum.interlock.held ferrum.interlock.probe-fault

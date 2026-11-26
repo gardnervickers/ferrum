@@ -140,6 +140,7 @@ int lcnc_set_optional_stop(lcnc_t *c, int on);
 int lcnc_set_block_delete(lcnc_t *c, int on);
 int lcnc_home(lcnc_t *c, int joint); /* -1 homes all */
 int lcnc_unhome(lcnc_t *c, int joint);
+int lcnc_override_limits(lcnc_t *c);
 int lcnc_teleop(lcnc_t *c, int on);
 /* joint_mode 1 jogs a joint, 0 jogs an axis (0 = X, 1 = Y, ...). */
 int lcnc_jog_cont(lcnc_t *c, int joint_mode, int index, double vel);

@@ -1,3 +1,5 @@
+# DEPRECATED: an older profile without a [hal] table in ferrum.toml runs this
+# file. Ferrum ignores it once ferrum.toml has [hal] (docs/hal.md).
 # watchdog module (always on): E-stop when the screen stops drawing.
 # ferrum flips ferrum.watchdog.heartbeat once per frame it actually draws,
 # and asks for a frame at least every 250 ms. If no flip arrives for 1 s

@@ -1,6 +1,10 @@
-//! Files screen: browse PROGRAM_PREFIX (no USB), preview a file, load it.
-//! The selected file is read through the interpreter in the background
-//! (as the Run backplot does) for its top view, ops, tools and times.
+//! Files screen: browse PROGRAM_PREFIX and any USB drive, preview a file,
+//! load it. The selected file is read through the interpreter in the
+//! background (as the Run backplot does) for its top view, ops, tools and
+//! times. A program on a USB drive is copied to PROGRAM_PREFIX/usb/ when
+//! loaded, so the run never depends on the drive. A file with an
+//! `[FILTER]PROGRAM_EXTENSION` extension is made into G-code by its filter
+//! program when loaded, as in AXIS.
 
 use crate::config::Config;
 use crate::{Actions, FileOp, FileRow, Live, MainWindow};
@@ -16,6 +20,75 @@ use std::time::SystemTime;
 const EXTENSIONS: &[&str] = &["ngc", "nc", "tap", "gcode"];
 const PREVIEW_LINES: usize = 400;
 
+/// The INI's `[FILTER]`: extra extensions to list, and the program that
+/// turns each into G-code (none: the file is G-code already).
+#[derive(Clone, Debug, Default)]
+pub struct Filters {
+    exts: Vec<String>,
+    progs: Vec<(String, String)>,
+}
+
+impl Filters {
+    /// `PROGRAM_EXTENSION = .png,.gif,.jpg Greyscale Depth Image` lines
+    /// name extensions; `png = image-to-gcode` names a filter for one.
+    pub fn from_cfg(cfg: &Config) -> Self {
+        let mut f = Filters::default();
+        for line in cfg.get_all("FILTER", "PROGRAM_EXTENSION") {
+            let list = line.split_whitespace().next().unwrap_or("");
+            for e in list.split(',') {
+                let e = e.trim().trim_start_matches('*').trim_start_matches('.').to_ascii_lowercase();
+                if e.is_empty() || f.exts.contains(&e) {
+                    continue;
+                }
+                if let Some(p) = cfg.get("FILTER", &e).map(str::trim).filter(|p| !p.is_empty()) {
+                    f.progs.push((e.clone(), p.to_string()));
+                }
+                f.exts.push(e);
+            }
+        }
+        f
+    }
+
+    fn lists(&self, ext: &str) -> bool {
+        EXTENSIONS.contains(&ext) || self.exts.iter().any(|e| e == ext)
+    }
+
+    /// The filter program for this file, if it needs one.
+    fn program(&self, path: &Path) -> Option<&str> {
+        let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
+        self.progs.iter().find(|(e, _)| *e == ext).map(|(_, p)| p.as_str())
+    }
+}
+
+/// USB drives and other removable media: the mount points under /media
+/// and /run/media (what the desktop's automounter uses), from /proc/mounts.
+/// `FERRUM_TEST_DRIVES` (paths joined by `:`) stands in for them in tests
+/// and screenshots.
+fn drives() -> Vec<PathBuf> {
+    if let Some(v) = std::env::var_os("FERRUM_TEST_DRIVES") {
+        return std::env::split_paths(&v).filter(|p| p.is_dir()).collect();
+    }
+    std::fs::read_to_string("/proc/mounts").map(|t| parse_mounts(&t)).unwrap_or_default()
+}
+
+fn parse_mounts(text: &str) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = text
+        .lines()
+        .filter_map(|l| l.split_whitespace().nth(1))
+        // /proc/mounts writes a space as \040.
+        .map(|m| m.replace("\\040", " ").replace("\\011", "\t"))
+        .filter(|m| (m.starts_with("/media/") || m.starts_with("/run/media/")) && m.matches('/').count() >= 2)
+        .map(PathBuf::from)
+        .collect();
+    v.sort();
+    v.dedup();
+    v
+}
+
+fn place_name(p: &Path) -> String {
+    p.file_name().map(|n| n.to_string_lossy().to_uppercase()).unwrap_or_else(|| "USB".into())
+}
+
 struct Entry {
     name: String,
     dir: bool,
@@ -24,13 +97,19 @@ struct Entry {
 }
 
 struct Files {
+    /// PROGRAM_PREFIX.
+    programs: PathBuf,
+    /// The drives plugged in, and which place is open (0: PROGRAMS, n: drive n-1).
+    drives: Vec<PathBuf>,
+    place: usize,
     root: PathBuf,
     cwd: PathBuf,
     entries: Vec<Entry>,
     selected: Option<usize>,
+    filters: Filters,
 }
 
-fn list(dir: &Path) -> Vec<Entry> {
+fn list(dir: &Path, filters: &Filters) -> Vec<Entry> {
     let mut out: Vec<Entry> = std::fs::read_dir(dir)
         .map(|rd| {
             rd.filter_map(|e| e.ok())
@@ -42,7 +121,7 @@ fn list(dir: &Path) -> Vec<Entry> {
                     let meta = e.metadata().ok()?;
                     let dir = meta.is_dir();
                     let ext = Path::new(&name).extension().map(|x| x.to_string_lossy().to_ascii_lowercase());
-                    if !dir && !ext.is_some_and(|x| EXTENSIONS.contains(&x.as_str())) {
+                    if !dir && !ext.is_some_and(|x| filters.lists(&x)) {
                         return None;
                     }
                     Some(Entry { name, dir, modified: meta.modified().ok(), size: meta.len() })
@@ -75,6 +154,18 @@ fn size(n: u64) -> String {
 }
 
 impl Files {
+    fn open_place(&mut self, place: usize) {
+        self.place = place.min(self.drives.len());
+        self.root = if self.place == 0 { self.programs.clone() } else { self.drives[self.place - 1].clone() };
+        self.cwd = self.root.clone();
+        self.entries = list(&self.cwd, &self.filters);
+        self.selected = None;
+    }
+
+    fn on_drive(&self) -> bool {
+        self.place > 0
+    }
+
     fn rel(&self) -> String {
         let r = self.cwd.strip_prefix(&self.root).unwrap_or(&self.cwd);
         let base = self.root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -96,6 +187,10 @@ impl Files {
         live.set_files_path(self.rel().into());
         live.set_files_selected(self.selected.map_or(-1, |i| i as i32));
         live.set_files_can_up(self.cwd != self.root);
+        let mut places: Vec<SharedString> = vec!["PROGRAMS".into()];
+        places.extend(self.drives.iter().map(|d| SharedString::from(format!("USB {}", place_name(d)))));
+        crate::models::sync(live.get_files_places(), places, |m| live.set_files_places(m));
+        live.set_files_place(self.place as i32);
         let sel = self.selected.and_then(|i| self.entries.get(i)).filter(|e| !e.dir);
         live.set_files_name(sel.map(|e| e.name.to_uppercase()).unwrap_or_default().into());
         let preview = sel.map(|e| head(&self.cwd.join(&e.name))).unwrap_or_default();
@@ -317,11 +412,71 @@ fn summarize(ui: &MainWindow, path: Option<PathBuf>) {
     }
 }
 
-pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
-    let files = Rc::new(RefCell::new(Files { entries: list(&root), cwd: root.clone(), root, selected: None }));
+pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf, filters: Filters) -> slint::Timer {
+    let files = Rc::new(RefCell::new(Files {
+        entries: list(&root, &filters),
+        programs: root.clone(),
+        drives: drives(),
+        place: 0,
+        cwd: root.clone(),
+        root,
+        selected: None,
+        filters,
+    }));
     let live = ui.global::<Live>();
     files.borrow().show(&live);
     let actions = ui.global::<Actions>();
+
+    // A drive plugged in shows up as a place; one pulled out closes.
+    let watch = slint::Timer::default();
+    let (f, weak) = (files.clone(), ui.as_weak());
+    watch.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(2), move || {
+        let now = drives();
+        let mut st = f.borrow_mut();
+        if now == st.drives {
+            return;
+        }
+        let Some(ui) = weak.upgrade() else { return };
+        let open = st.on_drive().then(|| st.root.clone());
+        let added: Vec<PathBuf> = now.iter().filter(|d| !st.drives.contains(d)).cloned().collect();
+        st.drives = now;
+        match open {
+            Some(r) => match st.drives.iter().position(|d| *d == r) {
+                Some(i) => st.place = i + 1,
+                None => {
+                    st.open_place(0);
+                    crate::toast(&ui, format!("USB {} was removed.", place_name(&r)));
+                    st.show(&ui.global::<Live>());
+                    drop(st);
+                    summarize(&ui, None);
+                    return;
+                }
+            },
+            None => {}
+        }
+        // A new drive opens by itself while FILES is on screen.
+        if let Some(d) = added.first() {
+            if ui.global::<Live>().get_screen() == "files" && !st.on_drive() {
+                if let Some(i) = st.drives.iter().position(|x| x == d) {
+                    st.open_place(i + 1);
+                    st.show(&ui.global::<Live>());
+                    drop(st);
+                    summarize(&ui, None);
+                    return;
+                }
+            }
+        }
+        st.show(&ui.global::<Live>());
+    });
+    let (f, weak) = (files.clone(), ui.as_weak());
+    actions.on_files_place(move |i| {
+        let Some(ui) = weak.upgrade() else { return };
+        let mut st = f.borrow_mut();
+        st.open_place(i.max(0) as usize);
+        st.show(&ui.global::<Live>());
+        drop(st);
+        summarize(&ui, None);
+    });
 
     let (f, weak) = (files.clone(), ui.as_weak());
     actions.on_files_tap(move |i| {
@@ -331,15 +486,22 @@ pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
         if e.dir {
             let next = st.cwd.join(&e.name);
             st.cwd = next;
-            st.entries = list(&st.cwd);
+            st.entries = list(&st.cwd, &st.filters);
             st.selected = None;
         } else {
             st.selected = Some(i as usize);
         }
         st.show(&ui.global::<Live>());
         let path = st.selected_path();
+        let filter = path.as_deref().and_then(|p| st.filters.program(p)).map(str::to_string);
         drop(st);
-        summarize(&ui, path);
+        match filter {
+            Some(prog) => {
+                summarize(&ui, None);
+                clear(&ui.global::<Live>(), &format!("Made into G-code by {prog} when it is loaded."));
+            }
+            None => summarize(&ui, path),
+        }
     });
     let (f, weak) = (files.clone(), ui.as_weak());
     actions.on_files_up(move || {
@@ -350,7 +512,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
                 st.cwd = p;
             }
         }
-        st.entries = list(&st.cwd);
+        st.entries = list(&st.cwd, &st.filters);
         st.selected = None;
         st.show(&ui.global::<Live>());
         drop(st);
@@ -361,7 +523,7 @@ pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
         let Some(ui) = weak.upgrade() else { return };
         let mut st = f.borrow_mut();
         let keep = st.selected.and_then(|i| st.entries.get(i)).map(|e| e.name.clone());
-        st.entries = list(&st.cwd);
+        st.entries = list(&st.cwd, &st.filters);
         st.selected = keep.and_then(|n| st.entries.iter().position(|e| e.name == n));
         st.show(&ui.global::<Live>());
         let path = st.selected_path();
@@ -399,19 +561,125 @@ pub fn wire(ui: &MainWindow, machine: &Handle, root: PathBuf) {
     });
     let (f, mc, weak) = (files.clone(), machine.clone(), ui.as_weak());
     actions.on_files_load(move || {
-        let Some(path) = f.borrow().selected_path() else { return };
-        mc.send(Command::ProgramOpen(path));
-        if let Some(ui) = weak.upgrade() {
-            let live = ui.global::<Live>();
-            live.set_run_tab("program".into());
-            live.set_screen("run".into());
+        let st = f.borrow();
+        let Some(mut path) = st.selected_path() else { return };
+        let Some(ui) = weak.upgrade() else { return };
+        // Off a USB drive: run a copy, so pulling the drive cannot stop the run.
+        if st.on_drive() {
+            match copy_in(&path, &st.programs) {
+                Ok(p) => path = p,
+                Err(e) => {
+                    crate::toast(&ui, format!("Cannot copy {} from the USB drive: {e}", path.display()));
+                    return;
+                }
+            }
         }
+        let filter = st.filters.program(&path).map(str::to_string);
+        drop(st);
+        let open = {
+            let (mc, weak) = (mc.clone(), weak.clone());
+            move |path: PathBuf| {
+                mc.send(Command::ProgramOpen(path));
+                if let Some(ui) = weak.upgrade() {
+                    let live = ui.global::<Live>();
+                    live.set_run_tab("program".into());
+                    live.set_screen("run".into());
+                }
+            }
+        };
+        let Some(prog) = filter else {
+            open(path);
+            return;
+        };
+        ui.global::<Live>().set_files_status(format!("Making G-code with {prog}…").into());
+        let weak = weak.clone();
+        std::thread::spawn(move || {
+            let res = run_filter(&prog, &path, &crate::job::cache_dir().join("filtered"));
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = weak.upgrade() else { return };
+                match res {
+                    Ok(out) => open(out),
+                    Err(e) => {
+                        ui.global::<Live>().set_files_status(SharedString::new());
+                        crate::toast_until_tapped(&ui, format!("{prog} could not convert {}: {e}", path.display()));
+                    }
+                }
+            });
+        });
     });
+    watch
+}
+
+/// Copy a program off a USB drive into PROGRAM_PREFIX/usb/ (a copy of the
+/// same name there is replaced).
+fn copy_in(path: &Path, programs: &Path) -> Result<PathBuf, String> {
+    let dir = programs.join("usb");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let to = dir.join(path.file_name().ok_or("no file name")?);
+    std::fs::copy(path, &to).map_err(|e| e.to_string())?;
+    Ok(to)
+}
+
+/// Run an `[FILTER]` program as AXIS does: `program file`, G-code on its
+/// standard output. The G-code goes to ~/.cache/ferrum/filtered/.
+fn run_filter(prog: &str, path: &Path, dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "program".into());
+    let out = dir.join(format!("{stem}.ngc"));
+    let file = std::fs::File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let res = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("{prog} \"$0\""))
+        .arg(path)
+        .stdin(std::process::Stdio::null())
+        .stdout(file)
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !res.status.success() {
+        let err = String::from_utf8_lossy(&res.stderr);
+        let last = err.lines().filter(|l| !l.starts_with("FILTER_PROGRESS=")).last().unwrap_or("").trim().to_string();
+        return Err(if last.is_empty() { format!("it exited with {}", res.status) } else { last });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usb_drives_from_mounts() {
+        let m = "/dev/mmcblk0p2 / ext4 rw 0 0\n/dev/sda1 /media/cnc/MY\\040STICK vfat rw 0 0\n/dev/sdb1 /run/media/cnc/PARTS vfat rw 0 0\ntmpfs /run tmpfs rw 0 0\n/dev/sdc1 /media vfat rw 0 0\n";
+        assert_eq!(parse_mounts(m), vec![PathBuf::from("/media/cnc/MY STICK"), PathBuf::from("/run/media/cnc/PARTS")]);
+    }
+
+    #[test]
+    fn filters_from_the_ini() {
+        let mut cfg = Config::default();
+        cfg.insert("FILTER", "PROGRAM_EXTENSION", ".png,.gif,.jpg Greyscale Depth Image");
+        cfg.insert("FILTER", "PROGRAM_EXTENSION", ".py Python Script");
+        cfg.insert("FILTER", "PROGRAM_EXTENSION", ".ngc,.nc G-code");
+        cfg.insert("FILTER", "png", "image-to-gcode");
+        cfg.insert("FILTER", "py", "python3");
+        let f = Filters::from_cfg(&cfg);
+        assert!(f.lists("gif") && f.lists("py") && f.lists("ngc") && !f.lists("txt"));
+        assert_eq!(f.program(Path::new("/x/a.PNG")), Some("image-to-gcode"));
+        assert_eq!(f.program(Path::new("/x/a.gif")), None);
+        assert_eq!(f.program(Path::new("/x/a.ngc")), None);
+    }
+
+    #[test]
+    fn a_filter_writes_gcode() {
+        let d = std::env::temp_dir().join(format!("ferrum-filter-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let src = d.join("part one.txt");
+        std::fs::write(&src, "G0 X1\n").unwrap();
+        let out = run_filter("cat", &src, &d.join("out")).unwrap();
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "G0 X1\n");
+        assert!(run_filter("false", &src, &d.join("out")).is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn lists_gcode_and_folders_only() {
@@ -420,7 +688,7 @@ mod tests {
         for n in ["a.ngc", "b.NC", "notes.txt", ".hidden.ngc"] {
             std::fs::write(d.join(n), "G0 X0\n").unwrap();
         }
-        let names: Vec<String> = list(&d).into_iter().map(|e| e.name).collect();
+        let names: Vec<String> = list(&d, &Filters::default()).into_iter().map(|e| e.name).collect();
         assert_eq!(names[0], "jobs");
         assert!(names.contains(&"a.ngc".into()) && names.contains(&"b.NC".into()));
         assert!(!names.iter().any(|n| n == "notes.txt" || n.starts_with('.')));
