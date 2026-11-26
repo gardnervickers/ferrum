@@ -1,0 +1,60 @@
+title JOB: STOP at the tool change, then the job runs again from the start
+needs probe-basic
+include ../common/ready.scn
+mdi G10 L2 P1 X0 Y0 Z0
+include ../common/load-probe.scn
+# Teach the FIND op over the sim stock, tip 10 mm above its top (-250).
+mdi G53 G0 X215 Y-90
+mdi G0 Z-240
+do probe-mode "find"
+do probe-shape "top"
+do probe-target "top"
+do probe-wcs "G54"
+screen job
+do job-new
+screen probe
+do probe-add-job false
+screen job
+wait prop.job-ops.len == 1 within 5
+do job-add-program
+wait prop.pick-open == true within 5
+tap pick-items - h_ops.ngc pick
+wait prop.job-ops.len == 2 within 5
+do job-build
+wait stat.file contains .ngc within 20
+# The estimate: the whole job's time in the title, the CAM op's first in its row.
+wait prop.job-title contains OPS  ·  0: within 30
+expect prop.job-ops[1].detail contains 0:
+do cycle-start
+wait stat.interp_state != 1 within 10
+expect prop.job-title contains LEFT
+# Op 1 probes the top face, then op 2's M6 asks for T4.
+wait prop.tc-open == true within 180
+expect prop.tc-tool contains T4
+expect stat.g5x_offset[2] ~= -250 +- 0.05
+# STOP at the dialog: it closes, the job is no longer running, no tool taken.
+do stop
+wait stat.interp_state == 1 within 10
+wait prop.tc-open == false within 10
+wait prop.job-running == false within 10
+expect stat.tool_in_spindle == 99
+expect prop.job-ops[0].state != "current"
+expect prop.job-ops[1].state != "current"
+shot stopped
+# Again from the top: the probe op runs again, then the same T4 change.
+mdi G10 L2 P1 Z0
+wait prop.pr-running == false within 30
+idle 30
+sleep 4
+idle 30
+do cycle-start
+wait stat.interp_state != 1 within 10
+wait prop.tc-open == true within 180
+expect prop.tc-tool contains T4
+expect stat.g5x_offset[2] ~= -250 +- 0.05
+do tc-seated-toggle
+wait prop.tc-can-resume == true within 5
+do tc-resume false
+idle 300
+expect stat.tool_in_spindle == 4
+expect prop.job-running == false

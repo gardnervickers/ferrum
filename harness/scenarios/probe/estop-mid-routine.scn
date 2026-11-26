@@ -1,0 +1,47 @@
+title E-stop in the middle of a probe routine: nothing written, a per-run value is put back
+needs probe-basic probe-geometry
+allow-error Motion enabled after reaching a coordinate soft limit
+allow-error stopped
+allow-error failed
+allow-error E-stop
+allow-error estop
+allow-error machine is not on
+allow-error not on
+allow-error without making contact     # the E-stop ends the G38.2 move
+include ../common/probe-start.scn
+do probe-shape "top"
+do probe-target "top"
+do probe-wcs "G54"
+mdi G53 G0 X${ztop_x} Y${ztop_y}
+mdi G53 G1 Z${plate_above_mz} F2000
+# A per-run value (search feed #3016) that must not outlive the run.
+mdi (DEBUG,P3016=#3016)
+wait prop.messages contains "P3016=" within 5
+do edit prun-3016
+do keypad-key CLR
+do keypad-key "1"
+do keypad-key "2"
+do keypad-done true
+wait prop.keypad-open == false within 5
+wait prop.pr-ready == "" within 30
+do probe-run
+wait prop.pr-running == true within 10
+wait stat.current_vel > 0 within 10
+do estop-trip
+wait stat.task_state == 1 within 5
+wait prop.pr-running == false within 10
+expect stat.g5x_offset[2] ~= ${wcs0_z} +- 0.0001
+# Back on and homed: the defaults go back, #3016 among them.
+do estop-reset
+wait stat.task_state == 2 within 10
+do power
+wait stat.task_state == 4 within 10
+do home-all
+wait prop.homed == true within 120
+idle 30
+sleep 5
+idle 30
+mdi (DEBUG,Q3016=#3016)
+wait prop.messages contains "Q3016=" within 5
+shot after
+expect prop.messages !contains "Q3016=12.000000"
